@@ -15,6 +15,51 @@
 Most recent session should be first.
 -->
 
+## Session 2026-01-29 (Phase 5 — Trial Infrastructure Roadmap)
+
+**Phase:** 5.2 — Trial Infrastructure (Freemium Model)
+**Focus:** Integrate freemium research into roadmap with trial limits and proxy architecture
+
+### Summary
+Added comprehensive Trial Infrastructure section to Phase 5 based on freemium API research. Defined the trial model (50 AI messages via proxy, 10 real employees, no time limit) and created 20 new tasks across 4 subsections for implementing the free-to-paid conversion flow.
+
+### Trial Model Defined
+
+| Resource | Free Trial | Paid ($99) |
+|----------|------------|------------|
+| AI messages | 50 (via proxy) | Unlimited (BYOK) |
+| Real employees | 10 | Unlimited |
+| Demo data | Included | Removable |
+| Features | All unlocked | All unlocked |
+| Time limit | None | None |
+
+### Roadmap Changes
+- Updated Phase Overview table (5A: Distribution, 5B: Trial ready, 5C: Beta ready)
+- Added **5.2 Trial Infrastructure** section with 4 subsections:
+  - 5.2.1 API Proxy Backend (5 tasks) — Cloudflare Worker for trial messages
+  - 5.2.2 Trial Mode in App (5 tasks) — Dual-path routing + limits
+  - 5.2.3 Trial UI Components (5 tasks) — Banners, counters, prompts
+  - 5.2.4 Upgrade Flow (5 tasks) — Trial → paid transition
+- Added **Pause Point 5B (Trial Ready)** verification checklist
+- Renumbered sections: License System → 5.3, Payment → 5.4, Landing Page → 5.5, Beta → 5.6
+- Updated Linear Checklist with new tasks
+- Updated total task count: ~179 → ~199
+
+### Files Modified
+```
+docs/ROADMAP.md     (+67 lines) — Trial Infrastructure section
+```
+
+### Reference
+- [FREEMIUM-API-RESEARCH.md](./research/FREEMIUM-API-RESEARCH.md) — Source research
+
+### Next Session Should
+1. Continue with remaining V2.3.2 tasks (j-l: annotations, export, drilldown)
+2. Or begin V2.4.1 (Attrition & Sentiment Signals)
+3. Or start Phase 5.1 (Distribution) for app signing
+
+---
+
 ## Session 2026-01-13 (V2.3.2h-i — Pin to Canvas + Named Boards UI)
 
 **Phase:** V2.3.2 — Interactive Analytics Panel + Insight Canvas

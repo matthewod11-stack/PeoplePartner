@@ -37,7 +37,7 @@ This is a **long-running, multi-session implementation**. Follow these rules:
 | 3 | Protection | ✓ Complete | 3A: PII redaction works ✓ |
 | 4 | Polish | ✓ Complete | 4A: Onboarding complete ✓ |
 | V2 | Intelligence & Visualization | **← Current** | V2.1-V2.5: See below |
-| 5 | Launch | Not started | 5A: Distribution, 5B: Beta ready |
+| 5 | Launch | Not started | 5A: Distribution, 5B: Trial ready, 5C: Beta ready |
 
 ---
 
@@ -654,30 +654,92 @@ Pre-import validation and fix workflow.
 - [ ] App is signed and notarized
 - [ ] Auto-update works
 
-### 5.2 License System
-- [ ] 5.2.1 Create license validation API endpoint
-- [ ] 5.2.2 Implement license check in app
-- [ ] 5.2.3 Store validation locally after success
-- [ ] 5.2.4 Add license input to onboarding
+---
 
-### 5.3 Payment Integration
-- [ ] 5.3.1 Set up Stripe product ($99)
-- [ ] 5.3.2 Create checkout flow on website
-- [ ] 5.3.3 Implement license key generation
-- [ ] 5.3.4 Set up email delivery of keys
+### 5.2 Trial Infrastructure (Freemium Model)
+> **Reference:** [FREEMIUM-API-RESEARCH.md](./research/FREEMIUM-API-RESEARCH.md)
+> **Model:** Free trial → $99 one-time purchase → BYOK required
 
-### 5.4 Landing Page
-- [ ] 5.4.1 Update hrcommandcenter.com
-- [ ] 5.4.2 Add download links
-- [ ] 5.4.3 Add purchase button
+**Trial Limits:**
+| Resource | Free Trial | Paid ($99) |
+|----------|------------|------------|
+| AI messages | 50 (via proxy) | Unlimited (BYOK) |
+| Real employees | 10 | Unlimited |
+| Demo data | Included | Removable |
+| Features | All unlocked | All unlocked |
+| Time limit | None | None |
 
-### 5.5 Beta Distribution
-- [ ] 5.5.1 Identify 5-10 beta users
-- [ ] 5.5.2 Distribute beta builds
-- [ ] 5.5.3 Set up feedback collection (in-app button)
-- [ ] 5.5.4 Triage and prioritize feedback
+#### 5.2.1 API Proxy Backend
+> **Purpose:** Fund trial AI messages without exposing your API key
 
-### Pause Point 5B (Launch Ready)
+- [ ] 5.2.1a Choose proxy platform (Cloudflare Workers recommended)
+- [ ] 5.2.1b Implement device/install ID generation in app
+- [ ] 5.2.1c Create proxy endpoint with rate limiting
+- [ ] 5.2.1d Implement 50-message quota tracking per device
+- [ ] 5.2.1e Add your Claude API key to proxy (server-side only)
+
+#### 5.2.2 Trial Mode in App
+> **Purpose:** Dual-path chat routing (proxy for trial, BYOK for paid)
+
+- [ ] 5.2.2a Add `trial_mode` flag to app state
+- [ ] 5.2.2b Modify `chat.rs` to route via proxy OR direct BYOK
+- [ ] 5.2.2c Implement employee count limit (10 max in trial)
+- [ ] 5.2.2d Block employee add when limit reached (with upgrade prompt)
+- [ ] 5.2.2e Store trial message count locally
+
+#### 5.2.3 Trial UI Components
+> **Purpose:** Communicate limits and prompt upgrades
+
+- [ ] 5.2.3a Create TrialBanner component ("Free Trial - X messages left")
+- [ ] 5.2.3b Create UpgradePrompt modal (triggered at limit thresholds)
+- [ ] 5.2.3c Add message counter to chat header
+- [ ] 5.2.3d Show employee limit in EmployeePanel ("10/10 employees")
+- [ ] 5.2.3e Create "Upgrade" button in Settings panel
+
+#### 5.2.4 Upgrade Flow
+> **Purpose:** Smooth transition from trial to paid
+
+- [ ] 5.2.4a Design upgrade prompt triggers (5 messages left, 0 left, 10 employees)
+- [ ] 5.2.4b Link to purchase page from upgrade prompts
+- [ ] 5.2.4c After license entry, prompt for API key setup (use existing guide)
+- [ ] 5.2.4d Clear trial limits after license validation
+- [ ] 5.2.4e Offer demo data removal option post-purchase
+
+### Pause Point 5B (Trial Ready)
+**Verification Required:**
+- [ ] Fresh install starts in trial mode (no API key required)
+- [ ] Can chat using proxy (50 message limit works)
+- [ ] Can add up to 10 employees (limit enforced)
+- [ ] Message counter displays accurately
+- [ ] Upgrade prompts appear at thresholds (5 left, 0 left)
+- [ ] After purchase + API key, limits removed
+
+---
+
+### 5.3 License System
+- [ ] 5.3.1 Create license validation API endpoint
+- [ ] 5.3.2 Implement license check in app
+- [ ] 5.3.3 Store validation locally after success
+- [ ] 5.3.4 Add license input to onboarding (post-purchase flow)
+
+### 5.4 Payment Integration
+- [ ] 5.4.1 Set up Stripe product ($99)
+- [ ] 5.4.2 Create checkout flow on website
+- [ ] 5.4.3 Implement license key generation
+- [ ] 5.4.4 Set up email delivery of keys
+
+### 5.5 Landing Page
+- [ ] 5.5.1 Update hrcommandcenter.com
+- [ ] 5.5.2 Add download links
+- [ ] 5.5.3 Add purchase button
+
+### 5.6 Beta Distribution
+- [ ] 5.6.1 Identify 5-10 beta users
+- [ ] 5.6.2 Distribute beta builds
+- [ ] 5.6.3 Set up feedback collection (in-app button)
+- [ ] 5.6.4 Triage and prioritize feedback
+
+### Pause Point 5C (Launch Ready)
 **Verification Required:**
 - [ ] Payment flow works end-to-end
 - [ ] License validation works
@@ -758,16 +820,21 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 PHASE 5 - LAUNCH
 [ ] 5.1.1-5.1.5 Distribution (5 tasks)
 [ ] PAUSE 5A: Distribution verified
-[ ] 5.2.1-5.2.4 License system (4 tasks)
-[ ] 5.3.1-5.3.4 Payment integration (4 tasks)
-[ ] 5.4.1-5.4.3 Landing page (3 tasks)
-[ ] 5.5.1-5.5.4 Beta distribution (4 tasks)
-[ ] PAUSE 5B: Launch ready
+[ ] 5.2.1a-e API Proxy Backend (5 tasks)
+[ ] 5.2.2a-e Trial Mode in App (5 tasks)
+[ ] 5.2.3a-e Trial UI Components (5 tasks)
+[ ] 5.2.4a-e Upgrade Flow (5 tasks)
+[ ] PAUSE 5B: Trial ready
+[ ] 5.3.1-5.3.4 License system (4 tasks)
+[ ] 5.4.1-5.4.4 Payment integration (4 tasks)
+[ ] 5.5.1-5.5.3 Landing page (3 tasks)
+[ ] 5.6.1-5.6.4 Beta distribution (4 tasks)
+[ ] PAUSE 5C: Launch ready
 ```
 
-**Total: ~179 discrete tasks across 6 phases (0-4 + V2 + 5)**
+**Total: ~199 discrete tasks across 6 phases (0-4 + V2 + 5)**
 
 ---
 
-*Last updated: December 2025*
+*Last updated: January 2026*
 *Session tracking: See PROGRESS.md*
