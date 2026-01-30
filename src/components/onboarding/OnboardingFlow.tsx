@@ -143,8 +143,8 @@ export function OnboardingFlow({ onComplete, initialPrompt }: OnboardingFlowProp
       case 5:
         return (
           <StepContainer
-            title="Important disclaimer"
-            subtitle="Please read and acknowledge before continuing"
+            title="Important reminder"
+            subtitle="A quick note before we begin"
           >
             <DisclaimerStep
               onAccept={() => handleStepComplete(5)}
@@ -203,9 +203,9 @@ export function OnboardingFlow({ onComplete, initialPrompt }: OnboardingFlowProp
       </header>
 
       {/* Main content area */}
-      <main className="flex-1 flex items-center justify-center px-6 pb-24">
-        <div className="w-full max-w-xl">
-          <div className="bg-white rounded-2xl shadow-lg shadow-stone-200/50 p-8">
+      <main className="flex-1 flex items-center justify-center px-6 pb-24 overflow-y-auto">
+        <div className="w-full max-w-xl my-auto">
+          <div className="bg-white rounded-2xl shadow-lg shadow-stone-200/50 p-8 max-h-[calc(100vh-180px)] overflow-y-auto">
             {renderStep()}
           </div>
         </div>

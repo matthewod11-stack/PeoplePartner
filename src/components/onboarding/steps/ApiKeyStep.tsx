@@ -108,7 +108,7 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
   };
 
   return (
-    <div className="w-full">
+    <div className="w-full overflow-y-auto max-h-[calc(100vh-320px)]">
       {/* What is an API key? - Collapsible explainer */}
       <CollapsibleSection
         title="What is an API key?"
@@ -132,7 +132,7 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
 
       {/* Step-by-step guide - Open by default for new users */}
       <CollapsibleSection
-        title="How to get your API key"
+        title="Setting up your API key"
         isOpen={showSteps}
         onToggle={() => setShowSteps(!showSteps)}
       >
@@ -231,6 +231,9 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
             </p>
             <p className="mt-1 text-stone-500">
               You only pay for what you use. No monthly minimums or commitments.
+            </p>
+            <p className="mt-1 text-primary-600 font-medium">
+              Trial mode coming soon — explore with sample data first!
             </p>
           </div>
         </div>

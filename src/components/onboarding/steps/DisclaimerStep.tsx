@@ -25,18 +25,18 @@ export function DisclaimerStep({ onAccept, onValidChange }: DisclaimerStepProps)
 
   return (
     <div className="w-full">
-      {/* Disclaimer icon */}
+      {/* Info icon (softer than warning) */}
       <div className="flex justify-center mb-6">
-        <div className="w-14 h-14 rounded-xl bg-amber-100 flex items-center justify-center">
-          <svg className="w-7 h-7 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        <div className="w-14 h-14 rounded-xl bg-teal-100 flex items-center justify-center">
+          <svg className="w-7 h-7 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
       </div>
 
       {/* Disclaimer content */}
       <div className="bg-stone-50 rounded-xl p-4 mb-6 max-h-64 overflow-y-auto text-sm text-stone-600 leading-relaxed">
-        <h4 className="font-semibold text-stone-800 mb-3">Please read carefully</h4>
+        <h4 className="font-semibold text-stone-800 mb-3">Good to know</h4>
 
         <p className="mb-3">
           HR Command Center uses Claude AI to provide HR guidance and assistance. While designed to be helpful,

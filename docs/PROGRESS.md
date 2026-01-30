@@ -15,6 +15,44 @@
 Most recent session should be first.
 -->
 
+## Session 2026-01-30 (Onboarding Flow Improvements)
+
+**Phase:** V2 Feature Planning Pause
+**Focus:** Improve onboarding UX based on user testing feedback
+
+### Completed
+- [x] Fix WelcomeStep messaging contradiction (data vs. queries distinction)
+- [x] Fix ApiKeyStep overflow + soften messaging for future freemium
+- [x] Add PersonaTileSelector to CompanyStep (visual tile grid with emoji icons)
+- [x] Soften DisclaimerStep tone (warning → reminder, amber → teal)
+- [x] Fix OnboardingFlow container scroll for smaller windows
+
+### Files Created (1)
+```
+src/components/onboarding/steps/PersonaTileSelector.tsx  (~150 LOC)
+```
+
+### Files Modified (5)
+```
+src/components/onboarding/steps/WelcomeStep.tsx     — Clarified privacy messaging
+src/components/onboarding/steps/ApiKeyStep.tsx      — Added scroll, trial mode teaser
+src/components/onboarding/steps/CompanyStep.tsx     — Added PersonaTileSelector import
+src/components/onboarding/steps/DisclaimerStep.tsx  — Teal info icon, softer header
+src/components/onboarding/OnboardingFlow.tsx        — Updated title/subtitle, scroll fix
+```
+
+### Verified
+- [x] TypeScript compiles (npm run type-check passes)
+- [x] Frontend builds successfully
+- [x] Rust tests: 256 passed, 1 pre-existing failure (file_parser unrelated)
+
+### Next Session Should
+1. Manual test onboarding flow end-to-end (reset `onboarding_completed` setting)
+2. Verify persona selection persists to chat
+3. Consider V2 feature prioritization or Phase 5 launch prep
+
+---
+
 ## Session 2026-01-30 (V2.4.1 — Attrition & Sentiment Signals)
 
 **Phase:** V2.4 — Intelligence Layer

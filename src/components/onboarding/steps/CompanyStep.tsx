@@ -1,9 +1,11 @@
 // HR Command Center - Company Step (Step 3)
 // Wraps existing CompanySetup component for onboarding flow
+// Includes persona tile selector for AI advisor style
 
 import { useEffect, useState } from 'react';
 import { CompanySetup } from '../../company/CompanySetup';
 import { hasCompany } from '../../../lib/tauri-commands';
+import { PersonaTileSelector } from './PersonaTileSelector';
 
 interface CompanyStepProps {
   onComplete: () => void;
@@ -37,6 +39,9 @@ export function CompanyStep({ onComplete, onValidChange }: CompanyStepProps) {
         onSave={handleSave}
         compact={false}
       />
+
+      {/* Persona Tile Selector */}
+      <PersonaTileSelector />
 
       {/* Already configured - show continue button */}
       {hasExisting && (

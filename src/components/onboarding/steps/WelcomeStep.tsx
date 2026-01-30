@@ -33,7 +33,7 @@ export function WelcomeStep({ onContinue }: WelcomeStepProps) {
             </svg>
           }
           title="Completely Private"
-          description="Your data never leaves your Mac. API calls go directly to Claude."
+          description="Your employee data stays on your Mac. Only your questions go to Claude's AI."
         />
         <ValueProp
           icon={
