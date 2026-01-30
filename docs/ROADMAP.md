@@ -533,6 +533,7 @@ Natural language → charts with persistent insights.
 - [x] V2.3.2d Add "Filters applied" caption for explainability
 - [x] V2.3.2e Add graceful fallback to text for non-chartable queries
 - [x] V2.3.2f Wire Claude to emit structured analytics requests
+- [x] V2.3.2f+ Expand chart combinations (14→24, 60% coverage) + user chart type override
 
 **Insight Canvas (persistent workspace):**
 - [x] V2.3.2g Create InsightCanvas foundation (database schema, Rust CRUD, TS types)

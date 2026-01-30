@@ -89,15 +89,35 @@ export function parseAnalyticsRequest(response: string): AnalyticsRequest | null
   const startIndex = response.indexOf(startMarker);
   const endIndex = response.indexOf(endMarker);
 
-  if (startIndex === -1 || endIndex === -1 || endIndex <= startIndex) {
+  // Log marker detection for debugging
+  if (startIndex === -1) {
+    console.warn('[Analytics Parse] No <analytics_request> marker found in response');
+    console.warn('[Analytics Parse] Response preview:', response.substring(0, 300));
+    return null;
+  }
+
+  if (endIndex === -1 || endIndex <= startIndex) {
+    console.warn('[Analytics Parse] Invalid/missing end marker');
     return null;
   }
 
   const jsonStr = response.slice(startIndex + startMarker.length, endIndex).trim();
+  console.log('[Analytics Parse] Extracted JSON:', jsonStr.substring(0, 200));
 
   try {
-    return JSON.parse(jsonStr) as AnalyticsRequest;
-  } catch {
+    // Clean common JSON issues before parsing
+    const cleanedJson = jsonStr
+      .replace(/,\s*}/g, '}')   // trailing commas in objects
+      .replace(/,\s*]/g, ']')   // trailing commas in arrays
+      .replace(/[\r\n]+/g, ' ') // newlines to spaces
+      .trim();
+
+    const parsed = JSON.parse(cleanedJson) as AnalyticsRequest;
+    console.log('[Analytics Parse] Success:', parsed.intent, parsed.group_by);
+    return parsed;
+  } catch (err) {
+    console.error('[Analytics Parse] JSON parse failed:', err);
+    console.error('[Analytics Parse] Raw JSON was:', jsonStr);
     return null;
   }
 }

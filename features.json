@@ -150,7 +150,7 @@
     },
     "analytics-panel": {
       "status": "pass",
-      "notes": "V2.3.2a-f complete: Analytics request schema, NL→SQL templates, Recharts rendering (bar/pie), filter captions, fallback handling. Fixed PascalCase→snake_case mismatch in context.rs. ~1,100 LOC across 10 files."
+      "notes": "V2.3.2a-f+ complete: Analytics request schema, NL→SQL templates, Recharts rendering (bar/pie), filter captions, fallback handling. Chart coverage expanded 14→24 combinations (60%); user chart type override (suggested_chart honored). ~1,300 LOC across 10 files."
     },
     "insight-canvas-foundation": {
       "status": "pass",

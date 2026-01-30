@@ -330,10 +330,19 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
           }
 
           // V2.3.2: Check for analytics request and execute if present
+          console.log('[Analytics] === CHART DEBUG START ===');
+          console.log('[Analytics] Full response length:', fullResponse.length);
+          console.log('[Analytics] Full response:', fullResponse);
           const analyticsRequest = parseAnalyticsRequest(fullResponse);
+          if (!analyticsRequest) {
+            console.log('[Analytics] No analytics request found in response');
+          } else {
+            console.log('[Analytics] Parsed request:', JSON.stringify(analyticsRequest));
+          }
           if (analyticsRequest) {
             // Strip analytics block from displayed content
             const cleanContent = stripAnalyticsBlock(fullResponse);
+            console.log('[Analytics] Clean content:', cleanContent);
             setMessages((prev) =>
               prev.map((msg) =>
                 msg.id === assistantId
@@ -343,8 +352,10 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
             );
 
             // Execute analytics query and attach chart data + request (for pinning)
+            console.log('[Analytics] Calling executeAnalytics...');
             executeAnalytics(analyticsRequest)
               .then((result) => {
+                console.log('[Analytics] executeAnalytics result:', JSON.stringify(result));
                 if (isChartSuccess(result)) {
                   setMessages((prev) =>
                     prev.map((msg) =>
@@ -355,13 +366,14 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
                   );
                   console.log('[Analytics] Chart generated:', result.data.title);
                 } else {
-                  console.log('[Analytics] Fallback:', result);
+                  console.log('[Analytics] Fallback result - no chart:', result);
                 }
               })
               .catch((err) => {
                 console.error('[Analytics] Execution failed:', err);
               });
           }
+          console.log('[Analytics] === CHART DEBUG END ===');
 
           // Create audit entry (fire-and-forget, don't block on errors)
           createAuditEntry({

@@ -2591,46 +2591,71 @@ pub fn build_system_prompt(
         r#"
 
 CRITICAL - CHART GENERATION REQUIRED:
-The user is requesting a chart or visualization. You MUST include an analytics_request block at the END of your response. This is MANDATORY for chart queries.
+The user wants a chart. You MUST include an analytics_request block.
 
-Your response format MUST be:
-1. First, provide a brief text explanation (2-3 sentences max)
-2. Then, emit the analytics_request block EXACTLY as shown below
+⚠️ NO BLOCK = NO CHART. Text descriptions or ASCII art will NOT render as charts.
 
-<analytics_request>
-{
-  "intent": "<intent>",
-  "group_by": "<group_by>",
-  "filters": {},
-  "description": "<Brief description>"
-}
-</analytics_request>
+FORMAT:
+1. One short sentence (max 10 words)
+2. The analytics_request block (REQUIRED)
 
-Intent options (use exactly as shown, lowercase with underscores):
-- headcount_by → for headcount/employee counts
-- rating_distribution → for performance ratings
-- enps_breakdown → for eNPS scores
-- attrition_analysis → for turnover/attrition
-- tenure_distribution → for tenure analysis
+SUPPORTED CHART COMBINATIONS (use ONLY these):
+| Intent              | group_by      | Example query                        |
+|---------------------|---------------|--------------------------------------|
+| headcount_by        | department    | "headcount by department"            |
+| headcount_by        | status        | "headcount by status"                |
+| headcount_by        | gender        | "gender breakdown"                   |
+| headcount_by        | ethnicity     | "ethnicity breakdown"                |
+| headcount_by        | work_state    | "employees by state"                 |
+| headcount_by        | tenure_bucket | "tenure breakdown"                   |
+| headcount_by        | quarter       | "headcount trend over time"          |
+| rating_distribution | rating_bucket | "performance rating distribution"    |
+| rating_distribution | department    | "ratings by department"              |
+| rating_distribution | gender        | "ratings by gender"                  |
+| rating_distribution | tenure_bucket | "ratings by tenure"                  |
+| enps_breakdown      | status        | "eNPS breakdown" or "team eNPS"      |
+| enps_breakdown      | department    | "eNPS by department"                 |
+| enps_breakdown      | gender        | "eNPS by gender"                     |
+| enps_breakdown      | tenure_bucket | "eNPS by tenure"                     |
+| attrition_analysis  | quarter       | "attrition trend"                    |
+| attrition_analysis  | department    | "turnover by department"             |
+| attrition_analysis  | gender        | "attrition by gender"                |
+| attrition_analysis  | tenure_bucket | "attrition by tenure"                |
+| tenure_distribution | tenure_bucket | "tenure distribution"                |
+| tenure_distribution | department    | "tenure by department"               |
+| tenure_distribution | status        | "tenure by status"                   |
 
-GroupBy options (use exactly as shown, lowercase with underscores):
-- department → group by department
-- status → group by active/terminated/leave
-- gender → group by gender
-- ethnicity → group by ethnicity
-- work_state → group by work state
-- rating_bucket → group by rating level
-- tenure_bucket → group by tenure range
-- quarter → group by time period
+CHART TYPE OVERRIDE:
+If the user specifies a chart type (e.g., "as a bar chart", "pie chart", "line graph"),
+include it in suggested_chart. Options: "bar", "pie", "line", "horizontal_bar"
 
-Example for "show me headcount by department":
-Here's the department breakdown for your organization.
+EXAMPLES:
+
+Query: "show me headcount by department"
+Response:
+Here's the department breakdown.
 
 <analytics_request>
 {"intent": "headcount_by", "group_by": "department", "filters": {}, "description": "Headcount by department"}
 </analytics_request>
 
-DO NOT explain how to create charts. DO NOT suggest tools. Just emit the analytics_request block and the system will render the chart automatically."#.to_string()
+Query: "show me our eNPS" or "team eNPS chart"
+Response:
+Here's the eNPS breakdown.
+
+<analytics_request>
+{"intent": "enps_breakdown", "group_by": "status", "filters": {}, "description": "eNPS score distribution"}
+</analytics_request>
+
+Query: "show me headcount by department as a bar chart"
+Response:
+Here's the department headcount as a bar chart.
+
+<analytics_request>
+{"intent": "headcount_by", "group_by": "department", "suggested_chart": "bar", "filters": {}, "description": "Headcount by department"}
+</analytics_request>
+
+NEVER create ASCII art, tables, or text visualizations. The analytics_request block renders a real interactive chart."#.to_string()
     } else {
         String::new()
     };

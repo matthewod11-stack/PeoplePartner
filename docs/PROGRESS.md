@@ -15,6 +15,47 @@
 Most recent session should be first.
 -->
 
+## Session 2026-01-30 14:00 (V2.3.2f+ — Expand Chart Capabilities)
+
+**Phase:** V2.3 — Visualization Layer
+**Focus:** Expand supported chart combinations and add user chart type override
+
+### Completed
+- [x] V2.3.2f+: Expanded chart combinations from 14 to 24 (35% → 60% coverage)
+  - Added 10 new SQL templates for rating/tenure/attrition/eNPS by various groupings
+  - New combinations: RatingDistribution × (department, gender, tenure_bucket)
+  - New combinations: TenureDistribution × (department, status)
+  - New combinations: AttritionAnalysis × (gender, tenure_bucket)
+  - New combinations: EnpsBreakdown × (gender, tenure_bucket)
+  - New combinations: HeadcountBy × (quarter)
+- [x] Implemented user chart type override
+  - `suggested_chart` field now honored when user specifies (e.g., "as a bar chart")
+  - Falls back to `select_chart_type()` default when not specified
+- [x] Updated system prompt with all 24 combinations and override instructions
+- [x] Updated tests and verified all 12 analytics tests pass
+
+### Files Modified (2)
+```
+src-tauri/src/analytics_templates.rs  +451/-12 LOC (SQL templates, whitelist, chart types)
+src-tauri/src/context.rs              +42/-10 LOC (system prompt update)
+```
+
+### Verified
+- [x] Rust compiles (`cargo check` passes)
+- [x] TypeScript compiles (`npm run type-check` passes)
+- [x] Analytics tests pass (12/12)
+- [x] Pre-existing test failure in `file_parser::tests::test_normalize_header` (unrelated)
+
+### Notes
+- The new SQL templates for rating/tenure distributions return **averages** rather than counts
+- HeadcountBy + Quarter uses "net change" calculation (hires minus terminations)
+
+### Next Session Should
+- **Start with:** Pick up on the roadmap (V2.4 Intelligence Layer or Phase 5 Launch prep)
+- **Be aware of:** Pre-existing test failure in `file_parser::tests::test_normalize_header`
+
+---
+
 ## Session 2026-01-30 09:00 (V2.3.2j-l — Insight Canvas Completion)
 
 **Phase:** V2.3 — Visualization Layer

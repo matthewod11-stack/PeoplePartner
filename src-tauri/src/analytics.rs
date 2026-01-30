@@ -347,14 +347,20 @@ const CHART_KEYWORDS: &[&str] = &[
     "create a chart",
     "make a chart",
     "generate a chart",
+    "in chart form",
+    "as a chart",
+    "chart form",
     // Visualization terms
     "visualize",
     "visualization",
-    "visual",
+    "visual breakdown",
+    "visual representation",
     // Chart types
     "pie chart",
     "bar chart",
     "line chart",
+    "bar graph",
+    "pie graph",
     "graph",
     "plot",
     "diagram",
@@ -372,6 +378,10 @@ const CHART_KEYWORDS: &[&str] = &[
     "headcount by",
     "breakdown by",
     "employees by",
+    // eNPS specific
+    "enps chart",
+    "enps breakdown",
+    "enps distribution",
 ];
 
 /// Checks if a query is requesting a chart/visualization.
@@ -410,6 +420,10 @@ mod tests {
         assert!(is_chart_query("headcount by department"));
         assert!(is_chart_query("employees by status"));
         assert!(is_chart_query("pie chart"));
+        // User-reported queries that should work
+        assert!(is_chart_query("show me our team enps in chart form"));
+        assert!(is_chart_query("show me our eNPS breakdown"));
+        assert!(is_chart_query("make it a bar graph"));
         // Negative cases
         assert!(!is_chart_query("How many employees do we have?"));
         assert!(!is_chart_query("Tell me about the engineering team"));
