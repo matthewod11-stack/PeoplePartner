@@ -15,6 +15,61 @@
 Most recent session should be first.
 -->
 
+## Session 2026-01-30 09:00 (V2.3.2j-l — Insight Canvas Completion)
+
+**Phase:** V2.3 — Visualization Layer
+**Focus:** Complete Insight Canvas with annotations, drilldown, and report export
+
+### Completed
+- [x] V2.3.2j: Chart annotation capability
+  - ChartAnnotationForm.tsx: Inline form with Note/Callout/Question type selector
+  - ChartAnnotationList.tsx: Display annotations with type badges, edit/delete
+  - Integrated into InsightBoardView with parallel annotation loading
+- [x] V2.3.2k: 1-page report export
+  - PrintableReport.tsx: Print-optimized layout with charts and annotations
+  - @media print CSS rules in globals.css
+  - Export button in board header
+- [x] V2.3.2l: Drilldown from chart → employee list
+  - drilldown-utils.ts: buildEmployeeFilter() mapping GroupBy → EmployeeFilter
+  - DrilldownModal.tsx: Shows filtered employee list
+  - Extended EmployeeFilter in Rust + TypeScript with gender/ethnicity
+  - Added onClick handlers to Bar/Pie charts in AnalyticsChart
+
+### Files Created (5)
+```
+src/components/insights/ChartAnnotationForm.tsx    ~100 LOC
+src/components/insights/ChartAnnotationList.tsx    ~115 LOC
+src/components/insights/DrilldownModal.tsx         ~140 LOC
+src/components/insights/PrintableReport.tsx        ~220 LOC
+src/lib/drilldown-utils.ts                         ~80 LOC
+```
+
+### Files Modified (5)
+```
+src-tauri/src/employees.rs                   +10 LOC (gender/ethnicity filters)
+src/components/analytics/AnalyticsChart.tsx  +68 LOC (drilldown handlers)
+src/components/insights/InsightBoardView.tsx +275 LOC (annotations, drilldown, export)
+src/lib/tauri-commands.ts                    +3 LOC (EmployeeFilter types)
+src/styles/globals.css                       +53 LOC (print styles)
+```
+
+### Verified
+- [x] TypeScript compiles (`npm run type-check` passes)
+- [x] Build succeeds (`npm run build` passes)
+- [x] Rust compiles (pre-existing `file_parser::test_normalize_header` failure unrelated)
+
+### Known Issue Discovered
+Screenshot shows chart not rendering after "Here's a visual breakdown..." response. The assistant message appears but no AnalyticsChart component visible below it.
+
+### Next Session Should
+- **Start with:** Debug why eNPS chart didn't render in chat (from screenshot)
+  - Check if analytics_request was parsed from Claude's response
+  - Verify AnalyticsChart receives data prop
+  - Check Message component rendering logic for chart data
+- **Be aware of:** Pre-existing test failure in `file_parser::tests::test_normalize_header`
+
+---
+
 ## Session 2026-01-29 (Phase 5 — Trial Infrastructure Roadmap)
 
 **Phase:** 5.2 — Trial Infrastructure (Freemium Model)

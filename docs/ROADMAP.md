@@ -538,9 +538,9 @@ Natural language → charts with persistent insights.
 - [x] V2.3.2g Create InsightCanvas foundation (database schema, Rust CRUD, TS types)
 - [x] V2.3.2h Add "Pin to Canvas" action from analytics panel
 - [x] V2.3.2i Create named boards ("Q3 Review", "Leadership Dashboard")
-- [ ] V2.3.2j Add chart annotation capability
-- [ ] V2.3.2k Add 1-page report export (combine pinned charts)
-- [ ] V2.3.2l Add drilldown from chart → employee list
+- [x] V2.3.2j Add chart annotation capability
+- [x] V2.3.2k Add 1-page report export (combine pinned charts)
+- [x] V2.3.2l Add drilldown from chart → employee list
 
 **Technical Contract (Keep It Deterministic):**
 - Claude emits **structured analytics request** (intent + filters + grouping)
@@ -559,7 +559,7 @@ Natural language → charts with persistent insights.
 - [x] ~~Heatmap overlay shows team "attention scores"~~ (DEFERRED)
 - [x] Natural language query generates appropriate chart
 - [x] Can pin chart to named board
-- [ ] Can export board as 1-page report
+- [x] Can export board as 1-page report
 
 ---
 
@@ -809,7 +809,7 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 [x] PAUSE V2.2.5: UI/UX Refinements verified
 [x] V2.3.1a-j Org Chart + Heatmap (DEFERRED to parking lot)
 [x] V2.3.2a-f Analytics Panel (6 tasks)
-[~] V2.3.2g-l Insight Canvas (V2.3.2g complete, 5 remaining)
+[x] V2.3.2g-l Insight Canvas (6 tasks complete)
 [ ] PAUSE V2.3: Visualization Layer verified
 [ ] V2.4.1a-f Attrition & Sentiment Signals (6 tasks, V2.4.1e deferred)
 [ ] V2.4.2a-f DEI & Fairness Lens (6 tasks)

@@ -83,3 +83,56 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================
+   V2.3.2k: Print Styles for Report Export
+   ============================================ */
+@media print {
+  /* Hide everything except print container */
+  body > *:not(.print-overlay) {
+    display: none !important;
+  }
+
+  /* Show print container */
+  .print-overlay {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    background: white !important;
+  }
+
+  .print-container {
+    display: block !important;
+    padding: 20px;
+  }
+
+  /* Prevent page breaks inside charts */
+  .print-chart {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 24px;
+  }
+
+  /* Preserve colors in print */
+  * {
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+
+  /* Reset backgrounds */
+  body {
+    background: white !important;
+  }
+
+  /* Hide interactive elements */
+  button,
+  .no-print {
+    display: none !important;
+  }
+
+  /* Ensure text is readable */
+  p, span, h1, h2, h3, h4 {
+    color: #1c1917 !important; /* stone-900 */
+  }
+}

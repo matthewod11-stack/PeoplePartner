@@ -2,10 +2,10 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-01-13",
+    "lastUpdated": "2026-01-30",
     "project": "HR Command Center",
-    "totalFeatures": 46,
-    "passing": 39,
+    "totalFeatures": 49,
+    "passing": 42,
     "failing": 0,
     "inProgress": 0
   },
@@ -163,6 +163,18 @@
     "named-boards-ui": {
       "status": "pass",
       "notes": "V2.3.2i complete: Boards sidebar tab, InsightBoardPanel (list/create/delete), InsightBoardView modal (chart grid, rename, unpin). ~450 LOC across 4 new files."
+    },
+    "chart-annotations": {
+      "status": "pass",
+      "notes": "V2.3.2j complete: ChartAnnotationForm (Note/Callout/Question types), ChartAnnotationList with edit/delete, integrated into InsightBoardView. ~180 LOC across 2 new files."
+    },
+    "report-export": {
+      "status": "pass",
+      "notes": "V2.3.2k complete: PrintableReport component, @media print CSS styles, Export button in board view. Browser-based print with clean formatting. ~220 LOC."
+    },
+    "chart-drilldown": {
+      "status": "pass",
+      "notes": "V2.3.2l complete: DrilldownModal, drilldown-utils.ts (buildEmployeeFilter), onClick handlers in AnalyticsChart. Extended EmployeeFilter with gender/ethnicity. ~200 LOC across 3 files."
     }
   },
   "phase-5": {

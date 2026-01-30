@@ -128,6 +128,9 @@ pub struct EmployeeFilter {
     pub department: Option<String>,
     pub work_state: Option<String>,
     pub search: Option<String>, // Search by name or email
+    // V2.3.2l: Additional filters for drilldown
+    pub gender: Option<String>,
+    pub ethnicity: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -328,6 +331,13 @@ pub async fn list_employees(
             "(full_name LIKE '%{}%' OR email LIKE '%{}%')",
             escaped, escaped
         ));
+    }
+    // V2.3.2l: Additional filters for drilldown
+    if let Some(ref gender) = filter.gender {
+        conditions.push(format!("gender = '{}'", gender.replace('\'', "''")));
+    }
+    if let Some(ref ethnicity) = filter.ethnicity {
+        conditions.push(format!("ethnicity = '{}'", ethnicity.replace('\'', "''")));
     }
 
     let where_clause = if conditions.is_empty() {

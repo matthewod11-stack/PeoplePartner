@@ -4,6 +4,7 @@
  * Renders chart data from analytics requests using Recharts.
  * Supports Bar, Pie, Line, and HorizontalBar chart types.
  * V2.3.2h: Adds "Pin to Canvas" for persistent chart storage.
+ * V2.3.2l: Adds drilldown click handlers for chart segments.
  */
 
 import { useState, useCallback } from 'react';
@@ -23,12 +24,14 @@ import {
   CartesianGrid,
 } from 'recharts';
 import type { ChartData, ChartType, AnalyticsRequest } from '../../lib/analytics-types';
+import type { EmployeeFilter } from '../../lib/tauri-commands';
 import { FilterCaption } from './FilterCaption';
 import { BoardSelectorModal } from './BoardSelectorModal';
 import { Button } from '../ui/Button';
 import { useConversations } from '../../contexts/ConversationContext';
 import { pinChart } from '../../lib/tauri-commands';
 import { createPinChartInput } from '../../lib/insight-canvas-types';
+import { buildEmployeeFilter, isDrilldownSupported } from '../../lib/drilldown-utils';
 
 // Design tokens matching Tailwind config
 const CHART_COLORS = [
@@ -42,18 +45,27 @@ const CHART_COLORS = [
   '#57534e', // stone-600
 ];
 
+/** V2.3.2l: Drilldown callback parameters */
+export interface DrilldownParams {
+  filter: EmployeeFilter;
+  label: string;
+}
+
 interface AnalyticsChartProps {
   data: ChartData;
   /** V2.3.2h: Analytics request for pinning */
   analyticsRequest?: AnalyticsRequest;
   /** V2.3.2h: Message ID for pinning */
   messageId?: string;
+  /** V2.3.2l: Called when a chart segment is clicked for drilldown */
+  onDrilldown?: (params: DrilldownParams) => void;
 }
 
 export function AnalyticsChart({
   data,
   analyticsRequest,
   messageId,
+  onDrilldown,
 }: AnalyticsChartProps) {
   const { conversationId } = useConversations();
 
@@ -61,6 +73,22 @@ export function AnalyticsChart({
   const [showBoardModal, setShowBoardModal] = useState(false);
   const [isPinning, setIsPinning] = useState(false);
   const [pinSuccess, setPinSuccess] = useState<string | null>(null);
+
+  // V2.3.2l: Drilldown support
+  const groupBy = analyticsRequest?.group_by;
+  const canDrilldown = onDrilldown && groupBy && isDrilldownSupported(groupBy);
+
+  const handleDrilldown = useCallback(
+    (label: string) => {
+      if (!onDrilldown || !groupBy) return;
+
+      const result = buildEmployeeFilter(groupBy, label);
+      if (result.type === 'filter') {
+        onDrilldown({ filter: result.filter, label: result.label });
+      }
+    },
+    [onDrilldown, groupBy]
+  );
 
   // Transform data for Recharts (needs 'name' key for labels)
   const chartData = data.data.map((point) => ({
@@ -145,7 +173,7 @@ export function AnalyticsChart({
 
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
-          {renderChart(data.chart_type, chartData, data)}
+          {renderChart(data.chart_type, chartData, data, canDrilldown, handleDrilldown)}
         </ResponsiveContainer>
       </div>
 
@@ -169,26 +197,36 @@ interface ChartDataItem {
   [key: string]: string | number; // Index signature for Recharts compatibility
 }
 
-function renderChart(chartType: ChartType, chartData: ChartDataItem[], data: ChartData) {
+function renderChart(
+  chartType: ChartType,
+  chartData: ChartDataItem[],
+  data: ChartData,
+  canDrilldown?: boolean,
+  onDrilldown?: (label: string) => void
+) {
   switch (chartType) {
     case 'pie':
-      return renderPieChart(chartData);
+      return renderPieChart(chartData, canDrilldown, onDrilldown);
 
     case 'bar':
-      return renderBarChart(chartData, data, 'vertical');
+      return renderBarChart(chartData, data, 'vertical', canDrilldown, onDrilldown);
 
     case 'horizontal_bar':
-      return renderBarChart(chartData, data, 'horizontal');
+      return renderBarChart(chartData, data, 'horizontal', canDrilldown, onDrilldown);
 
     case 'line':
       return renderLineChart(chartData, data);
 
     default:
-      return renderBarChart(chartData, data, 'vertical');
+      return renderBarChart(chartData, data, 'vertical', canDrilldown, onDrilldown);
   }
 }
 
-function renderPieChart(chartData: ChartDataItem[]) {
+function renderPieChart(
+  chartData: ChartDataItem[],
+  canDrilldown?: boolean,
+  onDrilldown?: (label: string) => void
+) {
   return (
     <PieChart>
       <Pie
@@ -200,6 +238,8 @@ function renderPieChart(chartData: ChartDataItem[]) {
         outerRadius={80}
         label={({ name, payload }) => `${name} (${payload?.percentage ?? 0}%)`}
         labelLine={{ stroke: '#78716c', strokeWidth: 1 }}
+        onClick={canDrilldown ? (_, index) => onDrilldown?.(chartData[index].name) : undefined}
+        style={canDrilldown ? { cursor: 'pointer' } : undefined}
       >
         {chartData.map((_, index) => (
           <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
@@ -228,7 +268,9 @@ function renderPieChart(chartData: ChartDataItem[]) {
 function renderBarChart(
   chartData: ChartDataItem[],
   data: ChartData,
-  layout: 'vertical' | 'horizontal'
+  layout: 'vertical' | 'horizontal',
+  canDrilldown?: boolean,
+  onDrilldown?: (label: string) => void
 ) {
   const isHorizontal = layout === 'horizontal';
 
@@ -274,7 +316,15 @@ function renderBarChart(
           fontSize: '12px',
         }}
       />
-      <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]}>
+      <Bar
+        dataKey="value"
+        fill={CHART_COLORS[0]}
+        radius={[4, 4, 0, 0]}
+        onClick={canDrilldown ? (entry) => {
+          if (entry?.name) onDrilldown?.(String(entry.name));
+        } : undefined}
+        style={canDrilldown ? { cursor: 'pointer' } : undefined}
+      >
         {chartData.map((_, index) => (
           <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
         ))}

@@ -246,6 +246,9 @@ export interface EmployeeFilter {
   department?: string;
   work_state?: string;
   search?: string;
+  // V2.3.2l: Additional filters for drilldown
+  gender?: string;
+  ethnicity?: string;
 }
 
 /**

@@ -1,23 +1,34 @@
 /**
- * InsightBoardView Component (V2.3.2i)
+ * InsightBoardView Component (V2.3.2i-j)
  *
  * Modal view for displaying and managing a single insight board.
  * Shows pinned charts in a responsive grid with unpin/edit capabilities.
+ * V2.3.2j: Adds annotation support for notes on pinned charts.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { Modal } from '../shared/Modal';
 import { Button } from '../ui/Button';
-import { AnalyticsChart } from '../analytics/AnalyticsChart';
+import { AnalyticsChart, type DrilldownParams } from '../analytics/AnalyticsChart';
+import { ChartAnnotationForm } from './ChartAnnotationForm';
+import { ChartAnnotationList } from './ChartAnnotationList';
+import { DrilldownModal } from './DrilldownModal';
+import { PrintableReport } from './PrintableReport';
 import {
   getInsightBoard,
   getChartsForBoard,
   updateInsightBoard,
   unpinChart,
+  getAnnotationsForChart,
+  createChartAnnotation,
+  updateChartAnnotation,
+  deleteChartAnnotation,
   type InsightBoard,
   type PinnedChart,
+  type ChartAnnotation,
+  type EmployeeFilter,
 } from '../../lib/tauri-commands';
-import { parseChartData, parseAnalyticsRequestFromChart } from '../../lib/insight-canvas-types';
+import { parseChartData, parseAnalyticsRequestFromChart, type AnnotationType } from '../../lib/insight-canvas-types';
 
 interface InsightBoardViewProps {
   /** Board ID to display */
@@ -36,7 +47,18 @@ export function InsightBoardView({ boardId, onClose }: InsightBoardViewProps) {
   const [isEditingName, setIsEditingName] = useState(false);
   const [editName, setEditName] = useState('');
 
-  // Load board and charts
+  // V2.3.2j: Annotation state
+  const [chartAnnotations, setChartAnnotations] = useState<Record<string, ChartAnnotation[]>>({});
+  const [expandedAnnotationForm, setExpandedAnnotationForm] = useState<string | null>(null);
+
+  // V2.3.2l: Drilldown state
+  const [drilldownFilter, setDrilldownFilter] = useState<EmployeeFilter | null>(null);
+  const [drilldownLabel, setDrilldownLabel] = useState<string>('');
+
+  // V2.3.2k: Print mode state
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  // Load board, charts, and annotations
   const loadBoard = useCallback(async () => {
     if (!boardId) return;
 
@@ -50,6 +72,18 @@ export function InsightBoardView({ boardId, onClose }: InsightBoardViewProps) {
       setBoard(boardData);
       setCharts(chartsData);
       setEditName(boardData.name);
+
+      // V2.3.2j: Load annotations for all charts in parallel
+      const annotationsPromises = chartsData.map(async (chart) => {
+        const annotations = await getAnnotationsForChart(chart.id);
+        return { chartId: chart.id, annotations };
+      });
+      const annotationsResults = await Promise.all(annotationsPromises);
+      const annotationsMap: Record<string, ChartAnnotation[]> = {};
+      annotationsResults.forEach(({ chartId, annotations }) => {
+        annotationsMap[chartId] = annotations;
+      });
+      setChartAnnotations(annotationsMap);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load board');
     } finally {
@@ -87,12 +121,94 @@ export function InsightBoardView({ boardId, onClose }: InsightBoardViewProps) {
       try {
         await unpinChart(chartId);
         setCharts((prev) => prev.filter((c) => c.id !== chartId));
+        // Also remove annotations from state
+        setChartAnnotations((prev) => {
+          const next = { ...prev };
+          delete next[chartId];
+          return next;
+        });
       } catch (err) {
         console.error('[InsightBoardView] Unpin failed:', err);
       }
     },
     []
   );
+
+  // V2.3.2j: Create annotation
+  const handleCreateAnnotation = useCallback(
+    async (chartId: string, content: string, annotationType: AnnotationType) => {
+      try {
+        const annotation = await createChartAnnotation({
+          chart_id: chartId,
+          content,
+          annotation_type: annotationType,
+        });
+        setChartAnnotations((prev) => ({
+          ...prev,
+          [chartId]: [...(prev[chartId] || []), annotation],
+        }));
+        setExpandedAnnotationForm(null);
+      } catch (err) {
+        console.error('[InsightBoardView] Create annotation failed:', err);
+      }
+    },
+    []
+  );
+
+  // V2.3.2j: Update annotation
+  const handleUpdateAnnotation = useCallback(
+    async (chartId: string, annotationId: string, content: string) => {
+      try {
+        const updated = await updateChartAnnotation(annotationId, content);
+        setChartAnnotations((prev) => ({
+          ...prev,
+          [chartId]: (prev[chartId] || []).map((a) =>
+            a.id === annotationId ? updated : a
+          ),
+        }));
+      } catch (err) {
+        console.error('[InsightBoardView] Update annotation failed:', err);
+      }
+    },
+    []
+  );
+
+  // V2.3.2j: Delete annotation
+  const handleDeleteAnnotation = useCallback(
+    async (chartId: string, annotationId: string) => {
+      try {
+        await deleteChartAnnotation(annotationId);
+        setChartAnnotations((prev) => ({
+          ...prev,
+          [chartId]: (prev[chartId] || []).filter((a) => a.id !== annotationId),
+        }));
+      } catch (err) {
+        console.error('[InsightBoardView] Delete annotation failed:', err);
+      }
+    },
+    []
+  );
+
+  // V2.3.2l: Handle drilldown
+  const handleDrilldown = useCallback((params: DrilldownParams) => {
+    setDrilldownFilter(params.filter);
+    setDrilldownLabel(params.label);
+  }, []);
+
+  const closeDrilldown = useCallback(() => {
+    setDrilldownFilter(null);
+    setDrilldownLabel('');
+  }, []);
+
+  // V2.3.2k: Export report handler
+  const handleExportReport = useCallback(() => {
+    setIsPrinting(true);
+    // Small delay to ensure PrintableReport is rendered before print dialog opens
+    setTimeout(() => {
+      window.print();
+      setIsPrinting(false);
+    }, 100);
+  }, []);
 
   // Format date
   const formatDate = (dateStr: string) => {
@@ -168,9 +284,30 @@ export function InsightBoardView({ boardId, onClose }: InsightBoardViewProps) {
                 {formatDate(board.updated_at)}
               </p>
             </div>
-            <Button variant="secondary" onClick={onClose}>
-              Close
-            </Button>
+            <div className="flex gap-2">
+              {/* V2.3.2k: Export button */}
+              {charts.length > 0 && (
+                <Button
+                  variant="secondary"
+                  onClick={handleExportReport}
+                  disabled={isPrinting}
+                  leftIcon={
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6.72 13.829c-.24.03-.48.062-.72.096m.72-.096a42.415 42.415 0 0110.56 0m-10.56 0L6.34 18m10.94-4.171c.24.03.48.062.72.096m-.72-.096L17.66 18m0 0l.229 2.523a1.125 1.125 0 01-1.12 1.227H7.231c-.662 0-1.18-.568-1.12-1.227L6.34 18m11.318 0h1.091A2.25 2.25 0 0021 15.75V9.456c0-1.081-.768-2.015-1.837-2.175a48.055 48.055 0 00-1.913-.247M6.34 18H5.25A2.25 2.25 0 013 15.75V9.456c0-1.081.768-2.015 1.837-2.175a48.041 48.041 0 011.913-.247m10.5 0a48.536 48.536 0 00-10.5 0m10.5 0V3.375c0-.621-.504-1.125-1.125-1.125h-8.25c-.621 0-1.125.504-1.125 1.125v3.659M18 10.5h.008v.008H18V10.5zm-3 0h.008v.008H15V10.5z"
+                      />
+                    </svg>
+                  }
+                >
+                  {isPrinting ? 'Preparing...' : 'Export'}
+                </Button>
+              )}
+              <Button variant="secondary" onClick={onClose}>
+                Close
+              </Button>
+            </div>
           </div>
 
           {/* Charts grid */}
@@ -201,45 +338,106 @@ export function InsightBoardView({ boardId, onClose }: InsightBoardViewProps) {
               {charts.map((pinnedChart) => {
                 const chartData = parseChartData(pinnedChart);
                 const analyticsRequest = parseAnalyticsRequestFromChart(pinnedChart);
+                const annotations = chartAnnotations[pinnedChart.id] || [];
 
                 if (!chartData) return null;
 
                 return (
                   <div key={pinnedChart.id} className="relative group">
-                    {/* Unpin button */}
-                    <button
-                      onClick={() => handleUnpin(pinnedChart.id)}
-                      className="
-                        absolute top-2 right-2 z-10
-                        p-1.5 rounded-md
-                        bg-white/80 backdrop-blur-sm
-                        text-stone-400 hover:text-red-600 hover:bg-red-50
-                        opacity-0 group-hover:opacity-100
-                        transition-all duration-150
-                        shadow-sm
-                      "
-                      aria-label="Unpin chart"
-                    >
-                      <svg
-                        className="w-4 h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
+                    {/* Action buttons */}
+                    <div className="absolute top-2 right-2 z-10 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {/* Add Note button */}
+                      <button
+                        onClick={() => setExpandedAnnotationForm(
+                          expandedAnnotationForm === pinnedChart.id ? null : pinnedChart.id
+                        )}
+                        className="
+                          p-1.5 rounded-md
+                          bg-white/80 backdrop-blur-sm shadow-sm
+                          text-stone-400 hover:text-primary-600 hover:bg-primary-50
+                          transition-colors
+                        "
+                        aria-label="Add note"
                       >
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"
+                          />
+                        </svg>
+                      </button>
+                      {/* Unpin button */}
+                      <button
+                        onClick={() => handleUnpin(pinnedChart.id)}
+                        className="
+                          p-1.5 rounded-md
+                          bg-white/80 backdrop-blur-sm shadow-sm
+                          text-stone-400 hover:text-red-600 hover:bg-red-50
+                          transition-colors
+                        "
+                        aria-label="Unpin chart"
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
 
                     {/* Chart - render without pin button (we're already in the board view) */}
                     <div className="bg-white rounded-xl border border-stone-200/60 shadow-sm overflow-hidden">
                       <AnalyticsChart
                         data={chartData}
                         analyticsRequest={analyticsRequest ?? undefined}
+                        onDrilldown={handleDrilldown}
                       />
                       <div className="px-4 pb-3 text-xs text-stone-400">
                         Pinned {formatDate(pinnedChart.pinned_at)}
+                        {annotations.length > 0 && (
+                          <span className="ml-2">
+                            · {annotations.length} {annotations.length === 1 ? 'note' : 'notes'}
+                          </span>
+                        )}
                       </div>
+
+                      {/* V2.3.2j: Annotation form (expanded) */}
+                      {expandedAnnotationForm === pinnedChart.id && (
+                        <div className="px-4 pb-4">
+                          <ChartAnnotationForm
+                            chartId={pinnedChart.id}
+                            onSave={(content, type) =>
+                              handleCreateAnnotation(pinnedChart.id, content, type)
+                            }
+                            onCancel={() => setExpandedAnnotationForm(null)}
+                          />
+                        </div>
+                      )}
+
+                      {/* V2.3.2j: Annotation list */}
+                      {annotations.length > 0 && (
+                        <div className="px-4 pb-4">
+                          <ChartAnnotationList
+                            chartId={pinnedChart.id}
+                            annotations={annotations}
+                            onUpdate={(id, content) =>
+                              handleUpdateAnnotation(pinnedChart.id, id, content)
+                            }
+                            onDelete={(id) => handleDeleteAnnotation(pinnedChart.id, id)}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -248,6 +446,23 @@ export function InsightBoardView({ boardId, onClose }: InsightBoardViewProps) {
           )}
         </div>
       ) : null}
+
+      {/* V2.3.2l: Drilldown modal */}
+      {drilldownFilter && (
+        <DrilldownModal
+          isOpen={!!drilldownFilter}
+          onClose={closeDrilldown}
+          filter={drilldownFilter}
+          label={drilldownLabel}
+        />
+      )}
+
+      {/* V2.3.2k: Printable report (hidden, shown only during print) */}
+      {board && isPrinting && (
+        <div className="print-overlay fixed inset-0 bg-white z-[9999] hidden print:block overflow-auto">
+          <PrintableReport board={board} charts={charts} annotations={chartAnnotations} />
+        </div>
+      )}
     </Modal>
   );
 }
