@@ -175,6 +175,10 @@
     "chart-drilldown": {
       "status": "pass",
       "notes": "V2.3.2l complete: DrilldownModal, drilldown-utils.ts (buildEmployeeFilter), onClick handlers in AnalyticsChart. Extended EmployeeFilter with gender/ethnicity. ~200 LOC across 3 files."
+    },
+    "attrition-signals": {
+      "status": "pass",
+      "notes": "V2.4.1 complete: Team-level attention signals with heuristic scoring (tenure×0.35 + performance×0.35 + engagement×0.30). Rust backend (signals.rs ~450 LOC, 19 tests), AttentionAreasCard + TeamThemeModal UI, Settings toggle with first-use disclaimer. MIN_TEAM_SIZE=5 privacy filter. ~800 LOC total."
     }
   },
   "phase-5": {

@@ -15,6 +15,54 @@
 Most recent session should be first.
 -->
 
+## Session 2026-01-30 (V2.4.1 — Attrition & Sentiment Signals)
+
+**Phase:** V2.4 — Intelligence Layer
+**Focus:** Implement team-level attention signals with heuristic scoring
+
+### Completed
+- [x] V2.4.1a: Heuristic risk flags (tenure × 0.35 + performance × 0.35 + engagement × 0.30)
+- [x] V2.4.1b: Theme mining from review_highlights table (top 3 themes per team)
+- [x] V2.4.1c: Team-level aggregation with MIN_TEAM_SIZE=5 privacy filter
+- [x] V2.4.1d: AttentionAreasCard component in analytics area
+- [x] V2.4.1f: Settings toggle in "Intelligence Features" section
+- [x] V2.4.1g: SignalsDisclaimerModal with first-use consent checkbox
+
+### Files Created (6)
+```
+src-tauri/src/signals.rs                          (~450 LOC, 19 tests)
+src/lib/signals-types.ts                          (~120 LOC)
+src/components/analytics/AttentionAreasCard.tsx   (~200 LOC)
+src/components/analytics/TeamThemeModal.tsx       (~170 LOC)
+src/components/settings/SignalsDisclaimerModal.tsx (~130 LOC)
+```
+
+### Files Modified (4)
+```
+src-tauri/src/lib.rs                   — mod signals + 3 Tauri commands
+src/lib/tauri-commands.ts              — 3 command wrappers + type exports
+src/components/settings/SettingsPanel.tsx — Intelligence Features section
+src/components/analytics/index.ts      — Export new components
+```
+
+### Verified
+- [x] TypeScript compiles (npm run type-check passes)
+- [x] Rust tests pass (19 signals tests)
+- [x] Build succeeds (npm run build)
+
+### Notes
+- Feature is opt-in by default (disabled until user acknowledges disclaimer)
+- Attention levels: High (70-100), Moderate (50-69), Monitor (30-49), Low (0-29)
+- Teams with < 5 employees are suppressed from output
+- Disclaimer banner always visible on card and in Settings
+
+### Next Session Should
+- **Start with:** Integrate AttentionAreasCard into InsightBoardPanel or analytics sidebar
+- **Or continue with:** V2.4.2 (DEI & Fairness Lens) or Phase 5.1 (Distribution)
+- **Be aware of:** Pre-existing test failure in `file_parser::tests::test_normalize_header`
+
+---
+
 ## Session 2026-01-30 14:00 (V2.3.2f+ — Expand Chart Capabilities)
 
 **Phase:** V2.3 — Visualization Layer

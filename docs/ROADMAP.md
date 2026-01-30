@@ -574,13 +574,13 @@ Proactive insights with appropriate guardrails.
 
 Systemic risk identification with strong disclaimers.
 
-- [ ] V2.4.1a Define heuristic risk flags (tenure + performance + eNPS composite)
-- [ ] V2.4.1b Create theme mining from extracted review data
-- [ ] V2.4.1c Implement team-level aggregation (never individual predictions)
-- [ ] V2.4.1d Add "Attention Areas" summary in analytics panel
+- [x] V2.4.1a Define heuristic risk flags (tenure + performance + eNPS composite)
+- [x] V2.4.1b Create theme mining from extracted review data
+- [x] V2.4.1c Implement team-level aggregation (never individual predictions)
+- [x] V2.4.1d Add "Attention Areas" summary in analytics panel
 - [x] ~~V2.4.1e Wire to Org Chart heatmap overlay~~ (DEFERRED with Org Chart)
-- [ ] V2.4.1f Add opt-in toggle in Settings
-- [ ] V2.4.1g Add prominent disclaimers ("heuristic, not prediction")
+- [x] V2.4.1f Add opt-in toggle in Settings
+- [x] V2.4.1g Add prominent disclaimers ("heuristic, not prediction")
 
 **Guardrails:**
 - Show patterns, not "John will leave"

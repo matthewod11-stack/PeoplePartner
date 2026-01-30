@@ -26,6 +26,7 @@ mod performance_reviews;
 mod pii;
 mod review_cycles;
 mod settings;
+mod signals;
 
 use db::Database;
 
@@ -970,6 +971,51 @@ async fn delete_chart_annotation(
 }
 
 // ============================================================================
+// Attention Signals Commands (V2.4.1)
+// ============================================================================
+
+/// Check if the attention signals feature is enabled
+#[tauri::command]
+async fn is_signals_enabled(
+    state: tauri::State<'_, Database>,
+) -> Result<bool, String> {
+    signals::is_signals_enabled(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get team attention signals for all departments
+/// Returns teams sorted by attention score, filtered to MIN_TEAM_SIZE
+#[tauri::command]
+async fn get_attention_signals(
+    state: tauri::State<'_, Database>,
+) -> Result<signals::AttentionAreasSummary, String> {
+    // Check if feature is enabled first
+    let enabled = signals::is_signals_enabled(&state.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !enabled {
+        return Err("Attention signals feature is not enabled".to_string());
+    }
+
+    signals::get_team_attention_signals(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get common themes for a specific team from review highlights
+#[tauri::command]
+async fn get_team_themes(
+    state: tauri::State<'_, Database>,
+    department: String,
+) -> Result<Vec<signals::ThemeOccurrence>, String> {
+    signals::get_common_themes_for_team(&state.pool, &department)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
 // Monday Digest Commands
 // ============================================================================
 
@@ -1383,6 +1429,10 @@ pub fn run() {
             get_annotations_for_chart,
             update_chart_annotation,
             delete_chart_annotation,
+            // Attention Signals (V2.4.1)
+            is_signals_enabled,
+            get_attention_signals,
+            get_team_themes,
             // Monday Digest
             get_digest_data,
             // Memory (cross-conversation)

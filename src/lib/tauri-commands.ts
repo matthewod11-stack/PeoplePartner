@@ -1679,3 +1679,47 @@ export async function updateChartAnnotation(
 export async function deleteChartAnnotation(id: string): Promise<void> {
   return invoke('delete_chart_annotation', { id });
 }
+
+// =============================================================================
+// V2.4.1 - Attention Signals
+// =============================================================================
+
+import type {
+  AttentionAreasSummary,
+  ThemeOccurrence,
+} from './signals-types';
+
+// Re-export types for convenience
+export type {
+  AttentionAreasSummary,
+  TeamAttentionSignal,
+  AttentionLevel,
+  TenureFactor,
+  PerformanceFactor,
+  EngagementFactor,
+  ThemeOccurrence,
+} from './signals-types';
+
+/**
+ * Check if the attention signals feature is enabled
+ */
+export async function isSignalsEnabled(): Promise<boolean> {
+  return invoke('is_signals_enabled');
+}
+
+/**
+ * Get team attention signals for all departments
+ * Returns teams sorted by attention score, filtered to MIN_TEAM_SIZE (5)
+ * @throws Error if signals feature is not enabled
+ */
+export async function getAttentionSignals(): Promise<AttentionAreasSummary> {
+  return invoke('get_attention_signals');
+}
+
+/**
+ * Get common themes for a specific team from review highlights
+ * @param department - The department name
+ */
+export async function getTeamThemes(department: string): Promise<ThemeOccurrence[]> {
+  return invoke('get_team_themes', { department });
+}
