@@ -61,6 +61,8 @@ pub struct AuditEntry {
     pub response_text: String,
     pub context_used: Option<String>, // JSON array of employee IDs
     pub created_at: String,
+    /// V2.4.2: Query category for filtering (e.g., "dei")
+    pub query_category: Option<String>,
 }
 
 /// Lightweight audit entry for list display
@@ -81,6 +83,8 @@ pub struct CreateAuditEntry {
     pub request_redacted: String,
     pub response_text: String,
     pub employee_ids_used: Vec<String>,
+    /// V2.4.2: Optional category for filtering (e.g., "dei")
+    pub query_category: Option<String>,
 }
 
 /// Filter options for listing/exporting audit entries
@@ -89,6 +93,8 @@ pub struct AuditFilter {
     pub conversation_id: Option<String>,
     pub start_date: Option<String>, // ISO 8601 format
     pub end_date: Option<String>,   // ISO 8601 format
+    /// V2.4.2: Filter by query category (e.g., "dei")
+    pub query_category: Option<String>,
 }
 
 /// CSV export result
@@ -123,8 +129,8 @@ pub async fn create_audit_entry(
 
     sqlx::query(
         r#"
-        INSERT INTO audit_log (id, conversation_id, request_redacted, response_text, context_used, created_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
+        INSERT INTO audit_log (id, conversation_id, request_redacted, response_text, context_used, query_category, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
         "#,
     )
     .bind(&id)
@@ -132,6 +138,7 @@ pub async fn create_audit_entry(
     .bind(&input.request_redacted)
     .bind(&input.response_text)
     .bind(&context_used)
+    .bind(&input.query_category)
     .execute(pool)
     .await?;
 
@@ -142,7 +149,7 @@ pub async fn create_audit_entry(
 pub async fn get_audit_entry(pool: &DbPool, id: &str) -> Result<AuditEntry, AuditError> {
     let entry = sqlx::query_as::<_, AuditEntry>(
         r#"
-        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at
+        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category
         FROM audit_log
         WHERE id = ?
         "#,
@@ -186,9 +193,15 @@ pub async fn list_audit_entries(
         bindings.push(end.clone());
     }
 
+    // V2.4.2: Add query_category filter
+    if let Some(category) = &filter.query_category {
+        conditions.push("query_category = ?".to_string());
+        bindings.push(category.clone());
+    }
+
     let query = format!(
         r#"
-        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at
+        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category
         FROM audit_log
         WHERE {}
         ORDER BY created_at DESC
@@ -257,6 +270,12 @@ pub async fn count_audit_entries(
         bindings.push(end.clone());
     }
 
+    // V2.4.2: Add query_category filter
+    if let Some(category) = &filter.query_category {
+        conditions.push("query_category = ?".to_string());
+        bindings.push(category.clone());
+    }
+
     let query = format!(
         "SELECT COUNT(*) FROM audit_log WHERE {}",
         conditions.join(" AND ")
@@ -300,9 +319,15 @@ pub async fn export_to_csv(
         bindings.push(end.clone());
     }
 
+    // V2.4.2: Add query_category filter
+    if let Some(category) = &filter.query_category {
+        conditions.push("query_category = ?".to_string());
+        bindings.push(category.clone());
+    }
+
     let query = format!(
         r#"
-        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at
+        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category
         FROM audit_log
         WHERE {}
         ORDER BY created_at DESC
@@ -321,8 +346,8 @@ pub async fn export_to_csv(
     // Build CSV content
     let mut csv = String::new();
 
-    // Header row
-    csv.push_str("id,timestamp,conversation_id,request_redacted,response_preview,employee_ids_used\n");
+    // Header row (V2.4.2: added query_category)
+    csv.push_str("id,timestamp,conversation_id,query_category,request_redacted,response_preview,employee_ids_used\n");
 
     // Data rows
     for entry in &entries {
@@ -334,10 +359,11 @@ pub async fn export_to_csv(
             .unwrap_or_default();
 
         csv.push_str(&format!(
-            "{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{}\n",
             escape_csv(&entry.id),
             escape_csv(&entry.created_at),
             escape_csv(&entry.conversation_id.clone().unwrap_or_default()),
+            escape_csv(&entry.query_category.clone().unwrap_or_default()),
             escape_csv(&entry.request_redacted),
             escape_csv(&truncate_preview(&entry.response_text, 500)),
             escape_csv(&employee_ids),
@@ -438,6 +464,7 @@ mod tests {
         assert!(filter.conversation_id.is_none());
         assert!(filter.start_date.is_none());
         assert!(filter.end_date.is_none());
+        assert!(filter.query_category.is_none());
     }
 
     #[test]
@@ -447,12 +474,14 @@ mod tests {
             request_redacted: "What is Sarah's rating?".to_string(),
             response_text: "Sarah has a rating of 4.2".to_string(),
             employee_ids_used: vec!["emp-1".to_string(), "emp-2".to_string()],
+            query_category: Some("dei".to_string()),
         };
 
         // Verify serialization works
         let json = serde_json::to_string(&input).unwrap();
         assert!(json.contains("conv-123"));
         assert!(json.contains("emp-1"));
+        assert!(json.contains("dei"));
     }
 
     #[test]

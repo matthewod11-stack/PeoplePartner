@@ -2,10 +2,10 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-01-30",
+    "lastUpdated": "2026-01-31",
     "project": "HR Command Center",
-    "totalFeatures": 49,
-    "passing": 42,
+    "totalFeatures": 50,
+    "passing": 43,
     "failing": 0,
     "inProgress": 0
   },
@@ -179,6 +179,10 @@
     "attrition-signals": {
       "status": "pass",
       "notes": "V2.4.1 complete: Team-level attention signals with heuristic scoring (tenure×0.35 + performance×0.35 + engagement×0.30). Rust backend (signals.rs ~450 LOC, 19 tests), AttentionAreasCard + TeamThemeModal UI, Settings toggle with first-use disclaimer. MIN_TEAM_SIZE=5 privacy filter. ~800 LOC total."
+    },
+    "fairness-lens": {
+      "status": "pass",
+      "notes": "V2.4.2 complete: Demographic representation analysis (gender/ethnicity). Rust backend (dei.rs ~400 LOC, 19 tests), FairnessLensCard UI (representation, rating parity, promotion rates tabs), Settings toggle with first-use disclaimer. Small-n suppression (MIN_GROUP_SIZE=5), audit trail with query_category. ~1,080 LOC total."
     }
   },
   "phase-5": {

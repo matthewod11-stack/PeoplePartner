@@ -1723,3 +1723,81 @@ export async function getAttentionSignals(): Promise<AttentionAreasSummary> {
 export async function getTeamThemes(department: string): Promise<ThemeOccurrence[]> {
   return invoke('get_team_themes', { department });
 }
+
+// =============================================================================
+// V2.4.2 - DEI & Fairness Lens
+// =============================================================================
+
+import type {
+  RepresentationResult,
+  RatingParityResult,
+  PromotionRatesResult,
+  FairnessLensSummary,
+  DeiGroupBy,
+} from './dei-types';
+
+// Re-export types for convenience
+export type {
+  DeiBreakdown,
+  RepresentationResult,
+  RatingParityItem,
+  RatingParityResult,
+  PromotionRateItem,
+  PromotionRatesResult,
+  FairnessLensSummary,
+  DeiGroupBy,
+} from './dei-types';
+
+/**
+ * Check if the fairness lens feature is enabled
+ */
+export async function isFairnessLensEnabled(): Promise<boolean> {
+  return invoke('is_fairness_lens_enabled');
+}
+
+/**
+ * Get representation breakdown by demographic field
+ * @param groupBy - "gender" or "ethnicity"
+ * @param filterDepartment - Optional department filter
+ * @throws Error if fairness lens feature is not enabled
+ */
+export async function getRepresentationBreakdown(
+  groupBy: DeiGroupBy,
+  filterDepartment?: string | null
+): Promise<RepresentationResult> {
+  return invoke('get_representation_breakdown', {
+    groupBy,
+    filterDepartment: filterDepartment ?? null
+  });
+}
+
+/**
+ * Get rating parity by demographic field
+ * @param groupBy - "gender" or "ethnicity"
+ * @throws Error if fairness lens feature is not enabled
+ */
+export async function getRatingParity(
+  groupBy: DeiGroupBy
+): Promise<RatingParityResult> {
+  return invoke('get_rating_parity', { groupBy });
+}
+
+/**
+ * Get promotion rates by demographic field
+ * Infers promotions from job title keywords
+ * @param groupBy - "gender" or "ethnicity"
+ * @throws Error if fairness lens feature is not enabled
+ */
+export async function getPromotionRates(
+  groupBy: DeiGroupBy
+): Promise<PromotionRatesResult> {
+  return invoke('get_promotion_rates', { groupBy });
+}
+
+/**
+ * Get complete fairness lens summary (all DEI metrics)
+ * @throws Error if fairness lens feature is not enabled
+ */
+export async function getFairnessLensSummary(): Promise<FairnessLensSummary> {
+  return invoke('get_fairness_lens_summary');
+}

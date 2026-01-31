@@ -12,6 +12,7 @@ import { CompanySetup } from '../company/CompanySetup';
 import { BackupRestore } from './BackupRestore';
 import { PersonaSelector } from './PersonaSelector';
 import { SignalsDisclaimerModal } from './SignalsDisclaimerModal';
+import { FairnessDisclaimerModal } from './FairnessDisclaimerModal';
 import { getDataPath, getSetting, setSetting } from '../../lib/tauri-commands';
 
 interface SettingsPanelProps {
@@ -30,6 +31,11 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [signalsEnabled, setSignalsEnabled] = useState(false);
   const [signalsAcknowledged, setSignalsAcknowledged] = useState(false);
   const [showSignalsDisclaimer, setShowSignalsDisclaimer] = useState(false);
+
+  // V2.4.2: Fairness Lens state
+  const [fairnessLensEnabled, setFairnessLensEnabled] = useState(false);
+  const [fairnessLensAcknowledged, setFairnessLensAcknowledged] = useState(false);
+  const [showFairnessDisclaimer, setShowFairnessDisclaimer] = useState(false);
 
   // Load settings on mount
   useEffect(() => {
@@ -50,6 +56,15 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       getSetting('signals_acknowledged')
         .then((value) => setSignalsAcknowledged(value === 'true'))
         .catch(() => setSignalsAcknowledged(false));
+
+      // V2.4.2: Load fairness lens settings
+      getSetting('fairness_lens_enabled')
+        .then((value) => setFairnessLensEnabled(value === 'true'))
+        .catch(() => setFairnessLensEnabled(false));
+
+      getSetting('fairness_lens_acknowledged')
+        .then((value) => setFairnessLensAcknowledged(value === 'true'))
+        .catch(() => setFairnessLensAcknowledged(false));
     }
   }, [isOpen]);
 
@@ -108,6 +123,46 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       await setSetting('signals_enabled', 'true');
       setSignalsAcknowledged(true);
       setSignalsEnabled(true);
+    } catch {
+      // Failed to save
+    }
+  }, []);
+
+  // V2.4.2: Handle fairness lens toggle
+  const handleFairnessLensToggle = useCallback(async () => {
+    if (fairnessLensEnabled) {
+      // Disabling - no confirmation needed
+      setFairnessLensEnabled(false);
+      try {
+        await setSetting('fairness_lens_enabled', 'false');
+      } catch {
+        setFairnessLensEnabled(true);
+      }
+    } else {
+      // Enabling - check if already acknowledged
+      if (fairnessLensAcknowledged) {
+        // Already acknowledged, just enable
+        setFairnessLensEnabled(true);
+        try {
+          await setSetting('fairness_lens_enabled', 'true');
+        } catch {
+          setFairnessLensEnabled(false);
+        }
+      } else {
+        // Show disclaimer modal
+        setShowFairnessDisclaimer(true);
+      }
+    }
+  }, [fairnessLensEnabled, fairnessLensAcknowledged]);
+
+  // V2.4.2: Handle enabling after fairness disclaimer acknowledgment
+  const handleFairnessLensEnable = useCallback(async () => {
+    setShowFairnessDisclaimer(false);
+    try {
+      await setSetting('fairness_lens_acknowledged', 'true');
+      await setSetting('fairness_lens_enabled', 'true');
+      setFairnessLensAcknowledged(true);
+      setFairnessLensEnabled(true);
     } catch {
       // Failed to save
     }
@@ -212,6 +267,71 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     <p className="text-xs text-amber-800">
                       Attention signals are heuristic indicators based on aggregate team patterns,
                       not predictions about individuals. Use as conversation starters, not conclusions.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* V2.4.2: Fairness Lens Toggle */}
+              <div className="flex items-center justify-between gap-4 p-4 bg-stone-50 border border-stone-200 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-teal-100">
+                    <svg
+                      className="w-4 h-4 text-teal-600"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                      />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-stone-700">
+                      Fairness Lens
+                    </p>
+                    <p className="text-xs text-stone-500">
+                      Demographic representation analysis with privacy guardrails
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={fairnessLensEnabled}
+                  onClick={handleFairnessLensToggle}
+                  className={`
+                    relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full
+                    border-2 border-transparent transition-colors duration-200 ease-in-out
+                    focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2
+                    ${fairnessLensEnabled ? 'bg-teal-500' : 'bg-stone-300'}
+                  `}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`
+                      pointer-events-none inline-block h-5 w-5 transform rounded-full
+                      bg-white shadow ring-0 transition duration-200 ease-in-out
+                      ${fairnessLensEnabled ? 'translate-x-5' : 'translate-x-0'}
+                    `}
+                  />
+                </button>
+              </div>
+
+              {/* Fairness Lens disclaimer banner when enabled */}
+              {fairnessLensEnabled && (
+                <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                  <div className="flex gap-2">
+                    <svg className="w-4 h-4 text-teal-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p className="text-xs text-teal-800">
+                      This analysis reflects historical data patterns and may reveal systemic biases.
+                      Groups with fewer than 5 members are suppressed to protect privacy.
                     </p>
                   </div>
                 </div>
@@ -340,6 +460,13 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         isOpen={showSignalsDisclaimer}
         onClose={() => setShowSignalsDisclaimer(false)}
         onEnable={handleSignalsEnable}
+      />
+
+      {/* V2.4.2: First-use disclaimer modal for Fairness Lens */}
+      <FairnessDisclaimerModal
+        isOpen={showFairnessDisclaimer}
+        onClose={() => setShowFairnessDisclaimer(false)}
+        onEnable={handleFairnessLensEnable}
       />
     </>
   );

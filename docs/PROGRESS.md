@@ -15,6 +15,57 @@
 Most recent session should be first.
 -->
 
+## Session 2026-01-31 (V2.4.2 DEI & Fairness Lens)
+
+**Phase:** V2.4.2
+**Focus:** Implement demographic representation analysis with privacy guardrails
+
+### Completed
+- [x] V2.4.2a — Representation breakdown queries (gender/ethnicity by department)
+- [x] V2.4.2b — Rating distribution analysis by demographic group
+- [x] V2.4.2c — Promotion rate tracking (inferred from job title keywords)
+- [x] V2.4.2d — Small-n suppression (groups < 5 hidden with lock icon)
+- [x] V2.4.2e — Bias disclaimers on all outputs
+- [x] V2.4.2f — DEI query audit trail with `query_category` column
+
+### Files Created (5)
+```
+src-tauri/src/dei.rs                              (~400 LOC) — Core DEI module with 19 unit tests
+src-tauri/migrations/005_dei_audit.sql            (~10 LOC)  — Adds query_category to audit_log
+src/lib/dei-types.ts                              (~110 LOC) — TypeScript types and helpers
+src/components/settings/FairnessDisclaimerModal.tsx (~160 LOC) — First-use consent modal
+src/components/analytics/FairnessLensCard.tsx     (~400 LOC) — Main UI card (tabs: representation, ratings, promotions)
+```
+
+### Files Modified (5)
+```
+src-tauri/src/lib.rs                 — Added mod dei, 5 Tauri commands
+src-tauri/src/audit.rs               — Added query_category field to types and queries
+src-tauri/src/analytics_templates.rs — Added 3 ethnicity templates
+src/components/settings/SettingsPanel.tsx — Added Fairness Lens toggle with disclaimer
+src/lib/tauri-commands.ts            — Added DEI command wrappers
+```
+
+### Key Design Decisions
+- **Privacy guardrails:** MIN_GROUP_SIZE=5 prevents individual identification
+- **Opt-in consent:** Two settings keys (enabled + acknowledged) for consent tracking
+- **Promotion inference:** Uses job title keywords (Senior, Lead, Manager, Director, VP, Head)
+- **Audit trail:** query_category column enables filtering DEI queries
+
+### Verified
+- [x] TypeScript compiles (npm run type-check passes)
+- [x] Frontend builds successfully
+- [x] 36 Rust tests pass (dei, analytics_templates, audit modules)
+- [x] 19 new DEI unit tests all pass
+
+### Next Session Should
+1. Manual test Fairness Lens feature end-to-end (enable via Settings)
+2. Verify suppression UI renders correctly for small groups
+3. Consider adding FairnessLensCard to analytics panel/dashboard
+4. Run Pause Point V2.4 verification checklist
+
+---
+
 ## Session 2026-01-30 (Onboarding Flow Improvements)
 
 **Phase:** V2 Feature Planning Pause

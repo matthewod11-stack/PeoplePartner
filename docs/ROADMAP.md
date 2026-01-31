@@ -594,12 +594,12 @@ Systemic risk identification with strong disclaimers.
 
 Representation analysis with appropriate guardrails.
 
-- [ ] V2.4.2a Create representation breakdown queries (gender/ethnicity by dept/level)
-- [ ] V2.4.2b Add rating distribution analysis by demographic group
-- [ ] V2.4.2c Implement promotion delta tracking
-- [ ] V2.4.2d Add small-n suppression (hide groups <5)
-- [ ] V2.4.2e Add bias disclaimers ("data may reflect historical bias")
-- [ ] V2.4.2f Add DEI query audit trail
+- [x] V2.4.2a Create representation breakdown queries (gender/ethnicity by dept/level)
+- [x] V2.4.2b Add rating distribution analysis by demographic group
+- [x] V2.4.2c Implement promotion delta tracking (inferred from job title keywords)
+- [x] V2.4.2d Add small-n suppression (hide groups <5)
+- [x] V2.4.2e Add bias disclaimers ("data may reflect historical bias")
+- [x] V2.4.2f Add DEI query audit trail (query_category column)
 
 ### Pause Point V2.4
 **Verification Required:**
@@ -812,8 +812,8 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 [x] V2.3.2a-f Analytics Panel (6 tasks)
 [x] V2.3.2g-l Insight Canvas (6 tasks complete)
 [ ] PAUSE V2.3: Visualization Layer verified
-[ ] V2.4.1a-f Attrition & Sentiment Signals (6 tasks, V2.4.1e deferred)
-[ ] V2.4.2a-f DEI & Fairness Lens (6 tasks)
+[x] V2.4.1a-f Attrition & Sentiment Signals (6 tasks, V2.4.1e deferred)
+[x] V2.4.2a-f DEI & Fairness Lens (6 tasks)
 [ ] PAUSE V2.4: Intelligence Layer verified
 [ ] V2.5.1a-f Data Quality Center (6 tasks)
 [ ] PAUSE V2.5: Phase V2 Complete

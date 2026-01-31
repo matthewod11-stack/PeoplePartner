@@ -93,7 +93,12 @@ pub fn is_supported_combination(intent: ChartIntent, group_by: GroupBy) -> bool 
             | (ChartIntent::AttritionAnalysis, GroupBy::Quarter)
             | (ChartIntent::AttritionAnalysis, GroupBy::Department)
             | (ChartIntent::AttritionAnalysis, GroupBy::Gender)
+            | (ChartIntent::AttritionAnalysis, GroupBy::Ethnicity)
             | (ChartIntent::AttritionAnalysis, GroupBy::TenureBucket)
+            // RatingDistribution + Ethnicity (V2.4.2)
+            | (ChartIntent::RatingDistribution, GroupBy::Ethnicity)
+            // EnpsBreakdown + Ethnicity (V2.4.2)
+            | (ChartIntent::EnpsBreakdown, GroupBy::Ethnicity)
             // TenureDistribution combinations
             | (ChartIntent::TenureDistribution, GroupBy::TenureBucket)
             | (ChartIntent::TenureDistribution, GroupBy::Department)
@@ -553,6 +558,71 @@ fn get_sql_template(intent: ChartIntent, group_by: GroupBy) -> Option<&'static s
             "#,
         ),
 
+        // V2.4.2: Rating distribution by ethnicity
+        (ChartIntent::RatingDistribution, GroupBy::Ethnicity) => Some(
+            r#"
+            WITH latest_ratings AS (
+                SELECT
+                    pr.employee_id,
+                    pr.overall_rating,
+                    e.ethnicity,
+                    ROW_NUMBER() OVER (PARTITION BY pr.employee_id ORDER BY rc.end_date DESC) as rn
+                FROM performance_ratings pr
+                JOIN review_cycles rc ON pr.review_cycle_id = rc.id
+                JOIN employees e ON pr.employee_id = e.id
+                WHERE e.status = 'active'
+            )
+            SELECT COALESCE(ethnicity, 'Not Specified') as label,
+                   ROUND(AVG(overall_rating), 2) as value
+            FROM latest_ratings WHERE rn = 1
+            GROUP BY ethnicity ORDER BY value DESC
+            "#,
+        ),
+
+        // V2.4.2: eNPS by ethnicity
+        (ChartIntent::EnpsBreakdown, GroupBy::Ethnicity) => Some(
+            r#"
+            WITH latest_responses AS (
+                SELECT
+                    er.employee_id,
+                    er.score,
+                    e.ethnicity,
+                    ROW_NUMBER() OVER (PARTITION BY er.employee_id ORDER BY er.survey_date DESC) as rn
+                FROM enps_responses er
+                JOIN employees e ON er.employee_id = e.id
+                WHERE e.status = 'active'
+            ),
+            ethnicity_scores AS (
+                SELECT
+                    COALESCE(ethnicity, 'Not Specified') as ethnicity_group,
+                    COUNT(CASE WHEN score >= 9 THEN 1 END) as promoters,
+                    COUNT(CASE WHEN score <= 6 THEN 1 END) as detractors,
+                    COUNT(*) as total
+                FROM latest_responses
+                WHERE rn = 1
+                GROUP BY ethnicity
+            )
+            SELECT
+                ethnicity_group as label,
+                CAST(ROUND((promoters * 100.0 / total) - (detractors * 100.0 / total)) AS INTEGER) as value
+            FROM ethnicity_scores
+            WHERE total >= 3
+            ORDER BY value DESC
+            "#,
+        ),
+
+        // V2.4.2: Attrition by ethnicity
+        (ChartIntent::AttritionAnalysis, GroupBy::Ethnicity) => Some(
+            r#"
+            SELECT COALESCE(ethnicity, 'Not Specified') as label, COUNT(*) as value
+            FROM employees
+            WHERE status = 'terminated'
+              AND termination_date >= date('now', 'start of year')
+            GROUP BY ethnicity
+            ORDER BY value DESC
+            "#,
+        ),
+
         // Headcount by quarter (time series)
         (ChartIntent::HeadcountBy, GroupBy::Quarter) => Some(
             r#"
@@ -855,13 +925,27 @@ mod tests {
             GroupBy::Status
         ));
 
+        // V2.4.2: Ethnicity combinations now supported
+        assert!(is_supported_combination(
+            ChartIntent::RatingDistribution,
+            GroupBy::Ethnicity
+        ));
+        assert!(is_supported_combination(
+            ChartIntent::EnpsBreakdown,
+            GroupBy::Ethnicity
+        ));
+        assert!(is_supported_combination(
+            ChartIntent::AttritionAnalysis,
+            GroupBy::Ethnicity
+        ));
+
         // Unsupported combinations (random invalid ones)
         assert!(!is_supported_combination(
             ChartIntent::EnpsBreakdown,
             GroupBy::WorkState
         ));
         assert!(!is_supported_combination(
-            ChartIntent::RatingDistribution,
+            ChartIntent::TenureDistribution,
             GroupBy::Ethnicity
         ));
     }

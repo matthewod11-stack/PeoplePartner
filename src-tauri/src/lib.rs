@@ -13,6 +13,7 @@ mod company;
 mod context;
 mod conversations;
 mod db;
+mod dei;
 mod employees;
 mod enps;
 mod file_parser;
@@ -1016,6 +1017,96 @@ async fn get_team_themes(
 }
 
 // ============================================================================
+// DEI & Fairness Lens Commands (V2.4.2)
+// ============================================================================
+
+/// Check if the fairness lens feature is enabled
+#[tauri::command]
+async fn is_fairness_lens_enabled(
+    state: tauri::State<'_, Database>,
+) -> Result<bool, String> {
+    dei::is_fairness_lens_enabled(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get representation breakdown by demographic field
+/// @param group_by - "gender" or "ethnicity"
+/// @param filter_department - Optional department filter
+#[tauri::command]
+async fn get_representation_breakdown(
+    state: tauri::State<'_, Database>,
+    group_by: String,
+    filter_department: Option<String>,
+) -> Result<dei::RepresentationResult, String> {
+    // Check if feature is enabled first
+    let enabled = dei::is_fairness_lens_enabled(&state.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !enabled {
+        return Err("Fairness lens feature is not enabled".to_string());
+    }
+
+    dei::get_representation_breakdown(&state.pool, &group_by, filter_department.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get rating parity by demographic field
+/// @param group_by - "gender" or "ethnicity"
+#[tauri::command]
+async fn get_rating_parity(
+    state: tauri::State<'_, Database>,
+    group_by: String,
+) -> Result<dei::RatingParityResult, String> {
+    // Check if feature is enabled first
+    let enabled = dei::is_fairness_lens_enabled(&state.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !enabled {
+        return Err("Fairness lens feature is not enabled".to_string());
+    }
+
+    dei::get_rating_parity(&state.pool, &group_by)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get promotion rates by demographic field
+/// Infers promotions from job title keywords
+/// @param group_by - "gender" or "ethnicity"
+#[tauri::command]
+async fn get_promotion_rates(
+    state: tauri::State<'_, Database>,
+    group_by: String,
+) -> Result<dei::PromotionRatesResult, String> {
+    // Check if feature is enabled first
+    let enabled = dei::is_fairness_lens_enabled(&state.pool)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !enabled {
+        return Err("Fairness lens feature is not enabled".to_string());
+    }
+
+    dei::get_promotion_rates(&state.pool, &group_by)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get complete fairness lens summary (all DEI metrics)
+#[tauri::command]
+async fn get_fairness_lens_summary(
+    state: tauri::State<'_, Database>,
+) -> Result<dei::FairnessLensSummary, String> {
+    dei::get_fairness_lens_summary(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
 // Monday Digest Commands
 // ============================================================================
 
@@ -1433,6 +1524,12 @@ pub fn run() {
             is_signals_enabled,
             get_attention_signals,
             get_team_themes,
+            // DEI & Fairness Lens (V2.4.2)
+            is_fairness_lens_enabled,
+            get_representation_breakdown,
+            get_rating_parity,
+            get_promotion_rates,
+            get_fairness_lens_summary,
             // Monday Digest
             get_digest_data,
             // Memory (cross-conversation)
