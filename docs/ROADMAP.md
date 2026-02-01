@@ -601,12 +601,12 @@ Representation analysis with appropriate guardrails.
 - [x] V2.4.2e Add bias disclaimers ("data may reflect historical bias")
 - [x] V2.4.2f Add DEI query audit trail (query_category column)
 
-### Pause Point V2.4
+### Pause Point V2.4 ✓ VERIFIED
 **Verification Required:**
-- [ ] Team-level attention signals appear on org chart
-- [ ] Clicking team shows anonymized theme drilldown
-- [ ] DEI breakdown queries work with small-n suppression
-- [ ] All signals show appropriate disclaimers
+- [x] ~~Team-level attention signals appear on org chart~~ (DEFERRED with Org Chart)
+- [x] Clicking team shows anonymized theme drilldown
+- [x] DEI breakdown queries work with small-n suppression
+- [x] All signals show appropriate disclaimers
 
 ---
 
@@ -642,7 +642,7 @@ Pre-import validation and fix workflow.
 **Goal:** Real users, real feedback
 
 ### 5.1 Distribution
-- [ ] 5.1.1 Create app icon
+- [x] 5.1.1 Create app icon
 - [ ] 5.1.2 Configure macOS code signing
 - [ ] 5.1.3 Configure notarization
 - [ ] 5.1.4 Set up tauri-plugin-updater
@@ -814,7 +814,7 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 [ ] PAUSE V2.3: Visualization Layer verified
 [x] V2.4.1a-f Attrition & Sentiment Signals (6 tasks, V2.4.1e deferred)
 [x] V2.4.2a-f DEI & Fairness Lens (6 tasks)
-[ ] PAUSE V2.4: Intelligence Layer verified
+[x] PAUSE V2.4: Intelligence Layer verified
 [ ] V2.5.1a-f Data Quality Center (6 tasks)
 [ ] PAUSE V2.5: Phase V2 Complete
 

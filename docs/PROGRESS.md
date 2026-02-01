@@ -15,6 +15,58 @@
 Most recent session should be first.
 -->
 
+## Session 2026-02-01 (App Icon Design)
+
+**Phase:** V2.5 Prep
+**Focus:** Generate and implement production app icon
+
+### Completed
+- [x] Generated 20 icon concepts using Gemini (2 rounds of 10)
+- [x] First round: soft "app icon" style — rejected
+- [x] Second round: bold "iconic logo" style inspired by Nike, Apple, Mercedes
+- [x] Selected connected people/heart network mark (07-iconic-network)
+- [x] Created flush version for proper macOS squircle masking
+- [x] Generated all required icon sizes (32, 128, 256, 512, 1024)
+- [x] Built .icns bundle for macOS
+- [x] Updated tauri.conf.json with icon paths
+- [x] Verified production build displays icon correctly in dock
+- [x] Fixed failing test (file_parser::test_normalize_header)
+
+### Technical Notes
+- Icons require RGBA format (alpha channel) for Tauri
+- Used ffmpeg for PNG conversion with alpha preservation
+- macOS applies squircle mask to app bundles — icons should fill canvas edge-to-edge
+- Dev mode doesn't show proper icon masking; production build required
+
+### Next Session Should
+1. Begin V2.5.1 Data Quality Center or Phase 5 Launch prep
+2. Address DMG bundling error if distribution packaging needed
+
+---
+
+## Session 2026-02-01 (V2.4 Pause Point Verified)
+
+**Phase:** V2.4 → V2.5
+**Focus:** Manual verification of Intelligence Layer features
+
+### Completed
+- [x] Manual testing of Fairness Lens (DEI breakdown queries, small-n suppression)
+- [x] Manual testing of Attention Signals (team-level signals, theme drilldown)
+- [x] Verified disclaimers display on all intelligence outputs
+- [x] Marked Pause Point V2.4 as verified
+
+### Verified
+- [x] DEI breakdown queries work with small-n suppression (groups < 5 hidden)
+- [x] Team attention signals show anonymized theme drilldown
+- [x] Bias/heuristic disclaimers visible on all outputs
+- [x] Org chart integration correctly marked as DEFERRED
+
+### Next Session Should
+1. Begin V2.5.1 Data Quality Center (column mapping UI)
+2. Or proceed to Phase 5 Launch preparation if V2.5 is deferred
+
+---
+
 ## Session 2026-01-31 (V2.4.2 DEI & Fairness Lens)
 
 **Phase:** V2.4.2

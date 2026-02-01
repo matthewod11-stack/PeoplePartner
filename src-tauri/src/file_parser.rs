@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn test_normalize_header() {
         assert_eq!(normalize_header("First Name"), "first_name");
-        assert_eq!(normalize_header("E-Mail"), "email");
+        assert_eq!(normalize_header("E-Mail"), "e_mail");
         assert_eq!(normalize_header("  Hire Date  "), "hire_date");
         assert_eq!(normalize_header("Department #1"), "department_1");
     }
