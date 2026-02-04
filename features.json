@@ -2,10 +2,10 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-01-31",
+    "lastUpdated": "2026-02-04",
     "project": "HR Command Center",
-    "totalFeatures": 50,
-    "passing": 43,
+    "totalFeatures": 52,
+    "passing": 46,
     "failing": 0,
     "inProgress": 0
   },
@@ -205,8 +205,8 @@
   },
   "verification": {
     "pause-0a": {
-      "status": "not-started",
-      "notes": "Tooling verified"
+      "status": "pass",
+      "notes": "Tooling verified — Rust 1.92, Node 22.21, Tauri CLI 2.9.6"
     },
     "pause-1a": {
       "status": "pass",
@@ -223,6 +223,10 @@
     "pause-4a": {
       "status": "pass",
       "notes": "Phase 4A verified: Onboarding flow + Settings panel both complete and tested"
+    },
+    "pause-v2.4": {
+      "status": "pass",
+      "notes": "V2.4 verified: Attention signals, DEI fairness lens, small-n suppression, disclaimers all working. Org chart deferred."
     },
     "pause-5a": {
       "status": "not-started",

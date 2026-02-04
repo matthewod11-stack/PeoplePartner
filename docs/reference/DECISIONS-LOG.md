@@ -141,11 +141,13 @@
 ---
 
 ### 13. Legal Disclaimers
-**Decision:** Onboarding acknowledgment only
+**Decision:** Onboarding acknowledgment only (V1); Feature-specific consent modals (V2)
 
 **Rationale:** One-time acceptance during first launch. Keeps chat UI clean without constant reminders.
 
 **Implementation:** Checkbox + "I understand this is not legal advice and I should verify with qualified counsel."
+
+**V2 Evolution (February 2026):** V2 features (Attention Signals, DEI & Fairness Lens) introduce feature-specific first-use consent modals. This is an intentional evolution — the original decision referred to general chat disclaimers, not specialized feature onboarding. These modals explain the limitations and appropriate use of predictive/analytical features before first use, then don't appear again.
 
 ---
 

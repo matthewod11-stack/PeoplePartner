@@ -38,10 +38,10 @@ A desktop AI assistant for HR professionals that keeps your employee data local 
 | 2. Context | ✅ Done | AI knows your company, query-adaptive retrieval, 63 tests |
 | 3. Protection | ✅ Done | PII redaction, audit logging, error handling, offline mode |
 | 4. Polish | ✅ Done | Onboarding, Settings, Backup/Restore, Monday Digest |
-| V2 Features | 🔨 Current | Intelligence & visualization enhancements |
-| 5. Launch | ⏳ Planned | Distribution, license system, beta users |
+| V2 Features | ✅ V2.4 Done | Intelligence & visualization enhancements |
+| 5. Launch | 🔨 Current | Distribution, license system, beta users |
 
-**Current:** V2.1.1 API Key Setup Guide complete. Next: Command Palette or Persona Switcher.
+**Current:** V2.4.2 DEI & Fairness Lens complete. Next: V2.5 Data Quality Center or Phase 5 Distribution.
 
 ## Key Features (Planned)
 
@@ -110,5 +110,5 @@ Proprietary. See LICENSE file for details.
 
 ---
 
-*Last updated: December 2025*
-*Status: Phase 4.1 — Onboarding Flow implementation complete*
+*Last updated: February 2026*
+*Status: V2.4 — DEI & Fairness Lens complete, preparing for V2.5/Launch*

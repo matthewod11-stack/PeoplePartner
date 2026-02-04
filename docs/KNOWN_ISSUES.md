@@ -44,7 +44,7 @@ These decisions were made during planning and should NOT be revisited during imp
 | Company Profile | Required: name + state | Minimal friction, ensures context |
 | License | One-time online validation | Works offline forever after |
 | Telemetry | Opt-in anonymous | Onboarding choice |
-| Disclaimers | Onboarding acknowledgment only | One-time acceptance |
+| Disclaimers | Onboarding + feature-specific consent | One-time onboarding + V2 feature first-use modals |
 | Employee Updates | CSV re-import + individual edit | Both bulk and quick-fix supported |
 | Work Locations | Single primary per employee | Defer multi-state to V2 |
 | Audit Log | Standard (redacted content) | Balance compliance + privacy |
@@ -59,12 +59,36 @@ These decisions were made during planning and should NOT be revisited during imp
 ## Open Issues
 
 ### [PHASE-2.1] file_parser::tests::test_normalize_header test failure
-**Status:** Open → Planned fix in Feature #14
+**Status:** Resolved
 **Severity:** Low
 **Discovered:** 2025-12-17
-**Description:** The `test_normalize_header` test in file_parser.rs is failing. Test expects header normalization to produce "email" but receives different value.
-**Workaround:** Test can be skipped; file parsing works correctly in production.
-**Resolution:** Will be addressed by **Data Quality Center** (Feature #14) — strengthen normalization rules and add HRIS-specific header mappings with golden tests.
+**Resolved:** 2026-02-01
+**Description:** The `test_normalize_header` test in file_parser.rs was failing. Test expected header normalization to produce "email" but received different value.
+**Workaround:** N/A (fixed)
+**Resolution:** Fixed in 2026-02-01 session — test now passes. Additional improvements may come with **Data Quality Center** (Feature #14).
+
+### [DOCS] Documentation sync issues — BATCH RESOLVED
+**Status:** Resolved
+**Severity:** Medium
+**Discovered:** 2026-02-04
+**Resolved:** 2026-02-04
+**Description:** Multiple documentation files had drifted out of sync:
+- Roadmap linear checklist showed Phases 0–3 and V2.1/V2.2 as unchecked
+- V2 "Promoted to Roadmap" table showed all features as "Not started"
+- README showed V2.1.1 as current (was actually V2.4.2)
+- features.json had pause-0a as "not-started"
+- HR-Command-Center-Roadmap.md was out of sync with implementation status
+- file_parser test status was inconsistent
+- Disclaimers decision conflicted with V2 consent modals
+
+**Resolution:** All issues addressed in 2026-02-04 documentation sync session:
+- Updated README.md status to V2.4.2
+- Checked off completed tasks in docs/ROADMAP.md linear checklist
+- Updated V2 feature status table in this file
+- Fixed features.json pause-0a status
+- Added historical reference note to HR-Command-Center-Roadmap.md
+- Updated disclaimers decision to reflect V2 evolution
+- Marked file_parser test as resolved
 
 ---
 
@@ -93,16 +117,16 @@ The following features are now tracked in `docs/ROADMAP.md` under **Phase V2: In
 
 | Feature | Roadmap Section | Status |
 |---------|-----------------|--------|
-| Interactive Analytics Panel + Insight Canvas | V2.3.2 | Not started |
-| API Key Setup Guide (Enhanced) | V2.1.1 | Not started |
-| Org Chart View + Heatmap Overlay | V2.3.1 | Not started |
-| Persona Switcher | V2.1.3 | Not started |
-| Command Palette + Shortcuts | V2.1.2 | Not started |
-| Answer Verification Mode | V2.1.4 | Not started |
-| Structured Data Extraction (Review Highlights) | V2.2.1 | Not started |
-| Query-Adaptive Retrieval v2 | V2.2.2 | Not started |
-| Attrition & Sentiment Signals | V2.4.1 | Not started |
-| DEI & Fairness Lens | V2.4.2 | Not started |
+| API Key Setup Guide (Enhanced) | V2.1.1 | ✅ Complete |
+| Command Palette + Shortcuts | V2.1.2 | ✅ Complete |
+| Persona Switcher | V2.1.3 | ✅ Complete |
+| Answer Verification Mode | V2.1.4 | ✅ Complete |
+| Structured Data Extraction (Review Highlights) | V2.2.1 | ✅ Complete |
+| Query-Adaptive Retrieval v2 | V2.2.2 | ✅ Complete |
+| Interactive Analytics Panel + Insight Canvas | V2.3.2 | ✅ Complete |
+| Attrition & Sentiment Signals | V2.4.1 | ✅ Complete |
+| DEI & Fairness Lens | V2.4.2 | ✅ Complete |
+| Org Chart View + Heatmap Overlay | V2.3.1 | Deferred (parking lot) |
 | Data Quality Center | V2.5.1 | Not started |
 
 ---
@@ -393,4 +417,4 @@ The conversation card title text in the sidebar is too large/not adaptive. Title
 
 ---
 
-*Last updated: December 2025*
+*Last updated: February 2026*

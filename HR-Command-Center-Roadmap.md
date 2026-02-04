@@ -1,5 +1,8 @@
 # HR Command Center — Product Roadmap
 
+> **Note:** This is the original product specification from planning (December 2025).
+> For current implementation status, see [docs/ROADMAP.md](./docs/ROADMAP.md).
+
 > **Vision:** Your company's HR brain—private, always in context, always ready to help.
 
 ---
