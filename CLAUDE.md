@@ -216,6 +216,92 @@ Run tests: `cargo test --manifest-path src-tauri/Cargo.toml`
 
 ---
 
+## Environment Setup
+
+**IMPORTANT**: This is a Tauri app requiring both Node.js and Rust toolchains.
+
+### Quick Start
+```bash
+./scripts/dev-init.sh    # Verifies environment and shows current progress
+```
+
+### Manual Setup
+```bash
+# 1. Install Node dependencies
+npm install
+
+# 2. Verify Rust toolchain
+rustc --version          # Should be 1.70+
+cargo --version
+
+# 3. Install Tauri CLI (if not present)
+cargo install tauri-cli
+```
+
+### Environment Verification
+```bash
+# Check everything is ready
+npm run type-check && cargo check --manifest-path src-tauri/Cargo.toml
+```
+
+---
+
+## Testing Conventions
+
+### Rust Tests (Backend)
+```bash
+# All tests
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Specific module
+cargo test --manifest-path src-tauri/Cargo.toml context
+cargo test --manifest-path src-tauri/Cargo.toml chat
+cargo test --manifest-path src-tauri/Cargo.toml memory
+```
+
+### TypeScript (Frontend)
+```bash
+npm run type-check       # tsc --noEmit
+```
+
+### Key Test Modules
+| Module | Location | Test Count |
+|--------|----------|------------|
+| `context.rs` | `src-tauri/src/context.rs` | 25 tests |
+| `chat.rs` | `src-tauri/src/chat.rs` | 8 tests |
+| `memory.rs` | `src-tauri/src/memory.rs` | 8 tests |
+| `conversations.rs` | `src-tauri/src/conversations.rs` | 7 tests |
+
+### Before Writing Tests
+Always check existing test patterns in the module. Rust tests use `#[cfg(test)]` modules at the bottom of each file.
+
+---
+
+## Key Type Definitions
+
+### Frontend Types (`src/lib/types.ts`)
+| Type | Purpose |
+|------|---------|
+| `Employee` | Core employee record with work_state, demographics |
+| `Conversation` | Chat session with title, messages |
+| `Message` | Individual chat message (user/assistant) |
+| `MemoryEntry` | Cross-conversation memory item |
+
+### Tauri Commands (`src/lib/tauri-commands.ts`)
+All frontend-backend communication goes through Tauri commands. Check this file for:
+- Command names and signatures
+- Request/response types
+- Error handling patterns
+
+### Rust Types
+Key structs are in `src-tauri/src/`:
+- `db.rs` — Database connection and migrations
+- `employees.rs` — Employee model and CRUD
+- `context.rs` — ContextBuilder, QueryIntent
+- `chat.rs` — ChatMessage, ConversationTrimmer
+
+---
+
 ## Common Commands
 
 ```bash
