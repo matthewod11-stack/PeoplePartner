@@ -2,10 +2,10 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-02-04",
+    "lastUpdated": "2026-02-06",
     "project": "HR Command Center",
-    "totalFeatures": 52,
-    "passing": 46,
+    "totalFeatures": 53,
+    "passing": 47,
     "failing": 0,
     "inProgress": 0
   },
@@ -183,6 +183,10 @@
     "fairness-lens": {
       "status": "pass",
       "notes": "V2.4.2 complete: Demographic representation analysis (gender/ethnicity). Rust backend (dei.rs ~400 LOC, 19 tests), FairnessLensCard UI (representation, rating parity, promotion rates tabs), Settings toggle with first-use disclaimer. Small-n suppression (MIN_GROUP_SIZE=5), audit trail with query_category. ~1,080 LOC total."
+    },
+    "audit-remediation": {
+      "status": "pass",
+      "notes": "V2.4.5 complete: All 28 audit findings resolved. Security (S1-S8): parameterized SQL, Keychain migration, CSP, rehype-sanitize, expanded PII, redacted audit responses, sanitized errors. Accessibility (A1-A10): focus trap, chart screen reader, keyboard nav, form labels, ARIA attributes. Performance (P1-P10): split contexts, buffered streaming, N+1 fix, lazy loading, useMemo, React.memo. ~1,455 LOC added, ~580 removed across 30 files."
     }
   },
   "phase-5": {
@@ -227,6 +231,10 @@
     "pause-v2.4": {
       "status": "pass",
       "notes": "V2.4 verified: Attention signals, DEI fairness lens, small-n suppression, disclaimers all working. Org chart deferred."
+    },
+    "pause-v2.4.5": {
+      "status": "pass",
+      "notes": "V2.4.5 verified: All 28 audit findings remediated — parameterized SQL, Keychain, CSP, focus trap, screen reader charts, streaming perf, N+1 fix."
     },
     "pause-5a": {
       "status": "not-started",

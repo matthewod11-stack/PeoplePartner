@@ -109,6 +109,7 @@ function WelcomeContent({
           viewBox="0 0 24 24"
           stroke="currentColor"
           strokeWidth={1.5}
+          aria-hidden="true"
         >
           <path
             strokeLinecap="round"
@@ -152,7 +153,7 @@ export function MessageList({
   // Auto-scroll to bottom when messages change or loading starts
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length, isLoading]);
+  }, [messages, isLoading]);
 
   // Empty state - show welcome content
   if (messages.length === 0) {
@@ -197,6 +198,11 @@ export function MessageList({
                 chartData={message.chartData}
                 analyticsRequest={message.analyticsRequest}
                 messageId={message.id}
+                renderAsPlainText={
+                  isLoading &&
+                  index === messages.length - 1 &&
+                  message.role === 'assistant'
+                }
               />
             )}
           </div>

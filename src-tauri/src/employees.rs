@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
+use std::collections::HashMap;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -30,7 +31,8 @@ impl From<sqlx::Error> for EmployeeError {
         if err_str.contains("UNIQUE constraint failed") && err_str.contains("email") {
             EmployeeError::DuplicateEmail("An employee with this email already exists".to_string())
         } else {
-            EmployeeError::Database(err_str)
+            eprintln!("[employees] Database error: {}", err_str);
+            EmployeeError::Database("An internal database error occurred".to_string())
         }
     }
 }
@@ -137,6 +139,80 @@ pub struct EmployeeFilter {
 pub struct EmployeeListResult {
     pub employees: Vec<Employee>,
     pub total: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmployeeWithLatestRating {
+    #[serde(flatten)]
+    pub employee: Employee,
+    #[serde(rename = "latestRating")]
+    pub latest_rating: Option<crate::performance_ratings::PerformanceRating>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmployeeListWithRatingsResult {
+    pub employees: Vec<EmployeeWithLatestRating>,
+    pub total: i64,
+}
+
+fn build_employee_filter_where_clause(filter: &EmployeeFilter) -> (String, Vec<String>) {
+    let mut conditions: Vec<String> = Vec::new();
+    let mut bindings: Vec<String> = Vec::new();
+
+    if let Some(status) = filter.status.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        conditions.push("status = ?".to_string());
+        bindings.push(status.to_string());
+    }
+
+    if let Some(department) = filter
+        .department
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        conditions.push("department = ?".to_string());
+        bindings.push(department.to_string());
+    }
+
+    if let Some(work_state) = filter
+        .work_state
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        conditions.push("work_state = ?".to_string());
+        bindings.push(work_state.to_string());
+    }
+
+    if let Some(search) = filter.search.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        let pattern = format!("%{}%", search);
+        conditions.push("(full_name LIKE ? OR email LIKE ?)".to_string());
+        bindings.push(pattern.clone());
+        bindings.push(pattern);
+    }
+
+    if let Some(gender) = filter.gender.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        conditions.push("gender = ?".to_string());
+        bindings.push(gender.to_string());
+    }
+
+    if let Some(ethnicity) = filter
+        .ethnicity
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        conditions.push("ethnicity = ?".to_string());
+        bindings.push(ethnicity.to_string());
+    }
+
+    let where_clause = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", conditions.join(" AND "))
+    };
+
+    (where_clause, bindings)
 }
 
 // ============================================================================
@@ -313,59 +389,110 @@ pub async fn list_employees(
     let limit = limit.unwrap_or(100);
     let offset = offset.unwrap_or(0);
 
-    // Build WHERE clause dynamically
-    let mut conditions: Vec<String> = Vec::new();
-
-    if let Some(ref status) = filter.status {
-        conditions.push(format!("status = '{}'", status.replace('\'', "''")));
-    }
-    if let Some(ref department) = filter.department {
-        conditions.push(format!("department = '{}'", department.replace('\'', "''")));
-    }
-    if let Some(ref work_state) = filter.work_state {
-        conditions.push(format!("work_state = '{}'", work_state.replace('\'', "''")));
-    }
-    if let Some(ref search) = filter.search {
-        let escaped = search.replace('\'', "''");
-        conditions.push(format!(
-            "(full_name LIKE '%{}%' OR email LIKE '%{}%')",
-            escaped, escaped
-        ));
-    }
-    // V2.3.2l: Additional filters for drilldown
-    if let Some(ref gender) = filter.gender {
-        conditions.push(format!("gender = '{}'", gender.replace('\'', "''")));
-    }
-    if let Some(ref ethnicity) = filter.ethnicity {
-        conditions.push(format!("ethnicity = '{}'", ethnicity.replace('\'', "''")));
-    }
-
-    let where_clause = if conditions.is_empty() {
-        String::new()
-    } else {
-        format!("WHERE {}", conditions.join(" AND "))
-    };
+    let (where_clause, bindings) = build_employee_filter_where_clause(&filter);
 
     // Get total count
-    let count_query = format!("SELECT COUNT(*) as count FROM employees {}", where_clause);
-    let total: i64 = sqlx::query(&count_query)
-        .fetch_one(pool)
-        .await?
-        .get("count");
+    let count_query = format!("SELECT COUNT(*) as count FROM employees{}", where_clause);
+    let mut count_query_builder = sqlx::query(&count_query);
+    for binding in &bindings {
+        count_query_builder = count_query_builder.bind(binding);
+    }
+    let total: i64 = count_query_builder.fetch_one(pool).await?.get("count");
 
     // Get paginated results
     let query = format!(
-        "SELECT * FROM employees {} ORDER BY full_name ASC LIMIT ? OFFSET ?",
+        "SELECT * FROM employees{} ORDER BY full_name ASC LIMIT ? OFFSET ?",
         where_clause
     );
 
-    let employees = sqlx::query_as::<_, Employee>(&query)
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(pool)
-        .await?;
+    let mut list_query_builder = sqlx::query_as::<_, Employee>(&query);
+    for binding in &bindings {
+        list_query_builder = list_query_builder.bind(binding);
+    }
+    let employees = list_query_builder.bind(limit).bind(offset).fetch_all(pool).await?;
 
     Ok(EmployeeListResult { employees, total })
+}
+
+/// List employees with latest performance rating in a single backend call
+pub async fn list_employees_with_ratings(
+    pool: &DbPool,
+    filter: EmployeeFilter,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<EmployeeListWithRatingsResult, EmployeeError> {
+    let list_result = list_employees(pool, filter, limit, offset).await?;
+
+    if list_result.employees.is_empty() {
+        return Ok(EmployeeListWithRatingsResult {
+            employees: Vec::new(),
+            total: list_result.total,
+        });
+    }
+
+    let employee_ids: Vec<String> = list_result
+        .employees
+        .iter()
+        .map(|employee| employee.id.clone())
+        .collect();
+    let placeholders = vec!["?"; employee_ids.len()].join(", ");
+
+    let latest_ratings_query = format!(
+        r#"
+        WITH ranked_ratings AS (
+            SELECT
+                pr.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pr.employee_id
+                    ORDER BY COALESCE(rc.start_date, pr.rating_date, pr.created_at) DESC, pr.created_at DESC
+                ) AS rn
+            FROM performance_ratings pr
+            LEFT JOIN review_cycles rc ON rc.id = pr.review_cycle_id
+            WHERE pr.employee_id IN ({})
+        )
+        SELECT
+            id,
+            employee_id,
+            review_cycle_id,
+            overall_rating,
+            goals_rating,
+            competencies_rating,
+            reviewer_id,
+            rating_date,
+            created_at,
+            updated_at
+        FROM ranked_ratings
+        WHERE rn = 1
+        "#,
+        placeholders
+    );
+
+    let mut ratings_query =
+        sqlx::query_as::<_, crate::performance_ratings::PerformanceRating>(&latest_ratings_query);
+    for employee_id in &employee_ids {
+        ratings_query = ratings_query.bind(employee_id);
+    }
+
+    let latest_ratings = ratings_query.fetch_all(pool).await?;
+    let mut latest_rating_by_employee: HashMap<String, crate::performance_ratings::PerformanceRating> =
+        HashMap::new();
+    for rating in latest_ratings {
+        latest_rating_by_employee.insert(rating.employee_id.clone(), rating);
+    }
+
+    let employees = list_result
+        .employees
+        .into_iter()
+        .map(|employee| EmployeeWithLatestRating {
+            latest_rating: latest_rating_by_employee.remove(&employee.id),
+            employee,
+        })
+        .collect();
+
+    Ok(EmployeeListWithRatingsResult {
+        employees,
+        total: list_result.total,
+    })
 }
 
 /// Get all unique departments

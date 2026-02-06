@@ -11,12 +11,17 @@
  * V2.3.2: Now supports chart visualization for analytics queries.
  */
 
+import { memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
 import { VerificationBadge } from './VerificationBadge';
 import { AnalyticsChart } from '../analytics';
 import type { VerificationResult } from '../../lib/types';
 import type { ChartData, AnalyticsRequest } from '../../lib/analytics-types';
+
+const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
+const MARKDOWN_REHYPE_PLUGINS = [rehypeSanitize];
 
 /**
  * Formats an ISO timestamp string to a user-friendly time display
@@ -53,9 +58,11 @@ interface MessageBubbleProps {
   analyticsRequest?: AnalyticsRequest;
   /** V2.3.2h: Message ID for pinning to insight canvas */
   messageId?: string;
+  /** Render as plain text when streaming to avoid markdown re-parse churn */
+  renderAsPlainText?: boolean;
 }
 
-export function MessageBubble({
+export const MessageBubble = memo(function MessageBubble({
   content,
   role,
   timestamp,
@@ -64,6 +71,7 @@ export function MessageBubble({
   chartData,
   analyticsRequest,
   messageId,
+  renderAsPlainText = false,
 }: MessageBubbleProps) {
   const isUser = role === 'user';
   const formattedTime = timestamp ? formatTime(timestamp) : null;
@@ -88,7 +96,7 @@ export function MessageBubble({
           }
         `}
       >
-        {isUser ? (
+        {isUser || renderAsPlainText ? (
           // User messages: plain text preserves exactly what they typed
           <p className="text-base leading-relaxed whitespace-pre-wrap break-words">
             {content || '\u00A0'}
@@ -106,7 +114,10 @@ export function MessageBubble({
             prose-strong:font-semibold prose-strong:text-stone-900
             prose-blockquote:border-l-primary-400 prose-blockquote:text-stone-600
           ">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+              rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+            >
               {content || '\u00A0'}
             </ReactMarkdown>
           </div>
@@ -142,6 +153,6 @@ export function MessageBubble({
       )}
     </div>
   );
-}
+});
 
 export default MessageBubble;

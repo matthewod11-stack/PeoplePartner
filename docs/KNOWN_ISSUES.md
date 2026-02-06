@@ -90,6 +90,14 @@ These decisions were made during planning and should NOT be revisited during imp
 - Updated disclaimers decision to reflect V2 evolution
 - Marked file_parser test as resolved
 
+### [SECURITY] Full database encryption-at-rest (SQLCipher) deferred
+**Status:** Deferred
+**Severity:** Medium
+**Discovered:** 2026-02-06
+**Description:** Audit review found the local employee database is not cryptographically encrypted at rest by default. Current posture is improved with strict file permissions (`0600`) and Keychain-backed API key storage, but the SQLite content remains plaintext if host-level filesystem access is obtained.
+**Workaround:** Keep current mitigations (OS access controls + restrictive DB/WAL/SHM permissions) and treat host security as required.
+**Resolution:** Deferred intentionally to a dedicated post-launch migration track so release-critical functionality is not destabilized. Revisit with a planned SQLCipher migration and compatibility testing (open/create/migrate/backup/restore).
+
 ---
 
 ## Resolved Issues

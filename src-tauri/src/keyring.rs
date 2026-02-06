@@ -1,10 +1,19 @@
 // HR Command Center - Secure API Key Storage
-// Uses file-based storage in app data directory
-// TODO: Migrate to proper Keychain once keyring crate issues resolved
+// Stores API keys in the macOS Keychain (with legacy file migration)
 
 use std::fs;
 use std::path::PathBuf;
 use thiserror::Error;
+
+#[cfg(target_os = "macos")]
+use security_framework::passwords::{
+    delete_generic_password, generic_password, set_generic_password, PasswordOptions,
+};
+#[cfg(target_os = "macos")]
+use security_framework_sys::base::errSecItemNotFound;
+
+const KEYCHAIN_SERVICE: &str = "com.hrcommandcenter.app";
+const KEYCHAIN_ACCOUNT: &str = "anthropic_api_key";
 
 #[derive(Error, Debug)]
 pub enum KeyringError {
@@ -26,8 +35,8 @@ impl From<std::io::Error> for KeyringError {
     }
 }
 
-/// Get the path to the API key file
-fn get_key_path() -> Result<PathBuf, KeyringError> {
+/// Legacy file path used by older app versions before Keychain migration
+fn get_legacy_key_path() -> Result<PathBuf, KeyringError> {
     let home = std::env::var("HOME")
         .map_err(|_| KeyringError::StorageAccess("Could not find home directory".into()))?;
     let app_dir = PathBuf::from(home)
@@ -39,6 +48,20 @@ fn get_key_path() -> Result<PathBuf, KeyringError> {
     fs::create_dir_all(&app_dir)?;
 
     Ok(app_dir.join(".api_key"))
+}
+
+fn get_legacy_api_key() -> Result<String, KeyringError> {
+    let path = get_legacy_key_path()?;
+    let key = fs::read_to_string(&path)?;
+    Ok(key.trim().to_string())
+}
+
+fn delete_legacy_api_key() -> Result<(), KeyringError> {
+    let path = get_legacy_key_path()?;
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 // Make KeyringError serializable for Tauri commands
@@ -58,43 +81,102 @@ pub fn store_api_key(api_key: &str) -> Result<(), KeyringError> {
         return Err(KeyringError::InvalidFormat);
     }
 
-    let path = get_key_path()?;
-    fs::write(&path, api_key)?;
-
-    // Set restrictive permissions (owner read/write only)
-    #[cfg(unix)]
+    #[cfg(target_os = "macos")]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = fs::Permissions::from_mode(0o600);
-        fs::set_permissions(&path, perms)?;
+        set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, api_key.as_bytes())
+            .map_err(|err| KeyringError::StorageAccess(format!("Keychain write failed: {}", err)))?;
+
+        // Cleanup legacy file storage if present
+        let _ = delete_legacy_api_key();
+        return Ok(());
     }
 
-    println!("[keyring] API key stored to {:?}", path);
-    Ok(())
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Non-macOS fallback keeps existing file-based behavior.
+        let path = get_legacy_key_path()?;
+        fs::write(&path, api_key)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = fs::Permissions::from_mode(0o600);
+            fs::set_permissions(&path, perms)?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Retrieve the Anthropic API key
 pub fn get_api_key() -> Result<String, KeyringError> {
-    let path = get_key_path()?;
-    let key = fs::read_to_string(&path)?;
-    Ok(key.trim().to_string())
+    #[cfg(target_os = "macos")]
+    {
+        match generic_password(PasswordOptions::new_generic_password(
+            KEYCHAIN_SERVICE,
+            KEYCHAIN_ACCOUNT,
+        )) {
+            Ok(key_bytes) => {
+                return String::from_utf8(key_bytes)
+                    .map(|key| key.trim().to_string())
+                    .map_err(|_| {
+                        KeyringError::StorageAccess(
+                            "Stored API key is not valid UTF-8".to_string(),
+                        )
+                    });
+            }
+            Err(err) if err.code() == errSecItemNotFound => {
+                // Migrate legacy plaintext key file to Keychain on first read.
+                if let Ok(legacy_key) = get_legacy_api_key() {
+                    store_api_key(&legacy_key)?;
+                    return Ok(legacy_key);
+                }
+                return Err(KeyringError::NotFound);
+            }
+            Err(err) => {
+                return Err(KeyringError::StorageAccess(format!(
+                    "Keychain read failed: {}",
+                    err
+                )))
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        get_legacy_api_key()
+    }
 }
 
 /// Delete the API key
 pub fn delete_api_key() -> Result<(), KeyringError> {
-    let path = get_key_path()?;
-    if path.exists() {
-        fs::remove_file(&path)?;
+    #[cfg(target_os = "macos")]
+    {
+        match delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
+            Ok(_) => {}
+            // Already missing is fine for delete operations
+            Err(err) if err.code() == errSecItemNotFound => {}
+            Err(err) => {
+                return Err(KeyringError::StorageAccess(format!(
+                    "Keychain delete failed: {}",
+                    err
+                )))
+            }
+        }
+
+        let _ = delete_legacy_api_key();
+        return Ok(());
     }
-    Ok(())
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        delete_legacy_api_key()
+    }
 }
 
 /// Check if an API key exists
 pub fn has_api_key() -> bool {
-    match get_key_path() {
-        Ok(path) => path.exists(),
-        Err(_) => false,
-    }
+    get_api_key().is_ok()
 }
 
 #[cfg(test)]
@@ -115,8 +197,7 @@ mod tests {
 
     #[test]
     fn test_storage_path() {
-        let path = get_key_path().unwrap();
-        println!("Storage path: {:?}", path);
+        let path = get_legacy_key_path().unwrap();
         assert!(path.to_string_lossy().contains("com.hrcommandcenter.app"));
     }
 }

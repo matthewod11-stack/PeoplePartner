@@ -24,5 +24,14 @@ export default defineConfig({
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     // Produce sourcemaps for debug builds
     sourcemap: !!process.env.TAURI_DEBUG,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          recharts: ['recharts'],
+          markdown: ['react-markdown', 'remark-gfm', 'rehype-sanitize'],
+          search: ['fuse.js'],
+        },
+      },
+    },
   },
 });

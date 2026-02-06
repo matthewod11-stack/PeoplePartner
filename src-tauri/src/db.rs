@@ -33,9 +33,43 @@ pub fn get_db_path(app: &AppHandle) -> PathBuf {
     app_data_dir.join("hr_command_center.db")
 }
 
+fn apply_restrictive_permissions(path: &PathBuf) -> std::io::Result<()> {
+    // Ensure the file exists before applying file permissions.
+    if !path.exists() {
+        fs::File::create(path)?;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    }
+
+    Ok(())
+}
+
+fn harden_db_file_permissions(db_path: &PathBuf) -> std::io::Result<()> {
+    apply_restrictive_permissions(db_path)?;
+
+    // SQLite sidecar files may be created at runtime depending on journaling mode.
+    // If they exist, align permissions with the main DB file.
+    let wal_path = PathBuf::from(format!("{}-wal", db_path.to_string_lossy()));
+    if wal_path.exists() {
+        apply_restrictive_permissions(&wal_path)?;
+    }
+
+    let shm_path = PathBuf::from(format!("{}-shm", db_path.to_string_lossy()));
+    if shm_path.exists() {
+        apply_restrictive_permissions(&shm_path)?;
+    }
+
+    Ok(())
+}
+
 /// Initialize the database connection pool
 pub async fn init_db(app: &AppHandle) -> DbResult<DbPool> {
     let db_path = get_db_path(app);
+    harden_db_file_permissions(&db_path)?;
     let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
     let pool = SqlitePoolOptions::new()
@@ -45,6 +79,7 @@ pub async fn init_db(app: &AppHandle) -> DbResult<DbPool> {
 
     // Run migrations
     run_migrations(&pool).await?;
+    harden_db_file_permissions(&db_path)?;
 
     Ok(pool)
 }

@@ -63,22 +63,28 @@ export function DrilldownModal({
     }
   };
 
+  const isRowInteractive = !!onSelectEmployee;
+
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="max-w-2xl">
       <div className="space-y-4">
         {/* Header */}
         <div className="border-b border-stone-200 pb-4">
           <h2 className="text-lg font-semibold text-stone-900">{label}</h2>
-          <p className="text-sm text-stone-500 mt-1">
+          <p className="text-sm text-stone-500 mt-1" aria-live="polite">
             {isLoading ? 'Loading...' : `${total} employee${total === 1 ? '' : 's'}`}
           </p>
         </div>
 
         {/* Content */}
         {isLoading ? (
-          <div className="py-12 text-center text-stone-500">Loading employees...</div>
+          <div className="py-12 text-center text-stone-500" role="status" aria-live="polite">
+            Loading employees...
+          </div>
         ) : error ? (
-          <div className="py-12 text-center text-red-600">{error}</div>
+          <div className="py-12 text-center text-red-600" role="alert" aria-live="assertive">
+            {error}
+          </div>
         ) : employees.length === 0 ? (
           <div className="py-12 text-center">
             <p className="text-stone-600 font-medium mb-1">No employees found</p>
@@ -103,9 +109,18 @@ export function DrilldownModal({
                     key={employee.id}
                     className={`
                       hover:bg-stone-50 transition-colors
-                      ${onSelectEmployee ? 'cursor-pointer' : ''}
+                      ${isRowInteractive ? 'cursor-pointer' : ''}
                     `}
-                    onClick={() => handleSelectEmployee(employee)}
+                    tabIndex={isRowInteractive ? 0 : undefined}
+                    role={isRowInteractive ? 'button' : undefined}
+                    aria-label={isRowInteractive ? `Open employee ${employee.full_name}` : undefined}
+                    onClick={isRowInteractive ? () => handleSelectEmployee(employee) : undefined}
+                    onKeyDown={isRowInteractive ? (event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        handleSelectEmployee(employee);
+                      }
+                    } : undefined}
                   >
                     <td className="px-4 py-3">
                       <div className="font-medium text-stone-900">{employee.full_name}</div>

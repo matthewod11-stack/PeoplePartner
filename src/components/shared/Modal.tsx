@@ -5,7 +5,7 @@
  * Follows the HR Command Center "Warm Editorial" design aesthetic.
  */
 
-import { useEffect, useCallback, type ReactNode } from 'react';
+import { useEffect, useCallback, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 interface ModalProps {
@@ -28,28 +28,83 @@ export function Modal({
   children,
   maxWidth = 'max-w-lg',
 }: ModalProps) {
-  // Handle Escape key
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
+
+  // Handle keyboard navigation + Escape
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
+        return;
+      }
+
+      if (e.key !== 'Tab') {
+        return;
+      }
+
+      const dialog = dialogRef.current;
+      if (!dialog) {
+        return;
+      }
+
+      const focusableElements = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => !el.hasAttribute('disabled') && el.tabIndex !== -1);
+
+      if (focusableElements.length === 0) {
+        e.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
       }
     },
     [onClose]
   );
 
-  // Add/remove event listener and prevent body scroll
+  // Focus trap initialization + body scroll lock
   useEffect(() => {
     if (isOpen) {
-      document.addEventListener('keydown', handleKeyDown);
+      previousFocusRef.current = document.activeElement as HTMLElement | null;
       document.body.style.overflow = 'hidden';
+
+      window.setTimeout(() => {
+        const dialog = dialogRef.current;
+        if (!dialog) {
+          return;
+        }
+
+        const firstFocusable = dialog.querySelector<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+
+        if (firstFocusable) {
+          firstFocusable.focus();
+        } else {
+          dialog.focus();
+        }
+      }, 0);
     }
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
+      previousFocusRef.current?.focus();
     };
-  }, [isOpen, handleKeyDown]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -58,7 +113,8 @@ export function Modal({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby={title ? 'modal-title' : undefined}
+      aria-labelledby={title ? titleId : undefined}
+      onKeyDown={(e) => handleKeyDown(e.nativeEvent)}
     >
       {/* Backdrop */}
       <div
@@ -69,6 +125,8 @@ export function Modal({
 
       {/* Modal content */}
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         className={`
           relative w-full ${maxWidth}
           bg-white rounded-xl shadow-xl
@@ -80,7 +138,7 @@ export function Modal({
         {title && (
           <div className="flex items-center justify-between px-5 py-4 border-b border-stone-200">
             <h2
-              id="modal-title"
+              id={titleId}
               className="text-lg font-medium text-stone-800"
             >
               {title}
@@ -96,6 +154,7 @@ export function Modal({
                 viewBox="0 0 24 24"
                 stroke="currentColor"
                 strokeWidth={2}
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -125,6 +184,7 @@ export function Modal({
               viewBox="0 0 24 24"
               stroke="currentColor"
               strokeWidth={2}
+              aria-hidden="true"
             >
               <path
                 strokeLinecap="round"

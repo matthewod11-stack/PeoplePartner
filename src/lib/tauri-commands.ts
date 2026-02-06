@@ -259,6 +259,15 @@ export interface EmployeeListResult {
   total: number;
 }
 
+export interface EmployeeWithLatestRating extends Employee {
+  latestRating?: PerformanceRating;
+}
+
+export interface EmployeeListWithRatingsResult {
+  employees: EmployeeWithLatestRating[];
+  total: number;
+}
+
 /**
  * Result from bulk import operation
  */
@@ -315,6 +324,17 @@ export async function listEmployees(
   offset?: number
 ): Promise<EmployeeListResult> {
   return invoke('list_employees', { filter, limit, offset });
+}
+
+/**
+ * List employees with latest performance rating in one backend call
+ */
+export async function listEmployeesWithRatings(
+  filter: EmployeeFilter = {},
+  limit?: number,
+  offset?: number
+): Promise<EmployeeListWithRatingsResult> {
+  return invoke('list_employees_with_ratings', { filter, limit, offset });
 }
 
 /**

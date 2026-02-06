@@ -58,7 +58,7 @@ pub struct AuditEntry {
     pub id: String,
     pub conversation_id: Option<String>,
     pub request_redacted: String,
-    pub response_text: String,
+    pub response_text: String, // Stored as redacted metadata, not full model output
     pub context_used: Option<String>, // JSON array of employee IDs
     pub created_at: String,
     /// V2.4.2: Query category for filtering (e.g., "dei")
@@ -117,6 +117,10 @@ pub async fn create_audit_entry(
     input: CreateAuditEntry,
 ) -> Result<AuditEntry, AuditError> {
     let id = Uuid::new_v4().to_string();
+    let response_metadata = format!(
+        "[REDACTED_RESPONSE length={} chars]",
+        input.response_text.chars().count()
+    );
 
     // Serialize employee IDs to JSON
     let context_used = if input.employee_ids_used.is_empty() {
@@ -136,7 +140,7 @@ pub async fn create_audit_entry(
     .bind(&id)
     .bind(&input.conversation_id)
     .bind(&input.request_redacted)
-    .bind(&input.response_text)
+    .bind(&response_metadata)
     .bind(&context_used)
     .bind(&input.query_category)
     .execute(pool)

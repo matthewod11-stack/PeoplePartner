@@ -1,19 +1,34 @@
-import { useState, useCallback, useEffect, useRef, Component, type ReactNode } from 'react';
+import { useState, useCallback, useEffect, useRef, lazy, Suspense, Component, type ReactNode } from 'react';
 import { LayoutProvider } from './contexts/LayoutContext';
 import { EmployeeProvider } from './contexts/EmployeeContext';
-import { ConversationProvider, useConversations } from './contexts/ConversationContext';
+import {
+  ConversationProvider,
+  useConversationMessages,
+  useConversationMeta,
+  useConversationActions,
+} from './contexts/ConversationContext';
 import { AppShell } from './components/layout/AppShell';
 import { ChatInput, MessageList, type ChatInputHandle } from './components/chat';
 import { PIINotification } from './components/shared';
-import { EmployeeDetail, EmployeeEdit } from './components/employees';
-import { ImportWizard } from './components/import';
-import { SettingsPanel } from './components/settings';
-import { CommandPalette } from './components/CommandPalette';
+import { EmployeeDetail } from './components/employees';
 import { TestDataImporter } from './components/dev/TestDataImporter';
 import { OnboardingProvider, OnboardingFlow, useOnboarding } from './components/onboarding';
-import { InsightBoardView } from './components/insights';
 import { useEmployees } from './contexts/EmployeeContext';
 import { useNetwork, useCommandPalette } from './hooks';
+
+const EmployeeEdit = lazy(() =>
+  import('./components/employees/EmployeeEdit').then((module) => ({ default: module.EmployeeEdit }))
+);
+const ImportWizard = lazy(() =>
+  import('./components/import/ImportWizard').then((module) => ({ default: module.ImportWizard }))
+);
+const SettingsPanel = lazy(() =>
+  import('./components/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel }))
+);
+const CommandPalette = lazy(() => import('./components/CommandPalette'));
+const InsightBoardView = lazy(() =>
+  import('./components/insights/InsightBoardView').then((module) => ({ default: module.InsightBoardView }))
+);
 
 // Error Boundary to catch React render errors
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
@@ -61,15 +76,14 @@ interface ChatAreaProps {
 
 function ChatArea({ chatInputRef }: ChatAreaProps) {
   // Get conversation state from context
+  const { messages, isLoading } = useConversationMessages();
+  const { piiNotification } = useConversationMeta();
   const {
-    messages,
-    isLoading,
     sendMessage,
     retryMessage,
     startNewConversation,
-    piiNotification,
     clearPiiNotification,
-  } = useConversations();
+  } = useConversationActions();
 
   // Get selected employee from context (for prioritizing in context builder)
   const { selectedEmployeeId, selectEmployee } = useEmployees();
@@ -149,12 +163,14 @@ function EmployeeEditModal() {
   if (!selectedEmployee) return null;
 
   return (
-    <EmployeeEdit
-      employee={selectedEmployee}
-      isOpen={isEditModalOpen}
-      onClose={closeEditModal}
-      onSave={updateEmployeeInList}
-    />
+    <Suspense fallback={null}>
+      <EmployeeEdit
+        employee={selectedEmployee}
+        isOpen={isEditModalOpen}
+        onClose={closeEditModal}
+        onSave={updateEmployeeInList}
+      />
+    </Suspense>
   );
 }
 
@@ -162,11 +178,13 @@ function ImportWizardModal() {
   const { isImportWizardOpen, closeImportWizard, refreshEmployees } = useEmployees();
 
   return (
-    <ImportWizard
-      isOpen={isImportWizardOpen}
-      onClose={closeImportWizard}
-      onComplete={refreshEmployees}
-    />
+    <Suspense fallback={null}>
+      <ImportWizard
+        isOpen={isImportWizardOpen}
+        onClose={closeImportWizard}
+        onComplete={refreshEmployees}
+      />
+    </Suspense>
   );
 }
 
@@ -247,22 +265,28 @@ function MainAppContent() {
       </AppShell>
       <EmployeeEditModal />
       <ImportWizardModal />
-      <SettingsPanel
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
+      <Suspense fallback={null}>
+        <SettingsPanel
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      </Suspense>
       <TestDataModal
         isOpen={isTestDataModalOpen}
         onClose={() => setIsTestDataModalOpen(false)}
       />
-      <CommandPalette
-        isOpen={isPaletteOpen}
-        onClose={closePalette}
-      />
-      <InsightBoardView
-        boardId={selectedBoardId}
-        onClose={() => setSelectedBoardId(null)}
-      />
+      <Suspense fallback={null}>
+        <CommandPalette
+          isOpen={isPaletteOpen}
+          onClose={closePalette}
+        />
+      </Suspense>
+      <Suspense fallback={null}>
+        <InsightBoardView
+          boardId={selectedBoardId}
+          onClose={() => setSelectedBoardId(null)}
+        />
+      </Suspense>
     </>
   );
 }

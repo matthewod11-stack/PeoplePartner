@@ -109,7 +109,7 @@ export function ApiKeyInput({
             </div>
             <div>
               <p className="text-sm font-medium text-green-800">API Key Configured</p>
-              <p className="text-xs text-green-600">Stored securely in macOS Keychain</p>
+              <p className="text-xs text-green-600">Stored securely in your system keychain</p>
             </div>
           </div>
           <button
@@ -244,7 +244,7 @@ export function ApiKeyInput({
 
       {/* Error message */}
       {errorMessage && (
-        <p className="mt-2 text-sm text-red-600">{errorMessage}</p>
+        <p className="mt-2 text-sm text-red-600" role="alert" aria-live="assertive">{errorMessage}</p>
       )}
 
       {/* Format hint with contextual guidance */}

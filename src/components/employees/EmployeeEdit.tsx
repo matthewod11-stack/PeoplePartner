@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Employee } from '../../lib/types';
 import { updateEmployee, type UpdateEmployeeInput } from '../../lib/tauri-commands';
+import { Modal } from '../shared/Modal';
 
 // =============================================================================
 // Types
@@ -61,14 +62,17 @@ function FormField({
     transition-all duration-200
   `;
 
+  const fieldId = `employee-edit-${name}`;
+
   return (
     <div>
-      <label className="block text-sm font-medium text-stone-600 mb-1">
+      <label htmlFor={fieldId} className="block text-sm font-medium text-stone-600 mb-1">
         {label}
         {required && <span className="text-red-500 ml-1">*</span>}
       </label>
       {type === 'select' && options ? (
         <select
+          id={fieldId}
           name={name}
           value={value}
           onChange={(e) => onChange(name, e.target.value)}
@@ -82,6 +86,7 @@ function FormField({
         </select>
       ) : (
         <input
+          id={fieldId}
           type={type}
           name={name}
           value={value}
@@ -188,17 +193,6 @@ export function EmployeeEdit({ employee, isOpen, onClose, onSave }: EmployeeEdit
     }
   };
 
-  // Handle escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   if (!isOpen) return null;
 
   const statusOptions = [
@@ -216,183 +210,155 @@ export function EmployeeEdit({ employee, isOpen, onClose, onSave }: EmployeeEdit
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-        onClick={onClose}
-      />
+    <Modal isOpen={isOpen} onClose={onClose} title="Edit Employee" maxWidth="max-w-3xl">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Error message */}
+        {error && (
+          <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600" role="alert" aria-live="assertive">
+            {error}
+          </div>
+        )}
 
-      {/* Modal */}
-      <div className="relative w-full max-w-lg max-h-[90vh] bg-white rounded-xl shadow-2xl overflow-hidden">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-stone-200 flex items-center justify-between">
-          <h2 className="font-display text-lg font-semibold text-stone-800">
-            Edit Employee
-          </h2>
-          <button
-            onClick={onClose}
-            className="p-2.5 text-stone-500 hover:text-stone-700 rounded-lg hover:bg-stone-100 transition-colors"
-            aria-label="Close"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        {/* Basic Info */}
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            label="Full Name"
+            name="full_name"
+            value={formData.full_name}
+            onChange={handleChange}
+            required
+          />
+          <FormField
+            label="Email"
+            name="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange}
+            required
+          />
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="overflow-y-auto max-h-[calc(90vh-8rem)]">
-          <div className="px-6 py-4 space-y-4">
-            {/* Error message */}
-            {error && (
-              <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">
-                {error}
-              </div>
-            )}
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            label="Job Title"
+            name="job_title"
+            value={formData.job_title}
+            onChange={handleChange}
+            placeholder="e.g., Software Engineer"
+          />
+          <FormField
+            label="Department"
+            name="department"
+            value={formData.department}
+            onChange={handleChange}
+            placeholder="e.g., Engineering"
+          />
+        </div>
 
-            {/* Basic Info */}
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                label="Full Name"
-                name="full_name"
-                value={formData.full_name}
-                onChange={handleChange}
-                required
-              />
-              <FormField
-                label="Email"
-                name="email"
-                type="email"
-                value={formData.email}
-                onChange={handleChange}
-                required
-              />
-            </div>
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            label="Work State"
+            name="work_state"
+            value={formData.work_state}
+            onChange={handleChange}
+            placeholder="e.g., California"
+          />
+          <FormField
+            label="Hire Date"
+            name="hire_date"
+            type="date"
+            value={formData.hire_date}
+            onChange={handleChange}
+          />
+        </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                label="Job Title"
-                name="job_title"
-                value={formData.job_title}
-                onChange={handleChange}
-                placeholder="e.g., Software Engineer"
-              />
-              <FormField
-                label="Department"
-                name="department"
-                value={formData.department}
-                onChange={handleChange}
-                placeholder="e.g., Engineering"
-              />
-            </div>
+        <FormField
+          label="Status"
+          name="status"
+          type="select"
+          value={formData.status}
+          onChange={handleChange}
+          options={statusOptions}
+        />
 
-            <div className="grid grid-cols-2 gap-4">
-              <FormField
-                label="Work State"
-                name="work_state"
-                value={formData.work_state}
-                onChange={handleChange}
-                placeholder="e.g., California"
-              />
-              <FormField
-                label="Hire Date"
-                name="hire_date"
-                type="date"
-                value={formData.hire_date}
-                onChange={handleChange}
-              />
-            </div>
-
+        {/* Termination fields (shown when status is terminated) */}
+        {formData.status === 'terminated' && (
+          <div className="grid grid-cols-2 gap-4 p-4 bg-stone-50 rounded-lg">
             <FormField
-              label="Status"
-              name="status"
-              type="select"
-              value={formData.status}
+              label="Termination Date"
+              name="termination_date"
+              type="date"
+              value={formData.termination_date}
               onChange={handleChange}
-              options={statusOptions}
             />
+            <FormField
+              label="Reason"
+              name="termination_reason"
+              type="select"
+              value={formData.termination_reason}
+              onChange={handleChange}
+              options={terminationReasonOptions}
+            />
+          </div>
+        )}
 
-            {/* Termination fields (shown when status is terminated) */}
-            {formData.status === 'terminated' && (
-              <div className="grid grid-cols-2 gap-4 p-4 bg-stone-50 rounded-lg">
-                <FormField
-                  label="Termination Date"
-                  name="termination_date"
-                  type="date"
-                  value={formData.termination_date}
-                  onChange={handleChange}
-                />
-                <FormField
-                  label="Reason"
-                  name="termination_reason"
-                  type="select"
-                  value={formData.termination_reason}
-                  onChange={handleChange}
-                  options={terminationReasonOptions}
-                />
-              </div>
+        <SectionDivider title="Demographics" />
+
+        <div className="grid grid-cols-3 gap-4">
+          <FormField
+            label="Date of Birth"
+            name="date_of_birth"
+            type="date"
+            value={formData.date_of_birth}
+            onChange={handleChange}
+          />
+          <FormField
+            label="Gender"
+            name="gender"
+            value={formData.gender}
+            onChange={handleChange}
+            placeholder="Optional"
+          />
+          <FormField
+            label="Ethnicity"
+            name="ethnicity"
+            value={formData.ethnicity}
+            onChange={handleChange}
+            placeholder="Optional"
+          />
+        </div>
+
+        {/* Footer */}
+        <div className="pt-4 border-t border-stone-200 flex items-center justify-end gap-3 bg-stone-50 px-4 py-3 rounded-lg">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="
+              px-4 py-2 text-sm font-medium text-white
+              bg-primary-500 hover:bg-primary-600
+              rounded-lg transition-all
+              disabled:opacity-50 disabled:cursor-not-allowed
+              flex items-center gap-2
+            "
+          >
+            {isSaving && (
+              <svg className="w-4 h-4 animate-spin-slow" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
+                <path d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
+              </svg>
             )}
-
-            <SectionDivider title="Demographics" />
-
-            <div className="grid grid-cols-3 gap-4">
-              <FormField
-                label="Date of Birth"
-                name="date_of_birth"
-                type="date"
-                value={formData.date_of_birth}
-                onChange={handleChange}
-              />
-              <FormField
-                label="Gender"
-                name="gender"
-                value={formData.gender}
-                onChange={handleChange}
-                placeholder="Optional"
-              />
-              <FormField
-                label="Ethnicity"
-                name="ethnicity"
-                value={formData.ethnicity}
-                onChange={handleChange}
-                placeholder="Optional"
-              />
-            </div>
-          </div>
-
-          {/* Footer */}
-          <div className="px-6 py-4 border-t border-stone-200 flex items-center justify-end gap-3 bg-stone-50">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 hover:bg-stone-100 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="
-                px-4 py-2 text-sm font-medium text-white
-                bg-primary-500 hover:bg-primary-600
-                rounded-lg transition-all
-                disabled:opacity-50 disabled:cursor-not-allowed
-                flex items-center gap-2
-              "
-            >
-              {isSaving && (
-                <svg className="w-4 h-4 animate-spin-slow" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" className="opacity-25" />
-                  <path d="M12 2a10 10 0 0110 10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="opacity-75" />
-                </svg>
-              )}
-              {isSaving ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

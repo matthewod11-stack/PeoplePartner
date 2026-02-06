@@ -16,6 +16,38 @@
 Most recent session should be first.
 -->
 
+## Session 2026-02-06 (Audit Remediation Pass 1)
+
+**Phase:** V2.4.5 (Pre-Launch Audit)
+**Focus:** Methodical remediation of security, accessibility, and performance findings from `AUDIT-2026-02-05.md`
+
+### Completed
+- [x] Resolved Tier 1 launch blockers: `S1`, `S2`, `S3`, `P1`, `A1`, `A2`, `A3`
+- [x] Resolved high-priority items: `S4`, `S6`, `P2`, `P3`, `P4`, `A4`, `A5`, `A6`
+- [x] Resolved polish/security items: `S7`, `S8`, `P5`, `P6`, `P7`, `P8`, `P9`, `P10`, `A7`, `A8`, `A9`, `A10`
+- [x] Added explicit per-finding resolution ledger to `AUDIT-2026-02-05.md`
+- [x] Added backend command to remove employee ratings N+1 query pattern (`list_employees_with_ratings`)
+- [x] Split conversation state into focused contexts and buffered stream updates to reduce rerender cascades
+- [x] Added markdown sanitization and strict CSP configuration
+- [x] Migrated API key storage to macOS Keychain with legacy plaintext migration
+- [x] Hardened DB file permissions (main, WAL, SHM) as immediate at-rest mitigation
+
+### Verification
+- [x] `npm run type-check` passes
+- [x] `npm run build` passes
+- [x] `cargo check --offline` passes (warnings only)
+
+### Notes
+- `S5` (full encryption at rest) is mitigated via restrictive DB file permissions and sidecar hardening.
+- Full transparent database encryption still requires a SQLCipher-grade migration path and deployment validation.
+
+### Next Session Should
+1. Decide whether to implement full SQLCipher at-rest encryption before release or treat current mitigation as acceptable for launch.
+2. Run targeted manual accessibility QA pass (keyboard + screen reader) across modals/charts/command palette.
+3. If desired, tighten remaining large bundle warning by deeper chart-level route splitting.
+
+---
+
 ## Session 2026-02-06 (Repo Root Cleanup)
 
 **Phase:** Maintenance

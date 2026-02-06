@@ -217,6 +217,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       viewBox="0 0 24 24"
                       stroke="currentColor"
                       strokeWidth={2}
+                      aria-hidden="true"
                     >
                       <path
                         strokeLinecap="round"
@@ -238,6 +239,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   type="button"
                   role="switch"
                   aria-checked={signalsEnabled}
+                  aria-label="Toggle Attention Signals"
                   onClick={handleSignalsToggle}
                   className={`
                     relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full
@@ -261,7 +263,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               {signalsEnabled && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
                   <div className="flex gap-2">
-                    <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <p className="text-xs text-amber-800">
@@ -282,6 +284,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                       viewBox="0 0 24 24"
                       stroke="currentColor"
                       strokeWidth={2}
+                      aria-hidden="true"
                     >
                       <path
                         strokeLinecap="round"
@@ -303,6 +306,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   type="button"
                   role="switch"
                   aria-checked={fairnessLensEnabled}
+                  aria-label="Toggle Fairness Lens"
                   onClick={handleFairnessLensToggle}
                   className={`
                     relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full
@@ -326,7 +330,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               {fairnessLensEnabled && (
                 <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg">
                   <div className="flex gap-2">
-                    <svg className="w-4 h-4 text-teal-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-teal-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <p className="text-xs text-teal-800">
@@ -353,6 +357,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     viewBox="0 0 24 24"
                     stroke="currentColor"
                     strokeWidth={2}
+                    aria-hidden="true"
                   >
                     <path
                       strokeLinecap="round"
@@ -378,7 +383,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               >
                 {copyFeedback ? (
                   <span className="flex items-center gap-1 text-green-600">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                     Copied
@@ -412,6 +417,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     viewBox="0 0 24 24"
                     stroke="currentColor"
                     strokeWidth={2}
+                    aria-hidden="true"
                   >
                     <path
                       strokeLinecap="round"
@@ -433,6 +439,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 type="button"
                 role="switch"
                 aria-checked={telemetryEnabled}
+                aria-label="Toggle Anonymous Crash Reports"
                 onClick={() => handleTelemetryChange(!telemetryEnabled)}
                 className={`
                   relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full

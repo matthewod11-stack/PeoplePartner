@@ -7,7 +7,7 @@
  * V2.3.2l: Adds drilldown click handlers for chart segments.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useId } from 'react';
 import {
   BarChart,
   Bar,
@@ -28,7 +28,7 @@ import type { EmployeeFilter } from '../../lib/tauri-commands';
 import { FilterCaption } from './FilterCaption';
 import { BoardSelectorModal } from './BoardSelectorModal';
 import { Button } from '../ui/Button';
-import { useConversations } from '../../contexts/ConversationContext';
+import { useConversationMeta } from '../../contexts/ConversationContext';
 import { pinChart } from '../../lib/tauri-commands';
 import { createPinChartInput } from '../../lib/insight-canvas-types';
 import { buildEmployeeFilter, isDrilldownSupported } from '../../lib/drilldown-utils';
@@ -67,7 +67,9 @@ export function AnalyticsChart({
   messageId,
   onDrilldown,
 }: AnalyticsChartProps) {
-  const { conversationId } = useConversations();
+  const { conversationId } = useConversationMeta();
+  const chartSummaryId = useId();
+  const chartTableId = useId();
 
   // Modal and pin state
   const [showBoardModal, setShowBoardModal] = useState(false);
@@ -91,11 +93,23 @@ export function AnalyticsChart({
   );
 
   // Transform data for Recharts (needs 'name' key for labels)
-  const chartData = data.data.map((point) => ({
+  const chartData = useMemo(() => data.data.map((point) => ({
     name: point.label,
     value: point.value,
     percentage: point.percentage ?? 0,
-  }));
+  })), [data.data]);
+
+  const chartSummary = useMemo(() => {
+    if (chartData.length === 0) {
+      return `${data.title}. No chart points available.`;
+    }
+
+    const topPoint = chartData.reduce(
+      (max, point) => (point.value > max.value ? point : max),
+      chartData[0]
+    );
+    return `${data.title}. ${chartData.length} data point${chartData.length === 1 ? '' : 's'}. Highest value: ${topPoint.name} at ${topPoint.value}.`;
+  }, [chartData, data.title]);
 
   // Handle pin to board
   const handlePinToBoard = useCallback(
@@ -156,6 +170,7 @@ export function AnalyticsChart({
                   viewBox="0 0 24 24"
                   stroke="currentColor"
                   strokeWidth={2}
+                  aria-hidden="true"
                 >
                   <path
                     strokeLinecap="round"
@@ -171,11 +186,33 @@ export function AnalyticsChart({
         )}
       </div>
 
-      <div className="h-64">
+      <p id={chartSummaryId} className="sr-only">{chartSummary}</p>
+
+      <div className="h-64" role="img" aria-labelledby={chartSummaryId}>
         <ResponsiveContainer width="100%" height="100%">
           {renderChart(data.chart_type, chartData, data, canDrilldown, handleDrilldown)}
         </ResponsiveContainer>
       </div>
+
+      <table id={chartTableId} className="sr-only">
+        <caption>{data.title} data table</caption>
+        <thead>
+          <tr>
+            <th>Label</th>
+            <th>Value</th>
+            <th>Percentage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {chartData.map((point) => (
+            <tr key={point.name}>
+              <td>{point.name}</td>
+              <td>{point.value}</td>
+              <td>{point.percentage}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
       <FilterCaption filters={data.filters_applied} total={data.total} />
 

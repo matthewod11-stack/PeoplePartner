@@ -8,7 +8,10 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Fuse, { type IFuseOptions } from 'fuse.js';
-import { useConversations } from '../contexts/ConversationContext';
+import {
+  useConversationActions,
+  useConversationDirectory,
+} from '../contexts/ConversationContext';
 import { useEmployees } from '../contexts/EmployeeContext';
 import { useLayout } from '../contexts/LayoutContext';
 
@@ -38,7 +41,7 @@ interface CommandPaletteProps {
 
 function SearchIcon() {
   return (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
     </svg>
   );
@@ -46,7 +49,7 @@ function SearchIcon() {
 
 function ActionIcon() {
   return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
     </svg>
   );
@@ -54,7 +57,7 @@ function ActionIcon() {
 
 function ConversationIcon() {
   return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
     </svg>
   );
@@ -62,7 +65,7 @@ function ConversationIcon() {
 
 function EmployeeIcon() {
   return (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
       <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
     </svg>
   );
@@ -104,11 +107,13 @@ const fuseOptions: IFuseOptions<CommandItem> = {
 function ResultItem({
   item,
   isSelected,
+  optionId,
   onSelect,
   onMouseEnter,
 }: {
   item: CommandItem;
   isSelected: boolean;
+  optionId: string;
   onSelect: () => void;
   onMouseEnter: () => void;
 }) {
@@ -127,6 +132,9 @@ function ResultItem({
     <button
       onClick={onSelect}
       onMouseEnter={onMouseEnter}
+      id={optionId}
+      role="option"
+      aria-selected={isSelected}
       className={`
         w-full flex items-center gap-3 px-4 py-2.5
         text-left transition-colors duration-75
@@ -183,6 +191,7 @@ function ResultGroup({
   startIndex,
   onSelect,
   onItemHover,
+  getOptionId,
 }: {
   title: string;
   items: CommandItem[];
@@ -190,6 +199,7 @@ function ResultGroup({
   startIndex: number;
   onSelect: (item: CommandItem) => void;
   onItemHover: (index: number) => void;
+  getOptionId: (item: CommandItem) => string;
 }) {
   if (items.length === 0) return null;
 
@@ -203,6 +213,7 @@ function ResultGroup({
           key={item.id}
           item={item}
           isSelected={selectedIndex === startIndex + i}
+          optionId={getOptionId(item)}
           onSelect={() => onSelect(item)}
           onMouseEnter={() => onItemHover(startIndex + i)}
         />
@@ -221,7 +232,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Contexts
-  const { conversations, loadConversation, startNewConversation } = useConversations();
+  const { conversations } = useConversationDirectory();
+  const { loadConversation, startNewConversation } = useConversationActions();
   const { employees, selectEmployee, openImportWizard } = useEmployees();
   const { setSidebarTab, setSidebarOpen, toggleSidebar, toggleContextPanel, setContextPanelOpen } = useLayout();
 
@@ -307,6 +319,8 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     return [...actionItems, ...conversationItems, ...employeeItems];
   }, [conversations, employees, actionHandlers, loadConversation, selectEmployee, setContextPanelOpen, onClose]);
 
+  const fuse = useMemo(() => new Fuse(allItems, fuseOptions), [allItems]);
+
   // Filter/search items
   const filteredItems = useMemo(() => {
     if (!query.trim()) {
@@ -319,7 +333,6 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     }
 
     // With query: use Fuse.js
-    const fuse = new Fuse(allItems, fuseOptions);
     const results = fuse.search(query).map((r) => r.item);
 
     return {
@@ -327,13 +340,15 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       conversations: results.filter((i) => i.type === 'conversation').slice(0, 5),
       employees: results.filter((i) => i.type === 'employee').slice(0, 8),
     };
-  }, [query, allItems]);
+  }, [query, allItems, fuse]);
 
   // Flat list for keyboard navigation
   const flatResults = useMemo(
     () => [...filteredItems.actions, ...filteredItems.conversations, ...filteredItems.employees],
     [filteredItems]
   );
+
+  const getOptionId = useCallback((item: CommandItem) => `command-option-${item.id}`, []);
 
   // Reset selected index when results change
   useEffect(() => {
@@ -437,7 +452,9 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
             role="combobox"
             aria-expanded={flatResults.length > 0}
             aria-controls="command-results"
-            aria-activedescendant={flatResults[selectedIndex]?.id}
+            aria-activedescendant={
+              flatResults[selectedIndex] ? getOptionId(flatResults[selectedIndex]) : undefined
+            }
           />
           <kbd className="px-1.5 py-0.5 text-xs font-mono bg-stone-100 text-stone-500 border border-stone-200 rounded">
             esc
@@ -463,6 +480,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                 startIndex={actionStartIndex}
                 onSelect={handleSelect}
                 onItemHover={handleItemHover}
+                getOptionId={getOptionId}
               />
               <ResultGroup
                 title="Conversations"
@@ -471,6 +489,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                 startIndex={conversationStartIndex}
                 onSelect={handleSelect}
                 onItemHover={handleItemHover}
+                getOptionId={getOptionId}
               />
               <ResultGroup
                 title="Employees"
@@ -479,6 +498,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
                 startIndex={employeeStartIndex}
                 onSelect={handleSelect}
                 onItemHover={handleItemHover}
+                getOptionId={getOptionId}
               />
             </>
           )}

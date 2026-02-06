@@ -1,10 +1,13 @@
 // HR Command Center - PII Scanner Module
 // Detects and redacts sensitive financial information before sending to Claude API
 //
-// Scope (V1): Financial PII only
+// Scope:
 // - Social Security Numbers (SSN)
 // - Credit Card Numbers
 // - Bank Account Numbers (with context keywords)
+// - Phone numbers
+// - Street addresses (heuristic)
+// - Medical terms (heuristic keywords)
 //
 // Design: Auto-redact and notify (no blocking modals)
 
@@ -40,6 +43,12 @@ pub enum PiiType {
     CreditCard,
     /// Bank Account Number (requires context keywords)
     BankAccount,
+    /// Phone Number
+    PhoneNumber,
+    /// Street Address (heuristic)
+    StreetAddress,
+    /// Medical Information (heuristic keyword match)
+    MedicalInfo,
 }
 
 impl PiiType {
@@ -49,6 +58,9 @@ impl PiiType {
             PiiType::Ssn => "[SSN_REDACTED]",
             PiiType::CreditCard => "[CC_REDACTED]",
             PiiType::BankAccount => "[BANK_ACCT_REDACTED]",
+            PiiType::PhoneNumber => "[PHONE_REDACTED]",
+            PiiType::StreetAddress => "[ADDRESS_REDACTED]",
+            PiiType::MedicalInfo => "[MEDICAL_INFO_REDACTED]",
         }
     }
 
@@ -58,6 +70,9 @@ impl PiiType {
             PiiType::Ssn => "Social Security Number",
             PiiType::CreditCard => "Credit Card Number",
             PiiType::BankAccount => "Bank Account Number",
+            PiiType::PhoneNumber => "Phone Number",
+            PiiType::StreetAddress => "Street Address",
+            PiiType::MedicalInfo => "Medical Information",
         }
     }
 }
@@ -165,6 +180,56 @@ static BANK_ACCOUNT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 // ABA routing numbers have a checksum, but we'll be lenient
 static ROUTING_NUMBER_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\b[0-9]{9}\b").expect("Routing number regex should compile")
+});
+
+// Phone number patterns:
+// - (555) 123-4567
+// - 555-123-4567
+// - 555.123.4567
+// - +1 555 123 4567
+static PHONE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?x)
+        (?:
+            \+?1[\s\-.]?
+        )?
+        (?:
+            \([2-9][0-9]{2}\)
+            |
+            [2-9][0-9]{2}
+        )
+        [\s\-.]?
+        [0-9]{3}
+        [\s\-.]?
+        [0-9]{4}
+        ",
+    )
+    .expect("Phone regex should compile")
+});
+
+// Street address pattern (heuristic):
+// Number + street name + common suffix
+static STREET_ADDRESS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?ix)
+        \b
+        [0-9]{1,6}
+        \s+
+        [A-Za-z0-9.\-']+
+        (?:\s+[A-Za-z0-9.\-']+){0,4}
+        \s+
+        (?:st|street|ave|avenue|blvd|boulevard|rd|road|ln|lane|dr|drive|ct|court|way|pkwy|parkway|pl|place|terrace|ter)
+        \b
+        ",
+    )
+    .expect("Address regex should compile")
+});
+
+static MEDICAL_KEYWORDS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?i)\b(?:diagnosis|diagnosed|medical|medication|prescription|treatment|disability|mental health|anxiety|depression|hipaa|condition)\b"
+    )
+    .expect("Medical keyword regex should compile")
 });
 
 // ============================================================================
@@ -343,6 +408,45 @@ pub fn detect_bank_accounts(text: &str) -> Vec<PiiMatch> {
     matches
 }
 
+/// Detect phone numbers in text
+pub fn detect_phone_numbers(text: &str) -> Vec<PiiMatch> {
+    PHONE_PATTERN
+        .find_iter(text)
+        .map(|m| PiiMatch {
+            pii_type: PiiType::PhoneNumber,
+            start: m.start(),
+            end: m.end(),
+            matched_text: m.as_str().to_string(),
+        })
+        .collect()
+}
+
+/// Detect street addresses in text using a conservative heuristic
+pub fn detect_street_addresses(text: &str) -> Vec<PiiMatch> {
+    STREET_ADDRESS_PATTERN
+        .find_iter(text)
+        .map(|m| PiiMatch {
+            pii_type: PiiType::StreetAddress,
+            start: m.start(),
+            end: m.end(),
+            matched_text: m.as_str().to_string(),
+        })
+        .collect()
+}
+
+/// Detect medical information by keyword
+pub fn detect_medical_info(text: &str) -> Vec<PiiMatch> {
+    MEDICAL_KEYWORDS_PATTERN
+        .find_iter(text)
+        .map(|m| PiiMatch {
+            pii_type: PiiType::MedicalInfo,
+            start: m.start(),
+            end: m.end(),
+            matched_text: m.as_str().to_string(),
+        })
+        .collect()
+}
+
 // ============================================================================
 // Main Scanning and Redaction
 // ============================================================================
@@ -355,6 +459,9 @@ pub fn scan_for_pii(text: &str) -> Vec<PiiMatch> {
     all_matches.extend(detect_ssn(text));
     all_matches.extend(detect_credit_cards(text));
     all_matches.extend(detect_bank_accounts(text));
+    all_matches.extend(detect_phone_numbers(text));
+    all_matches.extend(detect_street_addresses(text));
+    all_matches.extend(detect_medical_info(text));
 
     // Sort by position (start offset)
     all_matches.sort_by_key(|m| m.start);
@@ -417,12 +524,18 @@ fn build_redaction_summary(matches: &[PiiMatch]) -> String {
     let mut ssn_count = 0;
     let mut cc_count = 0;
     let mut bank_count = 0;
+    let mut phone_count = 0;
+    let mut address_count = 0;
+    let mut medical_count = 0;
 
     for m in matches {
         match m.pii_type {
             PiiType::Ssn => ssn_count += 1,
             PiiType::CreditCard => cc_count += 1,
             PiiType::BankAccount => bank_count += 1,
+            PiiType::PhoneNumber => phone_count += 1,
+            PiiType::StreetAddress => address_count += 1,
+            PiiType::MedicalInfo => medical_count += 1,
         }
     }
 
@@ -447,6 +560,27 @@ fn build_redaction_summary(matches: &[PiiMatch]) -> String {
             "{} bank account{}",
             bank_count,
             if bank_count > 1 { "s" } else { "" }
+        ));
+    }
+    if phone_count > 0 {
+        parts.push(format!(
+            "{} phone number{}",
+            phone_count,
+            if phone_count > 1 { "s" } else { "" }
+        ));
+    }
+    if address_count > 0 {
+        parts.push(format!(
+            "{} address{}",
+            address_count,
+            if address_count > 1 { "es" } else { "" }
+        ));
+    }
+    if medical_count > 0 {
+        parts.push(format!(
+            "{} medical reference{}",
+            medical_count,
+            if medical_count > 1 { "s" } else { "" }
         ));
     }
 
@@ -632,6 +766,34 @@ mod tests {
     }
 
     // -------------------------------------------------------------------------
+    // Additional PII Detection Tests (Phone/Address/Medical)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_detect_phone_number() {
+        let text = "Call me at (415) 555-2671.";
+        let matches = detect_phone_numbers(text);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].pii_type, PiiType::PhoneNumber);
+    }
+
+    #[test]
+    fn test_detect_street_address() {
+        let text = "Address: 1234 Market Street, San Francisco, CA.";
+        let matches = detect_street_addresses(text);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].pii_type, PiiType::StreetAddress);
+    }
+
+    #[test]
+    fn test_detect_medical_info() {
+        let text = "Employee disclosed a medical diagnosis requiring treatment.";
+        let matches = detect_medical_info(text);
+        assert!(!matches.is_empty());
+        assert_eq!(matches[0].pii_type, PiiType::MedicalInfo);
+    }
+
+    // -------------------------------------------------------------------------
     // Scan and Redact Tests
     // -------------------------------------------------------------------------
 
@@ -669,6 +831,16 @@ mod tests {
         let summary = result.summary.unwrap();
         assert!(summary.contains("SSN"));
         assert!(summary.contains("credit card"));
+    }
+
+    #[test]
+    fn test_scan_and_redact_phone_and_address() {
+        let text = "Phone: 555-234-7890. Address: 77 Broadway Avenue.";
+        let result = scan_and_redact(text);
+
+        assert!(result.had_pii);
+        assert!(result.redacted_text.contains("[PHONE_REDACTED]"));
+        assert!(result.redacted_text.contains("[ADDRESS_REDACTED]"));
     }
 
     #[test]
@@ -720,6 +892,9 @@ mod tests {
         assert_eq!(PiiType::Ssn.placeholder(), "[SSN_REDACTED]");
         assert_eq!(PiiType::CreditCard.placeholder(), "[CC_REDACTED]");
         assert_eq!(PiiType::BankAccount.placeholder(), "[BANK_ACCT_REDACTED]");
+        assert_eq!(PiiType::PhoneNumber.placeholder(), "[PHONE_REDACTED]");
+        assert_eq!(PiiType::StreetAddress.placeholder(), "[ADDRESS_REDACTED]");
+        assert_eq!(PiiType::MedicalInfo.placeholder(), "[MEDICAL_INFO_REDACTED]");
     }
 
     #[test]
@@ -727,5 +902,8 @@ mod tests {
         assert_eq!(PiiType::Ssn.label(), "Social Security Number");
         assert_eq!(PiiType::CreditCard.label(), "Credit Card Number");
         assert_eq!(PiiType::BankAccount.label(), "Bank Account Number");
+        assert_eq!(PiiType::PhoneNumber.label(), "Phone Number");
+        assert_eq!(PiiType::StreetAddress.label(), "Street Address");
+        assert_eq!(PiiType::MedicalInfo.label(), "Medical Information");
     }
 }

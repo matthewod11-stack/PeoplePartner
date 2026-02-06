@@ -7,6 +7,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   type ReactNode,
 } from 'react';
@@ -71,11 +72,45 @@ interface ConversationContextValue {
   clearPiiNotification: () => void;
 }
 
+interface ConversationMessagesContextValue {
+  messages: Message[];
+  isLoading: boolean;
+}
+
+interface ConversationMetaContextValue {
+  conversationId: string;
+  currentTitle: string | null;
+  piiNotification: string | null;
+}
+
+interface ConversationDirectoryContextValue {
+  conversations: ConversationListItem[];
+  isLoadingList: boolean;
+  listError: string | null;
+  searchQuery: string;
+  isSearching: boolean;
+}
+
+interface ConversationActionsContextValue {
+  sendMessage: (content: string, selectedEmployeeId?: string | null) => Promise<void>;
+  retryMessage: (messageId: string) => Promise<void>;
+  loadConversation: (id: string) => Promise<void>;
+  startNewConversation: () => Promise<void>;
+  deleteConversation: (id: string) => Promise<void>;
+  setSearchQuery: (query: string) => void;
+  refreshConversations: () => Promise<void>;
+  clearPiiNotification: () => void;
+}
+
 // =============================================================================
 // Context
 // =============================================================================
 
 const ConversationContext = createContext<ConversationContextValue | null>(null);
+const ConversationMessagesContext = createContext<ConversationMessagesContextValue | null>(null);
+const ConversationMetaContext = createContext<ConversationMetaContextValue | null>(null);
+const ConversationDirectoryContext = createContext<ConversationDirectoryContextValue | null>(null);
+const ConversationActionsContext = createContext<ConversationActionsContextValue | null>(null);
 
 // =============================================================================
 // Constants
@@ -86,6 +121,9 @@ const MIN_EXCHANGES_FOR_SUMMARY = 2;
 
 /** Debounce delay for search (ms) */
 const SEARCH_DEBOUNCE_MS = 300;
+
+/** Streaming message update interval (ms) */
+const STREAM_UPDATE_INTERVAL_MS = 100;
 
 // =============================================================================
 // Provider
@@ -310,11 +348,54 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
     // Set up stream event listener
     let unlisten: UnlistenFn | null = null;
 
+    // Buffer stream chunks to avoid 20-50 re-renders/second during streaming
+    let bufferedChunk = '';
+    let flushTimeoutId: number | null = null;
+
+    const flushBufferedChunk = () => {
+      if (!bufferedChunk) {
+        return;
+      }
+
+      const chunkToApply = bufferedChunk;
+      bufferedChunk = '';
+
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === assistantId
+            ? { ...msg, content: msg.content + chunkToApply }
+            : msg
+        )
+      );
+    };
+
+    const scheduleBufferedFlush = () => {
+      if (flushTimeoutId !== null) {
+        return;
+      }
+
+      flushTimeoutId = window.setTimeout(() => {
+        flushTimeoutId = null;
+        flushBufferedChunk();
+      }, STREAM_UPDATE_INTERVAL_MS);
+    };
+
+    const flushBufferedChunkNow = () => {
+      if (flushTimeoutId !== null) {
+        clearTimeout(flushTimeoutId);
+        flushTimeoutId = null;
+      }
+      flushBufferedChunk();
+    };
+
     try {
       unlisten = await listen<StreamChunk>('chat-stream', (event) => {
         const { chunk, done, verification } = event.payload;
 
         if (done) {
+          // Ensure any buffered chunks are rendered before final message updates
+          flushBufferedChunkNow();
+
           // Get the full accumulated response before resetting
           const fullResponse = accumulatedResponseRef.current;
 
@@ -396,14 +477,8 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
         } else {
           // Accumulate response for audit logging
           accumulatedResponseRef.current += chunk;
-
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantId
-                ? { ...msg, content: msg.content + chunk }
-                : msg
-            )
-          );
+          bufferedChunk += chunk;
+          scheduleBufferedFlush();
         }
       });
 
@@ -439,6 +514,8 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
         promptResult.query_type
       );
     } catch (error) {
+      flushBufferedChunkNow();
+
       // Categorize error for user-friendly display
       const chatError = categorizeError(error);
       chatError.originalContent = content;
@@ -457,11 +534,13 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       );
       setIsLoading(false);
     } finally {
+      flushBufferedChunkNow();
+
       if (unlisten) {
         unlisten();
       }
     }
-  }, []);
+  }, [conversationId]);
 
   // ---------------------------------------------------------------------------
   // Retry a failed message
@@ -570,46 +649,118 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
   // ---------------------------------------------------------------------------
   // Context value
   // ---------------------------------------------------------------------------
-  const value: ConversationContextValue = {
-    // Current conversation
-    messages,
-    conversationId,
-    isLoading,
-    currentTitle,
+  const messagesValue = useMemo<ConversationMessagesContextValue>(
+    () => ({
+      messages,
+      isLoading,
+    }),
+    [messages, isLoading]
+  );
 
-    // Conversation list
-    conversations,
-    isLoadingList,
-    listError,
+  const metaValue = useMemo<ConversationMetaContextValue>(
+    () => ({
+      conversationId,
+      currentTitle,
+      piiNotification,
+    }),
+    [conversationId, currentTitle, piiNotification]
+  );
 
-    // Search
-    searchQuery,
-    isSearching,
+  const directoryValue = useMemo<ConversationDirectoryContextValue>(
+    () => ({
+      conversations,
+      isLoadingList,
+      listError,
+      searchQuery,
+      isSearching,
+    }),
+    [conversations, isLoadingList, listError, searchQuery, isSearching]
+  );
 
-    // Actions
-    sendMessage,
-    retryMessage,
-    loadConversation,
-    startNewConversation,
-    deleteConversation,
-    setSearchQuery,
-    refreshConversations,
+  const actionsValue = useMemo<ConversationActionsContextValue>(
+    () => ({
+      sendMessage,
+      retryMessage,
+      loadConversation,
+      startNewConversation,
+      deleteConversation,
+      setSearchQuery,
+      refreshConversations,
+      clearPiiNotification,
+    }),
+    [
+      sendMessage,
+      retryMessage,
+      loadConversation,
+      startNewConversation,
+      deleteConversation,
+      setSearchQuery,
+      refreshConversations,
+      clearPiiNotification,
+    ]
+  );
 
-    // PII redaction notification
-    piiNotification,
-    clearPiiNotification,
-  };
+  // Backward-compatible aggregate context for existing consumers.
+  const value = useMemo<ConversationContextValue>(
+    () => ({
+      ...messagesValue,
+      ...metaValue,
+      ...directoryValue,
+      ...actionsValue,
+    }),
+    [messagesValue, metaValue, directoryValue, actionsValue]
+  );
 
   return (
-    <ConversationContext.Provider value={value}>
-      {children}
-    </ConversationContext.Provider>
+    <ConversationActionsContext.Provider value={actionsValue}>
+      <ConversationMetaContext.Provider value={metaValue}>
+        <ConversationDirectoryContext.Provider value={directoryValue}>
+          <ConversationMessagesContext.Provider value={messagesValue}>
+            <ConversationContext.Provider value={value}>
+              {children}
+            </ConversationContext.Provider>
+          </ConversationMessagesContext.Provider>
+        </ConversationDirectoryContext.Provider>
+      </ConversationMetaContext.Provider>
+    </ConversationActionsContext.Provider>
   );
 }
 
 // =============================================================================
 // Hook
 // =============================================================================
+
+export function useConversationMessages() {
+  const context = useContext(ConversationMessagesContext);
+  if (!context) {
+    throw new Error('useConversationMessages must be used within a ConversationProvider');
+  }
+  return context;
+}
+
+export function useConversationMeta() {
+  const context = useContext(ConversationMetaContext);
+  if (!context) {
+    throw new Error('useConversationMeta must be used within a ConversationProvider');
+  }
+  return context;
+}
+
+export function useConversationDirectory() {
+  const context = useContext(ConversationDirectoryContext);
+  if (!context) {
+    throw new Error('useConversationDirectory must be used within a ConversationProvider');
+  }
+  return context;
+}
+
+export function useConversationActions() {
+  const context = useContext(ConversationActionsContext);
+  if (!context) {
+    throw new Error('useConversationActions must be used within a ConversationProvider');
+  }
+  return context;
+}
 
 export function useConversations() {
   const context = useContext(ConversationContext);
@@ -618,5 +769,3 @@ export function useConversations() {
   }
   return context;
 }
-
-export default ConversationContext;

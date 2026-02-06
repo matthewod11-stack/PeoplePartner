@@ -278,6 +278,17 @@ async fn list_employees(
     employees::list_employees(&state.pool, filter, limit, offset).await
 }
 
+/// List employees with latest ratings in one backend call
+#[tauri::command]
+async fn list_employees_with_ratings(
+    state: tauri::State<'_, Database>,
+    filter: employees::EmployeeFilter,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<employees::EmployeeListWithRatingsResult, employees::EmployeeError> {
+    employees::list_employees_with_ratings(&state.pool, filter, limit, offset).await
+}
+
 /// Get all unique departments
 #[tauri::command]
 async fn get_departments(
@@ -1436,6 +1447,7 @@ pub fn run() {
             update_employee,
             delete_employee,
             list_employees,
+            list_employees_with_ratings,
             get_departments,
             get_employee_counts,
             import_employees,

@@ -71,6 +71,20 @@ body {
 }
 
 /* ============================================
+   ACCESSIBILITY: Contrast Overrides
+   ============================================ */
+@layer utilities {
+  /* Improve contrast on light stone backgrounds for normal text */
+  .text-stone-400 {
+    color: #78716c;
+  }
+
+  .text-stone-500 {
+    color: #57534e;
+  }
+}
+
+/* ============================================
    ACCESSIBILITY: Reduced Motion Support
    ============================================ */
 @media (prefers-reduced-motion: reduce) {

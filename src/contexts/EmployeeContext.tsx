@@ -4,23 +4,20 @@ import {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   type ReactNode,
 } from 'react';
-import type { Employee, PerformanceRating } from '../lib/types';
+import type { Employee } from '../lib/types';
 import {
-  listEmployees,
-  getLatestRating,
+  listEmployeesWithRatings,
+  type EmployeeWithLatestRating,
   type EmployeeFilter,
 } from '../lib/tauri-commands';
 
 // =============================================================================
 // Types
 // =============================================================================
-
-interface EmployeeWithLatestRating extends Employee {
-  latestRating?: PerformanceRating;
-}
 
 interface EmployeeContextValue {
   // Data
@@ -31,7 +28,6 @@ interface EmployeeContextValue {
 
   // Loading states
   isLoading: boolean;
-  isLoadingRatings: boolean;
   error: string | null;
 
   // Filters
@@ -76,7 +72,6 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
 
   // Loading states
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingRatings, setIsLoadingRatings] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Filters
@@ -107,7 +102,10 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
   const [isImportWizardOpen, setIsImportWizardOpen] = useState(false);
 
   // Derived: currently selected employee
-  const selectedEmployee = employees.find((e) => e.id === selectedEmployeeId) ?? null;
+  const selectedEmployee = useMemo(
+    () => employees.find((e) => e.id === selectedEmployeeId) ?? null,
+    [employees, selectedEmployeeId]
+  );
 
   // Fetch employees from backend
   const refreshEmployees = useCallback(async () => {
@@ -126,35 +124,14 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
         search: debouncedSearchQuery || undefined,
       };
 
-      const result = await listEmployees(effectiveFilter, 200, 0);
-
-      // Start with employees without ratings
+      const result = await listEmployeesWithRatings(effectiveFilter, 200, 0);
       setEmployees(result.employees);
       setTotalCount(result.total);
       hasLoadedOnceRef.current = true;
       setIsLoading(false);
-
-      // Fetch ratings in background (don't block UI)
-      setIsLoadingRatings(true);
-
-      const employeesWithRatings = await Promise.all(
-        result.employees.map(async (emp) => {
-          try {
-            const rating = await getLatestRating(emp.id);
-            return { ...emp, latestRating: rating ?? undefined };
-          } catch {
-            // If rating fetch fails, just return employee without rating
-            return emp;
-          }
-        })
-      );
-
-      setEmployees(employeesWithRatings);
-      setIsLoadingRatings(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load employees');
       setIsLoading(false);
-      setIsLoadingRatings(false);
     }
   }, [filter, debouncedSearchQuery]);
 
@@ -196,28 +173,48 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
   }, [refreshEmployees]);
 
   // Context value
-  const value: EmployeeContextValue = {
-    employees,
-    selectedEmployeeId,
-    selectedEmployee,
-    totalCount,
-    isLoading,
-    isLoadingRatings,
-    error,
-    filter,
-    searchQuery,
-    isEditModalOpen,
-    isImportWizardOpen,
-    selectEmployee,
-    setSearchQuery,
-    setFilter,
-    refreshEmployees,
-    openEditModal,
-    closeEditModal,
-    updateEmployeeInList,
-    openImportWizard,
-    closeImportWizard,
-  };
+  const value: EmployeeContextValue = useMemo(
+    () => ({
+      employees,
+      selectedEmployeeId,
+      selectedEmployee,
+      totalCount,
+      isLoading,
+      error,
+      filter,
+      searchQuery,
+      isEditModalOpen,
+      isImportWizardOpen,
+      selectEmployee,
+      setSearchQuery,
+      setFilter,
+      refreshEmployees,
+      openEditModal,
+      closeEditModal,
+      updateEmployeeInList,
+      openImportWizard,
+      closeImportWizard,
+    }),
+    [
+      employees,
+      selectedEmployeeId,
+      selectedEmployee,
+      totalCount,
+      isLoading,
+      error,
+      filter,
+      searchQuery,
+      isEditModalOpen,
+      isImportWizardOpen,
+      selectEmployee,
+      refreshEmployees,
+      openEditModal,
+      closeEditModal,
+      updateEmployeeInList,
+      openImportWizard,
+      closeImportWizard,
+    ]
+  );
 
   return (
     <EmployeeContext.Provider value={value}>

@@ -619,33 +619,33 @@ Representation analysis with appropriate guardrails.
 Address Tier 1 and Tier 2 findings from the codebase audit before launch.
 
 #### V2.4.5a Security Hardening (Tier 1)
-- [ ] V2.4.5a1 Fix SQL injection in `list_employees` filter — migrate to parameterized queries (`employees.rs:317-341`)
-- [ ] V2.4.5a2 Enable Content Security Policy in `tauri.conf.json` (currently `null`)
-- [ ] V2.4.5a3 Migrate API key storage to macOS Keychain (`keyring.rs`) or update UI text
-- [ ] V2.4.5a4 Add `rehype-sanitize` to Markdown rendering in `MessageBubble.tsx`
+- [x] V2.4.5a1 Fix SQL injection in `list_employees` filter — migrate to parameterized queries (`employees.rs:317-341`)
+- [x] V2.4.5a2 Enable Content Security Policy in `tauri.conf.json` (currently `null`)
+- [x] V2.4.5a3 Migrate API key storage to macOS Keychain (`keyring.rs`) or update UI text
+- [x] V2.4.5a4 Add `rehype-sanitize` to Markdown rendering in `MessageBubble.tsx`
 
 #### V2.4.5b Accessibility Hardening (Tier 1)
-- [ ] V2.4.5b1 Add focus trap to shared `Modal.tsx` + migrate ImportWizard/EmployeeEdit modals
-- [ ] V2.4.5b2 Add screen reader alternatives for charts (`AnalyticsChart.tsx`) — `aria-label` + hidden data table
-- [ ] V2.4.5b3 Make DrilldownModal table rows keyboard-accessible (`tabIndex`, `onKeyDown`)
-- [ ] V2.4.5b4 Wire up form labels with `htmlFor`/`id` in EmployeeEdit FormField
-- [ ] V2.4.5b5 Add `aria-label`/`aria-labelledby` to Settings toggle switches
+- [x] V2.4.5b1 Add focus trap to shared `Modal.tsx` + migrate ImportWizard/EmployeeEdit modals
+- [x] V2.4.5b2 Add screen reader alternatives for charts (`AnalyticsChart.tsx`) — `aria-label` + hidden data table
+- [x] V2.4.5b3 Make DrilldownModal table rows keyboard-accessible (`tabIndex`, `onKeyDown`)
+- [x] V2.4.5b4 Wire up form labels with `htmlFor`/`id` in EmployeeEdit FormField
+- [x] V2.4.5b5 Add `aria-label`/`aria-labelledby` to Settings toggle switches
 
 #### V2.4.5c Performance Optimization (Tier 1-2)
-- [ ] V2.4.5c1 Split `ConversationContext` into Data + Actions contexts to fix streaming re-renders
-- [ ] V2.4.5c2 Create `list_employees_with_ratings` Rust command to fix N+1 IPC calls
-- [ ] V2.4.5c3 Add code splitting with `React.lazy` for ImportWizard, InsightBoardView, CommandPalette
-- [ ] V2.4.5c4 Wrap context values in `useMemo` in both providers
-- [ ] V2.4.5c5 Add `React.memo` to key list components (MessageBubble, EmployeeCard, ConversationCard)
+- [x] V2.4.5c1 Split `ConversationContext` into Data + Actions contexts to fix streaming re-renders
+- [x] V2.4.5c2 Create `list_employees_with_ratings` Rust command to fix N+1 IPC calls
+- [x] V2.4.5c3 Add code splitting with `React.lazy` for ImportWizard, InsightBoardView, CommandPalette
+- [x] V2.4.5c4 Wrap context values in `useMemo` in both providers
+- [x] V2.4.5c5 Add `React.memo` to key list components (MessageBubble, EmployeeCard, ConversationCard)
 
-### Pause Point V2.4.5 (Audit Remediation)
+### Pause Point V2.4.5 (Audit Remediation) ✓ VERIFIED
 **Verification Required:**
-- [ ] No SQL injection vectors (parameterized queries in all modules)
-- [ ] CSP enabled and tested
-- [ ] Modal focus trap works (Tab cycles within modal)
-- [ ] Charts announce data to screen readers
-- [ ] Streaming chat does not cause sidebar/search re-renders
-- [ ] Employee list loads with single IPC call (not N+1)
+- [x] No SQL injection vectors (parameterized queries in all modules)
+- [x] CSP enabled and tested
+- [x] Modal focus trap works (Tab cycles within modal)
+- [x] Charts announce data to screen readers
+- [x] Streaming chat does not cause sidebar/search re-renders
+- [x] Employee list loads with single IPC call (not N+1)
 
 ---
 
@@ -854,10 +854,10 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 [x] V2.4.1a-g Attrition & Sentiment Signals (7 tasks, V2.4.1e deferred)
 [x] V2.4.2a-f DEI & Fairness Lens (6 tasks)
 [x] PAUSE V2.4: Intelligence Layer verified
-[ ] V2.4.5a1-a4 Security Hardening (4 tasks)
-[ ] V2.4.5b1-b5 Accessibility Hardening (5 tasks)
-[ ] V2.4.5c1-c5 Performance Optimization (5 tasks)
-[ ] PAUSE V2.4.5: Audit Remediation verified
+[x] V2.4.5a1-a4 Security Hardening (4 tasks)
+[x] V2.4.5b1-b5 Accessibility Hardening (5 tasks)
+[x] V2.4.5c1-c5 Performance Optimization (5 tasks)
+[x] PAUSE V2.4.5: Audit Remediation verified
 [ ] V2.5.1a-f Data Quality Center (6 tasks)
 [ ] PAUSE V2.5: Phase V2 Complete
 
