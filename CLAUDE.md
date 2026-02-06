@@ -23,13 +23,14 @@ This verifies the environment and shows current progress.
 HRCommand/
 ├── README.md                 # Project overview & status (update on phase change)
 ├── CLAUDE.md                 # ← You are here
-├── HR-Command-Center-Roadmap.md      # Full product roadmap
-├── HR-Command-Center-Design-Architecture.md  # Technical specification
+├── ROADMAP.md                # Task checklist with phases
+├── AUDIT-2026-02-05.md       # Codebase audit report
 ├── features.json             # Pass/fail feature tracking
 │
 ├── docs/
 │   ├── PROGRESS.md           # Session log (last 5-10 sessions)
-│   ├── ROADMAP.md            # Task checklist with phases
+│   ├── HR-Command-Center-Roadmap.md      # Full product roadmap
+│   ├── HR-Command-Center-Design-Architecture.md  # Technical specification
 │   ├── SESSION_PROTOCOL.md   # How to run sessions
 │   ├── KNOWN_ISSUES.md       # Blockers + locked decisions
 │   ├── archive/              # Archived progress logs (Phases 0-2)
@@ -67,13 +68,13 @@ Follow the **single-feature-per-session rule** to prevent scope creep.
 ### Before Working
 1. Run `./scripts/dev-init.sh`
 2. Read most recent entry in `docs/PROGRESS.md` (historical entries in `docs/archive/`)
-3. Check `docs/ROADMAP.md` for next task
+3. Check `ROADMAP.md` for next task
 4. Check `docs/KNOWN_ISSUES.md` for blockers
 
 ### After Each Task
 1. Update `docs/PROGRESS.md` (entry at TOP)
 2. Update `features.json` status
-3. Check off task in `docs/ROADMAP.md`
+3. Check off task in `ROADMAP.md`
 4. Update `README.md` if phase status changed
 5. Commit with descriptive message
 
@@ -91,7 +92,7 @@ Before ending: Please follow session end protocol:
 1. Run verification (build, type-check, tests)
 2. Add session entry to TOP of docs/PROGRESS.md
 3. Update features.json with pass/fail status
-4. Check off completed task in docs/ROADMAP.md
+4. Check off completed task in ROADMAP.md
 5. Update README.md project status table if phase changed
 6. If PROGRESS.md > 10 sessions, archive older entries
 7. Commit with descriptive message
@@ -209,8 +210,8 @@ Run tests: `cargo test --manifest-path src-tauri/Cargo.toml`
 
 | Document | When to Read |
 |----------|--------------|
-| `HR-Command-Center-Roadmap.md` | For phase context |
-| `HR-Command-Center-Design-Architecture.md` | When implementing |
+| `docs/HR-Command-Center-Roadmap.md` | For phase context |
+| `docs/HR-Command-Center-Design-Architecture.md` | When implementing |
 | `docs/reference/DECISIONS-LOG.md` | When questioning approach |
 | `docs/HR_PERSONA.md` | Alex persona system prompt |
 

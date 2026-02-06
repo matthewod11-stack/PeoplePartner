@@ -15,7 +15,7 @@ We use **structured artifacts** to maintain continuity:
 |----------|---------|----------|
 | **README.md** | Project overview & status | `README.md` |
 | **PROGRESS.md** | Log of completed work | `docs/PROGRESS.md` |
-| **ROADMAP.md** | Checkbox tracking | `docs/ROADMAP.md` |
+| **ROADMAP.md** | Checkbox tracking | `ROADMAP.md` |
 | **features.json** | Pass/fail status | `features.json` |
 | **KNOWN_ISSUES.md** | Parking lot | `docs/KNOWN_ISSUES.md` |
 | **DECISIONS-LOG.md** | Architectural decisions | `docs/reference/DECISIONS-LOG.md` |
@@ -58,7 +58,7 @@ We use **structured artifacts** to maintain continuity:
 3. **Check features:** Review `features.json` for pass/fail status
 4. **Verify previous work:** Run `npm run build` and tests
 5. **Check blockers:** Review `docs/KNOWN_ISSUES.md`
-6. **Pick next task:** First unchecked item in `docs/ROADMAP.md`
+6. **Pick next task:** First unchecked item in `ROADMAP.md`
 
 ### Session Start Prompt
 
@@ -69,7 +69,7 @@ This is a multi-session implementation. Please follow the session protocol:
 
 1. Run ./scripts/dev-init.sh to verify environment
 2. Read docs/PROGRESS.md for previous session work
-3. Read docs/ROADMAP.md to find the NEXT unchecked task
+3. Read ROADMAP.md to find the NEXT unchecked task
 4. Check features.json for pass/fail status
 5. Check docs/KNOWN_ISSUES.md for any blockers
 
@@ -83,7 +83,7 @@ Work on ONE task only (single-feature-per-session rule). Tell me what's next.
 1. Run verification (build, type-check, tests)
 2. Add entry to TOP of `docs/PROGRESS.md`
 3. Update `features.json` status
-4. Check off tasks in `docs/ROADMAP.md`
+4. Check off tasks in `ROADMAP.md`
 5. Update `README.md` project status if phase changed or major milestone reached
 6. Commit with descriptive message
 7. Note "Next Session Should" in PROGRESS.md
@@ -96,7 +96,7 @@ Before ending: Please follow session end protocol:
 1. Run verification (build, type-check, tests)
 2. Add session entry to TOP of docs/PROGRESS.md
 3. Update features.json with pass/fail status
-4. Check off completed task in docs/ROADMAP.md
+4. Check off completed task in ROADMAP.md
 5. Update README.md project status table if phase changed
 6. Commit with descriptive message
 
@@ -138,11 +138,11 @@ Summarize: where are we, what's next, any blockers?
 
 | Document | Purpose | When to Read |
 |----------|---------|--------------|
-| `HR-Command-Center-Roadmap.md` | Full product roadmap | For context on phases |
-| `HR-Command-Center-Design-Architecture.md` | Technical spec | When implementing |
+| `docs/HR-Command-Center-Roadmap.md` | Full product roadmap | For context on phases |
+| `docs/HR-Command-Center-Design-Architecture.md` | Technical spec | When implementing |
 | `DECISIONS-LOG.md` | Why we made choices | When questioning approach |
 | `MASTER-FEEDBACK-CONSOLIDATED.md` | AI feedback analysis | For feature prioritization |
-| `docs/ROADMAP.md` | Task checklist | Every session |
+| `ROADMAP.md` | Task checklist | Every session |
 | `docs/PROGRESS.md` | Session log | Every session |
 | `features.json` | Pass/fail tracking | Every session |
 

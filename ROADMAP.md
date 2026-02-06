@@ -1,8 +1,8 @@
 # HR Command Center — Implementation Roadmap
 
 > **Purpose:** Actionable checklist for implementation across multiple sessions.
-> **Related Docs:** [SESSION_PROTOCOL.md](./SESSION_PROTOCOL.md) | [PROGRESS.md](./PROGRESS.md)
-> **Full Spec:** [HR-Command-Center-Roadmap.md](../HR-Command-Center-Roadmap.md)
+> **Related Docs:** [SESSION_PROTOCOL.md](./docs/SESSION_PROTOCOL.md) | [PROGRESS.md](./docs/PROGRESS.md)
+> **Full Spec:** [HR-Command-Center-Roadmap.md](./docs/HR-Command-Center-Roadmap.md)
 
 ---
 
@@ -610,6 +610,45 @@ Representation analysis with appropriate guardrails.
 
 ---
 
+### V2.4.5 Pre-Launch Audit Remediation
+
+> **Reference:** [AUDIT-2026-02-05.md](./AUDIT-2026-02-05.md) — Full audit report (28 findings)
+> **Impact:** 🔥 Critical | **Est. Sessions:** 4-6
+> **Method:** Parallel multi-agent audit (security, accessibility, performance)
+
+Address Tier 1 and Tier 2 findings from the codebase audit before launch.
+
+#### V2.4.5a Security Hardening (Tier 1)
+- [ ] V2.4.5a1 Fix SQL injection in `list_employees` filter — migrate to parameterized queries (`employees.rs:317-341`)
+- [ ] V2.4.5a2 Enable Content Security Policy in `tauri.conf.json` (currently `null`)
+- [ ] V2.4.5a3 Migrate API key storage to macOS Keychain (`keyring.rs`) or update UI text
+- [ ] V2.4.5a4 Add `rehype-sanitize` to Markdown rendering in `MessageBubble.tsx`
+
+#### V2.4.5b Accessibility Hardening (Tier 1)
+- [ ] V2.4.5b1 Add focus trap to shared `Modal.tsx` + migrate ImportWizard/EmployeeEdit modals
+- [ ] V2.4.5b2 Add screen reader alternatives for charts (`AnalyticsChart.tsx`) — `aria-label` + hidden data table
+- [ ] V2.4.5b3 Make DrilldownModal table rows keyboard-accessible (`tabIndex`, `onKeyDown`)
+- [ ] V2.4.5b4 Wire up form labels with `htmlFor`/`id` in EmployeeEdit FormField
+- [ ] V2.4.5b5 Add `aria-label`/`aria-labelledby` to Settings toggle switches
+
+#### V2.4.5c Performance Optimization (Tier 1-2)
+- [ ] V2.4.5c1 Split `ConversationContext` into Data + Actions contexts to fix streaming re-renders
+- [ ] V2.4.5c2 Create `list_employees_with_ratings` Rust command to fix N+1 IPC calls
+- [ ] V2.4.5c3 Add code splitting with `React.lazy` for ImportWizard, InsightBoardView, CommandPalette
+- [ ] V2.4.5c4 Wrap context values in `useMemo` in both providers
+- [ ] V2.4.5c5 Add `React.memo` to key list components (MessageBubble, EmployeeCard, ConversationCard)
+
+### Pause Point V2.4.5 (Audit Remediation)
+**Verification Required:**
+- [ ] No SQL injection vectors (parameterized queries in all modules)
+- [ ] CSP enabled and tested
+- [ ] Modal focus trap works (Tab cycles within modal)
+- [ ] Charts announce data to screen readers
+- [ ] Streaming chat does not cause sidebar/search re-renders
+- [ ] Employee list loads with single IPC call (not N+1)
+
+---
+
 ### V2.5 Import/Export Enhancements
 
 Better data quality and workflow.
@@ -815,6 +854,10 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 [x] V2.4.1a-g Attrition & Sentiment Signals (7 tasks, V2.4.1e deferred)
 [x] V2.4.2a-f DEI & Fairness Lens (6 tasks)
 [x] PAUSE V2.4: Intelligence Layer verified
+[ ] V2.4.5a1-a4 Security Hardening (4 tasks)
+[ ] V2.4.5b1-b5 Accessibility Hardening (5 tasks)
+[ ] V2.4.5c1-c5 Performance Optimization (5 tasks)
+[ ] PAUSE V2.4.5: Audit Remediation verified
 [ ] V2.5.1a-f Data Quality Center (6 tasks)
 [ ] PAUSE V2.5: Phase V2 Complete
 
@@ -833,7 +876,7 @@ PHASE 5 - LAUNCH
 [ ] PAUSE 5C: Launch ready
 ```
 
-**Total: ~199 discrete tasks across 6 phases (0-4 + V2 + 5)**
+**Total: ~213 discrete tasks across 6 phases (0-4 + V2 + 5)**
 
 ---
 

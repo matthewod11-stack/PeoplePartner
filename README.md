@@ -80,9 +80,9 @@ cargo tauri dev    # Run Tauri app
 | Document | Purpose |
 |----------|---------|
 | `CLAUDE.md` | Instructions for Claude Code sessions |
-| `HR-Command-Center-Roadmap.md` | Full product roadmap |
-| `HR-Command-Center-Design-Architecture.md` | Technical specification |
-| `docs/ROADMAP.md` | Implementation checklist |
+| `ROADMAP.md` | Implementation checklist |
+| `docs/HR-Command-Center-Roadmap.md` | Full product roadmap |
+| `docs/HR-Command-Center-Design-Architecture.md` | Technical specification |
 | `docs/PROGRESS.md` | Session-by-session log |
 | `docs/SESSION_PROTOCOL.md` | Multi-session workflow |
 | `docs/KNOWN_ISSUES.md` | Blockers and decisions |
