@@ -658,12 +658,12 @@ Better data quality and workflow.
 
 Pre-import validation and fix workflow.
 
-- [ ] V2.5.1a Create column mapping UI (visual drag-drop)
-- [ ] V2.5.1b Add header normalization preview
-- [ ] V2.5.1c Implement dedupe detection (email + name/DOB)
-- [ ] V2.5.1d Add validation rules (missing managers, invalid dates)
-- [ ] V2.5.1e Create "fix-and-retry" workflow (edit issues in-app)
-- [ ] V2.5.1f Add HRIS-specific header mappings (BambooHR, Gusto, etc.)
+- [x] V2.5.1a Create column mapping UI (visual drag-drop)
+- [x] V2.5.1b Add header normalization preview
+- [x] V2.5.1c Implement dedupe detection (email + name/DOB)
+- [x] V2.5.1d Add validation rules (missing managers, invalid dates)
+- [x] V2.5.1e Create "fix-and-retry" workflow (edit issues in-app)
+- [x] V2.5.1f Add HRIS-specific header mappings (BambooHR, Gusto, etc.)
 
 **Ties to Known Issue:** Fixes `file_parser::tests::test_normalize_header` by strengthening normalization rules.
 
@@ -858,8 +858,8 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 [x] V2.4.5b1-b5 Accessibility Hardening (5 tasks)
 [x] V2.4.5c1-c5 Performance Optimization (5 tasks)
 [x] PAUSE V2.4.5: Audit Remediation verified
-[ ] V2.5.1a-f Data Quality Center (6 tasks)
-[ ] PAUSE V2.5: Phase V2 Complete
+[x] V2.5.1a-f Data Quality Center (6 tasks)
+[ ] PAUSE V2.5: Phase V2 Complete (manual E2E verification pending)
 
 PHASE 5 - LAUNCH
 [ ] 5.1.1-5.1.5 Distribution (5 tasks)
