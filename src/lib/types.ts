@@ -501,3 +501,103 @@ export const VALID_THEMES = [
   'customer-focus',
 ] as const;
 export type ReviewTheme = (typeof VALID_THEMES)[number];
+
+// =============================================================================
+// V2.5.1 - Data Quality Center Types
+// =============================================================================
+
+/** Import data type identifier */
+export type ImportType = 'employees' | 'ratings' | 'reviews' | 'enps';
+
+/** Result of normalizing a source header */
+export interface HeaderNormalization {
+  /** Original header text from the file */
+  original: string;
+  /** Normalized version (trimmed, lowercased, underscored) */
+  normalized: string;
+  /** Auto-detected target field (null if no match) */
+  detectedField: string | null;
+  /** Confidence score of auto-detection (0.0 - 1.0) */
+  confidence: number;
+}
+
+/** Known HRIS systems with preset column mappings */
+export type HrisPresetId = 'workday' | 'bamboohr' | 'gusto' | 'adp' | 'rippling' | 'generic';
+
+/** An HRIS preset definition */
+export interface HrisPreset {
+  id: HrisPresetId;
+  name: string;
+  description: string;
+  /** Mapping of target field -> expected source header(s) */
+  mappings: Record<string, string[]>;
+}
+
+/** A single validation issue for a cell */
+export interface ValidationIssue {
+  /** 1-based row number in the source file */
+  row: number;
+  /** Column/field that has the issue */
+  column: string;
+  /** The problematic value */
+  value: string;
+  /** Human-readable error message */
+  message: string;
+  /** Severity level */
+  severity: 'error' | 'warning';
+  /** Error type classification */
+  errorType: 'missing_required' | 'invalid_format' | 'out_of_range' | 'invalid_email'
+    | 'invalid_date' | 'invalid_state' | 'unknown_value' | 'duplicate_in_file';
+}
+
+/** Result of validating import data */
+export interface ImportValidationResult {
+  /** Whether all rows are valid */
+  isValid: boolean;
+  /** List of all issues found */
+  issues: ValidationIssue[];
+  /** Count of rows with errors */
+  errorRowCount: number;
+  /** Count of rows with warnings only */
+  warningRowCount: number;
+  /** Count of completely clean rows */
+  cleanRowCount: number;
+}
+
+/** A row that has validation issues, with references to its issues */
+export interface IssueRow {
+  /** Index in the original data array */
+  rowIndex: number;
+  /** The row data */
+  data: ParsedRow;
+  /** Issues for this row */
+  issues: ValidationIssue[];
+}
+
+/** A group of potential duplicate records */
+export interface DuplicateGroup {
+  /** Unique ID for this group */
+  id: string;
+  /** The incoming row from the file */
+  incoming: ParsedRow;
+  /** The existing record in the database */
+  existing: {
+    id: string;
+    email: string;
+    full_name: string;
+    department?: string;
+    [key: string]: string | undefined;
+  };
+  /** Match reason (e.g. "email match", "name similarity") */
+  matchReason: string;
+  /** Match confidence (0.0 - 1.0) */
+  confidence: number;
+}
+
+/** User's resolution for a duplicate */
+export interface DuplicateResolution {
+  /** Group ID */
+  groupId: string;
+  /** Resolution action */
+  action: 'keep_new' | 'keep_existing' | 'skip';
+}

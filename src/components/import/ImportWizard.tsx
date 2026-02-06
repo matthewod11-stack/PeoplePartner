@@ -208,7 +208,7 @@ export function ImportWizard({ isOpen, onClose, onComplete }: ImportWizardProps)
   }, [onClose]);
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Import Data" maxWidth="max-w-2xl">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Import Data" maxWidth="max-w-4xl">
       {step === 'select' && (
         <p className="text-sm text-stone-600 mb-4">Choose what you'd like to import</p>
       )}

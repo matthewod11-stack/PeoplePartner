@@ -1821,3 +1821,247 @@ export async function getPromotionRates(
 export async function getFairnessLensSummary(): Promise<FairnessLensSummary> {
   return invoke('get_fairness_lens_summary');
 }
+
+// =============================================================================
+// V2.5.1 - Data Quality Center
+// =============================================================================
+
+import type {
+  ImportType,
+  HeaderNormalization,
+  HrisPreset,
+  HrisPresetId,
+  ImportValidationResult,
+  ValidationIssue,
+  DuplicateGroup,
+  ParsedRow,
+} from './types';
+
+// -- Backend response types (differ from frontend display types) --
+
+interface BackendHeaderAnalysis {
+  original: string;
+  normalized: string;
+  suggested_field: string | null;
+  confidence: string; // "exact", "alias", "fuzzy", "none"
+  sample_values: string[];
+}
+
+interface BackendHeaderAnalysisResult {
+  headers: BackendHeaderAnalysis[];
+  unmapped_required: string[];
+  unmapped_optional: string[];
+  import_type: string;
+}
+
+interface BackendValidationIssue {
+  row_index: number;
+  field: string;
+  value: string;
+  message: string;
+  severity: 'error' | 'warning';
+  rule: string;
+  suggested_fix: string | null;
+}
+
+interface BackendValidationResult {
+  issues: BackendValidationIssue[];
+  error_count: number;
+  warning_count: number;
+  total_rows: number;
+  valid_rows: number;
+  can_import: boolean;
+}
+
+interface BackendDuplicatePair {
+  row_a: number;
+  row_b: number;
+  match_type: string;
+  confidence: number;
+  matched_fields: Record<string, [string, string]>;
+}
+
+interface BackendDedupeResult {
+  duplicates: BackendDuplicatePair[];
+  total_rows: number;
+  affected_rows: number[];
+}
+
+interface BackendHrisPreset {
+  id: string;
+  name: string;
+  description: string;
+  header_mappings: [string, string[]][];
+}
+
+/** Wraps a flat ColumnMapping into backend's ColumnMappingConfig shape */
+function toMappingConfig(mapping: ColumnMapping) {
+  return { mappings: mapping, preset_name: null };
+}
+
+/** Map confidence string to numeric value */
+function confidenceToNumber(c: string): number {
+  switch (c) {
+    case 'exact': return 1.0;
+    case 'alias': return 0.85;
+    case 'fuzzy': return 0.7;
+    default: return 0.0;
+  }
+}
+
+/** Map backend rule code to frontend errorType */
+function ruleToErrorType(rule: string): ValidationIssue['errorType'] {
+  switch (rule) {
+    case 'required_field': return 'missing_required';
+    case 'invalid_email': return 'invalid_email';
+    case 'invalid_date':
+    case 'date_format': return 'invalid_date';
+    case 'invalid_state': return 'invalid_state';
+    case 'invalid_status':
+    case 'invalid_rating':
+    case 'invalid_enps_score': return 'out_of_range';
+    case 'dob_range':
+    case 'future_date': return 'out_of_range';
+    case 'duplicate_email_in_batch': return 'duplicate_in_file';
+    default: return 'unknown_value';
+  }
+}
+
+/**
+ * Analyze headers and auto-detect column mappings.
+ * Calls backend analyze_import_headers and transforms to HeaderNormalization[].
+ * @param headers - Source headers from parsed file
+ * @param dataType - Import type for field matching
+ * @param hrisPreset - Optional HRIS preset to apply
+ */
+export async function normalizeHeaders(
+  headers: string[],
+  dataType: ImportType,
+  hrisPreset?: HrisPresetId | null
+): Promise<HeaderNormalization[]> {
+  // If a preset is specified, apply it first
+  if (hrisPreset) {
+    const presetMapping: { mappings: Record<string, string>; preset_name: string | null } | null =
+      await invoke('apply_hris_preset', { presetId: hrisPreset, headers });
+    if (presetMapping) {
+      // Build normalizations from preset mapping
+      const reverseMappings = new Map<string, string>();
+      for (const [target, source] of Object.entries(presetMapping.mappings)) {
+        reverseMappings.set(source, target);
+      }
+      return headers.map((h) => ({
+        original: h,
+        normalized: h.toLowerCase().replace(/\s+/g, '_').trim(),
+        detectedField: reverseMappings.get(h) ?? null,
+        confidence: reverseMappings.has(h) ? 0.9 : 0,
+      }));
+    }
+  }
+
+  // Fall back to analyze_import_headers
+  const sampleRows: ParsedRow[] = [];
+  const importType = dataType === 'employees' ? 'Employees'
+    : dataType === 'ratings' ? 'Ratings'
+    : dataType === 'reviews' ? 'Reviews'
+    : 'Enps';
+
+  const result: BackendHeaderAnalysisResult = await invoke('analyze_import_headers', {
+    headers,
+    sampleRows,
+    importType,
+  });
+
+  return result.headers.map((h) => ({
+    original: h.original,
+    normalized: h.normalized,
+    detectedField: h.suggested_field,
+    confidence: confidenceToNumber(h.confidence),
+  }));
+}
+
+/**
+ * Get available HRIS presets.
+ * Transforms backend Vec<HrisPreset> (tuple header_mappings) to frontend HrisPreset (Record mappings).
+ */
+export async function getHrisPresets(): Promise<HrisPreset[]> {
+  const raw: BackendHrisPreset[] = await invoke('get_hris_presets');
+  return raw.map((p) => ({
+    id: p.id as HrisPresetId,
+    name: p.name,
+    description: p.description,
+    mappings: Object.fromEntries(p.header_mappings),
+  }));
+}
+
+/**
+ * Validate import data against schema and business rules.
+ * Calls backend validate_import_rows and transforms response.
+ */
+export async function validateImportData(
+  rows: Record<string, string>[],
+  mapping: ColumnMapping,
+  dataType: ImportType
+): Promise<ImportValidationResult> {
+  const importType = dataType === 'employees' ? 'Employees'
+    : dataType === 'ratings' ? 'Ratings'
+    : dataType === 'reviews' ? 'Reviews'
+    : 'Enps';
+
+  const result: BackendValidationResult = await invoke('validate_import_rows', {
+    rows,
+    mapping: toMappingConfig(mapping),
+    importType,
+  });
+
+  // Transform backend issues to frontend format
+  const issues: ValidationIssue[] = result.issues.map((i) => ({
+    row: i.row_index + 1, // Backend is 0-based, frontend is 1-based
+    column: i.field,
+    value: i.value,
+    message: i.message,
+    severity: i.severity,
+    errorType: ruleToErrorType(i.rule),
+  }));
+
+  return {
+    isValid: result.can_import,
+    issues,
+    errorRowCount: result.error_count,
+    warningRowCount: result.warning_count,
+    cleanRowCount: result.valid_rows,
+  };
+}
+
+/**
+ * Detect potential duplicates within import data (in-file duplicates).
+ * Calls backend detect_duplicates and transforms DuplicatePair[] to DuplicateGroup[].
+ */
+export async function detectDuplicates(
+  rows: Record<string, string>[],
+  mapping: ColumnMapping,
+  _dataType: ImportType
+): Promise<DuplicateGroup[]> {
+  const result: BackendDedupeResult = await invoke('detect_duplicates', {
+    rows,
+    mapping: toMappingConfig(mapping),
+  });
+
+  // Transform in-file duplicate pairs to DuplicateGroup format
+  return result.duplicates.map((pair, idx) => {
+    const rowA = rows[pair.row_a] ?? {};
+    const rowB = rows[pair.row_b] ?? {};
+
+    return {
+      id: `dup-${idx}`,
+      incoming: rowB,
+      existing: {
+        id: `row-${pair.row_a}`,
+        email: rowA['email'] ?? rowA['employee_email'] ?? '',
+        full_name: [rowA['first_name'], rowA['last_name']].filter(Boolean).join(' ') || 'Row ' + (pair.row_a + 1),
+        ...rowA,
+      },
+      matchReason: pair.match_type.replace(/_/g, ' '),
+      confidence: pair.confidence,
+    };
+  });
+}

@@ -1,15 +1,15 @@
-import { useState, useCallback } from 'react';
 import { FileDropzone } from './FileDropzone';
 import { ImportPreview } from './ImportPreview';
-import type { ParsePreview, ColumnMapping, ParsedRow } from '../../lib/types';
+import { ColumnMappingStep } from './ColumnMappingStep';
+import { ValidationStep } from './ValidationStep';
+import { FixAndRetryStep } from './FixAndRetryStep';
+import { DedupeStep } from './DedupeStep';
+import { StepProgress, IMPORT_STEPS, getProgressStepKey } from './StepProgress';
+import type { ColumnMapping, ParsedRow, DuplicateResolution } from '../../lib/types';
 import type { CreateEmployeeInput, ImportResult } from '../../lib/tauri-commands';
-import {
-  readFileAsBytes,
-  parseFilePreview,
-  parseFile,
-  mapEmployeeColumns,
-  importEmployees,
-} from '../../lib/tauri-commands';
+import { mapEmployeeColumns, importEmployees } from '../../lib/tauri-commands';
+import { useImportPipeline } from '../../hooks/useImportPipeline';
+import type { ImportResultCommon } from '../../hooks/useImportPipeline';
 
 // Standard field labels for display
 const EMPLOYEE_FIELD_LABELS: Record<string, string> = {
@@ -30,8 +30,6 @@ const EMPLOYEE_FIELD_LABELS: Record<string, string> = {
 // Required fields for employee import
 const REQUIRED_FIELDS = ['email'];
 
-type ImportState = 'idle' | 'parsing' | 'preview' | 'importing' | 'complete';
-
 interface EmployeeImportProps {
   /** Callback when import completes successfully */
   onComplete?: (result: ImportResult) => void;
@@ -39,122 +37,165 @@ interface EmployeeImportProps {
   onCancel?: () => void;
 }
 
-export function EmployeeImport({ onComplete, onCancel }: EmployeeImportProps) {
-  const [state, setState] = useState<ImportState>('idle');
-  const [preview, setPreview] = useState<ParsePreview | null>(null);
-  const [columnMapping, setColumnMapping] = useState<ColumnMapping>({});
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [result, setResult] = useState<ImportResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
+// Import function that transforms rows and calls backend
+async function doImport(
+  rows: ParsedRow[],
+  mapping: ColumnMapping,
+  _resolutions: DuplicateResolution[]
+): Promise<ImportResultCommon> {
+  const employees = rows
+    .map((row) => transformRowToEmployee(row, mapping))
+    .filter((emp): emp is CreateEmployeeInput => emp !== null);
 
-  const handleFileSelect = useCallback(async (file: File) => {
-    setState('parsing');
-    setError(null);
-    setSelectedFile(file);
-
-    try {
-      // Read file and get preview
-      const bytes = await readFileAsBytes(file);
-      const previewData = await parseFilePreview(bytes, file.name, 5);
-
-      // Auto-map columns based on headers
-      const mapping = await mapEmployeeColumns(previewData.headers);
-
-      setPreview(previewData);
-      setColumnMapping(mapping);
-      setState('preview');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to parse file');
-      setState('idle');
-    }
-  }, []);
-
-  const handleImport = useCallback(async () => {
-    if (!selectedFile || !preview) return;
-
-    setState('importing');
-    setError(null);
-
-    try {
-      // Parse full file (not just preview)
-      const bytes = await readFileAsBytes(selectedFile);
-      const fullData = await parseFile(bytes, selectedFile.name);
-
-      // Transform rows to CreateEmployeeInput
-      const employees = fullData.rows
-        .map((row) => transformRowToEmployee(row, columnMapping))
-        .filter((emp): emp is CreateEmployeeInput => emp !== null);
-
-      if (employees.length === 0) {
-        throw new Error('No valid employee records found in file');
-      }
-
-      // Call backend import
-      const importResult = await importEmployees(employees);
-
-      setResult(importResult);
-      setState('complete');
-      onComplete?.(importResult);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Import failed');
-      setState('preview');
-    }
-  }, [selectedFile, preview, columnMapping, onComplete]);
-
-  const handleCancel = useCallback(() => {
-    setState('idle');
-    setPreview(null);
-    setColumnMapping({});
-    setSelectedFile(null);
-    setResult(null);
-    setError(null);
-    onCancel?.();
-  }, [onCancel]);
-
-  const handleReset = useCallback(() => {
-    setState('idle');
-    setPreview(null);
-    setColumnMapping({});
-    setSelectedFile(null);
-    setResult(null);
-    setError(null);
-  }, []);
-
-  // Render based on current state
-  if (state === 'complete' && result) {
-    return (
-      <ImportResultView
-        result={result}
-        onDone={handleReset}
-      />
-    );
+  if (employees.length === 0) {
+    throw new Error('No valid employee records found in file');
   }
 
-  if ((state === 'preview' || state === 'importing') && preview) {
+  const result = await importEmployees(employees);
+  return {
+    created: result.created,
+    updated: result.updated,
+    errors: result.errors,
+  };
+}
+
+export function EmployeeImport({ onComplete, onCancel }: EmployeeImportProps) {
+  const [state, actions] = useImportPipeline({
+    dataType: 'employees',
+    targetFields: EMPLOYEE_FIELD_LABELS,
+    requiredFields: REQUIRED_FIELDS,
+    autoMapFn: mapEmployeeColumns,
+    importFn: doImport,
+    onComplete: onComplete as ((result: ImportResultCommon) => void) | undefined,
+    onCancel,
+  });
+
+  const progressKey = getProgressStepKey(state.step);
+
+  // Complete screen
+  if (state.step === 'complete' && state.importResult) {
     return (
-      <div className="space-y-4">
-        {error && <ErrorBanner message={error} />}
-        <ImportPreview
-          preview={preview}
-          columnMapping={columnMapping}
-          requiredFields={REQUIRED_FIELDS}
-          fieldLabels={EMPLOYEE_FIELD_LABELS}
-          onImport={handleImport}
-          onCancel={handleCancel}
-          isImporting={state === 'importing'}
-        />
-      </div>
+      <ImportResultView
+        result={state.importResult}
+        onDone={actions.reset}
+      />
     );
   }
 
   return (
     <div className="space-y-4">
-      {error && <ErrorBanner message={error} />}
-      <FileDropzone
-        onFileSelect={handleFileSelect}
-        isLoading={state === 'parsing'}
-      />
-      <ImportInstructions />
+      {/* Step Progress */}
+      {state.step !== 'upload' && (
+        <StepProgress steps={IMPORT_STEPS} currentStep={progressKey} />
+      )}
+
+      {/* Error Banner */}
+      {state.error && <ErrorBanner message={state.error} />}
+
+      {/* Upload step */}
+      {state.step === 'upload' && (
+        <>
+          <FileDropzone
+            onFileSelect={actions.selectFile}
+            isLoading={state.isProcessing}
+          />
+          <ImportInstructions />
+        </>
+      )}
+
+      {/* Column Mapping step */}
+      {state.step === 'mapping' && (
+        <ColumnMappingStep
+          sourceHeaders={state.sourceHeaders}
+          targetFields={EMPLOYEE_FIELD_LABELS}
+          requiredFields={REQUIRED_FIELDS}
+          initialMapping={state.columnMapping}
+          normalizations={state.normalizations}
+          dataType="employees"
+          onConfirm={actions.confirmMapping}
+          onBack={actions.goBack}
+        />
+      )}
+
+      {/* Validating spinner */}
+      {state.step === 'validating' && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <svg
+            className="w-8 h-8 text-primary-500 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          <p className="mt-3 text-sm text-stone-600">Validating data...</p>
+        </div>
+      )}
+
+      {/* Validation Review step */}
+      {state.step === 'validation-review' && state.validationResult && (
+        <ValidationStep
+          validationResult={state.validationResult}
+          totalRows={state.allRows.length}
+          onFixIssues={() => {
+            // Transition to fixing step is handled via goBack from fixing or direct state
+            // For now, go to fixing step by setting step
+            actions.fixAndRevalidate(state.allRows);
+          }}
+          onContinue={actions.skipErrors}
+          onBack={actions.goBack}
+        />
+      )}
+
+      {/* Fix and Retry step */}
+      {state.step === 'fixing' && (
+        <FixAndRetryStep
+          issueRows={state.issueRows}
+          allRows={state.allRows}
+          columnMapping={state.columnMapping}
+          fieldLabels={EMPLOYEE_FIELD_LABELS}
+          onRevalidate={actions.fixAndRevalidate}
+          onSkipErrors={actions.skipErrors}
+          onBack={actions.goBack}
+        />
+      )}
+
+      {/* Dedupe step */}
+      {state.step === 'deduping' && !state.isProcessing && state.duplicates.length > 0 && (
+        <DedupeStep
+          duplicates={state.duplicates}
+          onResolve={actions.resolveDuplicates}
+          onBack={actions.goBack}
+        />
+      )}
+
+      {/* Dedupe loading */}
+      {state.step === 'deduping' && state.isProcessing && (
+        <div className="flex flex-col items-center justify-center py-12">
+          <svg
+            className="w-8 h-8 text-primary-500 animate-spin"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+          <p className="mt-3 text-sm text-stone-600">Checking for duplicates...</p>
+        </div>
+      )}
+
+      {/* Preview step */}
+      {(state.step === 'preview' || state.step === 'importing') && state.preview && (
+        <ImportPreview
+          preview={{ ...state.preview, total_rows: state.allRows.length }}
+          columnMapping={state.columnMapping}
+          requiredFields={REQUIRED_FIELDS}
+          fieldLabels={EMPLOYEE_FIELD_LABELS}
+          onImport={actions.startImport}
+          onCancel={actions.goBack}
+          isImporting={state.step === 'importing'}
+        />
+      )}
     </div>
   );
 }
@@ -165,35 +206,25 @@ export function EmployeeImport({ onComplete, onCancel }: EmployeeImportProps) {
 
 /**
  * Transform a parsed row into a CreateEmployeeInput.
- *
- * This is where you can customize the mapping logic:
- * - Combine first_name + last_name into full_name
- * - Normalize status values
- * - Parse date formats
- * - Handle missing optional fields
  */
 function transformRowToEmployee(
   row: ParsedRow,
   mapping: ColumnMapping
 ): CreateEmployeeInput | null {
-  // Helper to get value from row using the mapping
   const getValue = (field: string): string | undefined => {
     const header = mapping[field];
     return header ? row[header]?.trim() : undefined;
   };
 
-  // Email is required
   const email = getValue('email');
   if (!email) {
     return null;
   }
 
-  // Build full_name from first + last, or use as-is if full_name column exists
   const firstName = getValue('first_name') || '';
   const lastName = getValue('last_name') || '';
   const fullName = [firstName, lastName].filter(Boolean).join(' ') || email.split('@')[0];
 
-  // Normalize status: accept various formats
   const rawStatus = getValue('status')?.toLowerCase();
   let status: 'active' | 'terminated' | 'leave' | undefined;
   if (rawStatus) {
@@ -206,7 +237,6 @@ function transformRowToEmployee(
     }
   }
 
-  // Normalize termination reason if present
   const rawTermReason = getValue('termination_reason')?.toLowerCase();
   let terminationReason: string | undefined;
   if (rawTermReason) {
@@ -245,11 +275,11 @@ function ImportResultView({
   result,
   onDone,
 }: {
-  result: ImportResult;
+  result: ImportResultCommon;
   onDone: () => void;
 }) {
   const hasErrors = result.errors.length > 0;
-  const total = result.created + result.updated;
+  const total = result.created + (result.updated ?? 0);
 
   return (
     <div className="bg-white rounded-xl border border-stone-200 shadow-sm overflow-hidden">
@@ -297,7 +327,7 @@ function ImportResultView({
             <div className="text-stone-500">Created</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-stone-600">{result.updated}</div>
+            <div className="text-2xl font-bold text-stone-600">{result.updated ?? 0}</div>
             <div className="text-stone-500">Updated</div>
           </div>
           {hasErrors && (
@@ -313,7 +343,7 @@ function ImportResultView({
             <h4 className="text-sm font-medium text-amber-800 mb-2">Errors:</h4>
             <ul className="text-sm text-amber-700 space-y-1">
               {result.errors.slice(0, 5).map((err, idx) => (
-                <li key={idx}>• {err}</li>
+                <li key={idx}>&#8226; {err}</li>
               ))}
               {result.errors.length > 5 && (
                 <li className="text-amber-600">

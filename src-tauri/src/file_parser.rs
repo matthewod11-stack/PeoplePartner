@@ -315,7 +315,7 @@ fn excel_datetime_to_string(serial: f64) -> String {
 // ============================================================================
 
 /// Normalize header names for consistent field matching
-fn normalize_header(header: &str) -> String {
+pub fn normalize_header(header: &str) -> String {
     header
         .trim()
         .to_lowercase()

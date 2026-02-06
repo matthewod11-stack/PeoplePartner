@@ -12,6 +12,7 @@ mod chat;
 mod company;
 mod context;
 mod conversations;
+mod data_quality;
 mod db;
 mod dei;
 mod employees;
@@ -1420,6 +1421,93 @@ async fn import_backup(
     backup::import_backup(&state.pool, &encrypted_data, &password).await
 }
 
+// ============================================================================
+// Data Quality Center Commands (V2.5.1)
+// ============================================================================
+
+/// Analyze headers from a parsed file and suggest target field mappings
+#[tauri::command]
+fn analyze_import_headers(
+    headers: Vec<String>,
+    sample_rows: Vec<file_parser::ParsedRow>,
+    import_type: data_quality::ImportType,
+) -> data_quality::HeaderAnalysisResult {
+    data_quality::analyze_headers(&headers, &sample_rows, &import_type)
+}
+
+/// Apply a column mapping config to remap parsed row keys to target fields
+#[tauri::command]
+fn apply_column_mapping(
+    rows: Vec<file_parser::ParsedRow>,
+    mapping: data_quality::ColumnMappingConfig,
+) -> Vec<file_parser::ParsedRow> {
+    data_quality::apply_column_mapping(&rows, &mapping)
+}
+
+/// Detect potential duplicates within parsed rows (in-file)
+#[tauri::command]
+fn detect_duplicates(
+    rows: Vec<file_parser::ParsedRow>,
+    mapping: data_quality::ColumnMappingConfig,
+) -> data_quality::DedupeResult {
+    data_quality::detect_duplicates(&rows, &mapping)
+}
+
+/// Detect conflicts between parsed rows and existing DB employees
+#[tauri::command]
+async fn detect_existing_conflicts(
+    state: tauri::State<'_, Database>,
+    rows: Vec<file_parser::ParsedRow>,
+    mapping: data_quality::ColumnMappingConfig,
+) -> Result<data_quality::ExistingConflictsResult, employees::EmployeeError> {
+    data_quality::detect_existing_conflicts(&state.pool, &rows, &mapping).await
+}
+
+/// Validate all rows against rules for the given import type
+#[tauri::command]
+fn validate_import_rows(
+    rows: Vec<file_parser::ParsedRow>,
+    mapping: data_quality::ColumnMappingConfig,
+    import_type: data_quality::ImportType,
+) -> data_quality::ValidationResult {
+    data_quality::validate_rows(&rows, &mapping, &import_type)
+}
+
+/// Apply corrections to rows and re-validate
+#[tauri::command]
+fn apply_corrections_and_revalidate(
+    mut rows: Vec<file_parser::ParsedRow>,
+    corrections: Vec<data_quality::RowCorrection>,
+    mapping: data_quality::ColumnMappingConfig,
+    import_type: data_quality::ImportType,
+) -> (Vec<file_parser::ParsedRow>, data_quality::ValidationResult) {
+    let result = data_quality::apply_corrections_and_revalidate(
+        &mut rows, &corrections, &mapping, &import_type,
+    );
+    (rows, result)
+}
+
+/// Get all available HRIS presets
+#[tauri::command]
+fn get_hris_presets() -> Vec<data_quality::HrisPreset> {
+    data_quality::get_hris_presets()
+}
+
+/// Auto-detect which HRIS preset matches the given headers
+#[tauri::command]
+fn detect_hris_preset(headers: Vec<String>) -> Option<(String, f64)> {
+    data_quality::detect_hris_preset(&headers)
+}
+
+/// Apply an HRIS preset to generate a column mapping config
+#[tauri::command]
+fn apply_hris_preset(
+    preset_id: String,
+    headers: Vec<String>,
+) -> Option<data_quality::ColumnMappingConfig> {
+    data_quality::apply_hris_preset(&preset_id, &headers)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1576,7 +1664,17 @@ pub fn run() {
             // Backup & restore
             export_backup,
             validate_backup,
-            import_backup
+            import_backup,
+            // Data Quality Center (V2.5.1)
+            analyze_import_headers,
+            apply_column_mapping,
+            detect_duplicates,
+            detect_existing_conflicts,
+            validate_import_rows,
+            apply_corrections_and_revalidate,
+            get_hris_presets,
+            detect_hris_preset,
+            apply_hris_preset
         ])
         .setup(|app| {
             let handle = app.handle().clone();
