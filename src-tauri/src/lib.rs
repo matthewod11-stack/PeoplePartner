@@ -1512,6 +1512,7 @@ fn apply_hris_preset(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             check_db,
@@ -1677,6 +1678,10 @@ pub fn run() {
             apply_hris_preset
         ])
         .setup(|app| {
+            // Register updater plugin for auto-updates via GitHub Releases
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+
             let handle = app.handle().clone();
 
             // Initialize database asynchronously

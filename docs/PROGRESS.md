@@ -17,6 +17,41 @@
 Most recent session should be first.
 -->
 
+## Session 2026-02-07 (Phase 5.1 Distribution)
+
+**Phase:** 5.1
+**Focus:** Configure macOS code signing, notarization, auto-updater, and GitHub Actions release workflow
+
+### Completed
+- [x] 5.1.2 macOS code signing: `Entitlements.plist` (sandbox, network, keychain, file access), `signingIdentity: null` in tauri.conf.json (defers to env var)
+- [x] 5.1.3 Notarization: Configured via `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` env vars; Tauri auto-submits during `cargo tauri build`
+- [x] 5.1.4 Auto-updater: `tauri-plugin-updater` + `tauri-plugin-process` added, plugin registered in `lib.rs`, `createUpdaterArtifacts: true`, `useUpdateCheck` hook created
+- [x] 5.1.5 GitHub Releases: `.github/workflows/release.yml` — builds dual-arch (aarch64 + x86_64), signs, notarizes, publishes draft releases on `v*` tags via `tauri-action@v0`
+- [x] `docs/CODE_SIGNING.md` — complete Apple Developer setup guide with troubleshooting
+
+### Agent Team
+- 2 parallel agents: `signing-agent` (code signing + notarization) and `updater-agent` (auto-updater + GitHub Releases)
+- Both ran in plan mode with lead approval before implementation
+- Lead fixes applied: removed redundant manual keychain import from workflow, added `tauri-plugin-process` for `relaunch()` support
+
+### Verification
+- [x] `cargo test` — 308 passed, 0 failed
+- [x] `npx tsc --noEmit` — TypeScript clean
+- [x] No hardcoded secrets — all credentials via env vars / GitHub Secrets
+
+### Manual Steps Required (before first real build)
+1. Enroll in Apple Developer Program, create Developer ID Application cert
+2. Generate Tauri signing keys: `npx @tauri-apps/cli signer generate`
+3. Replace placeholders in `tauri.conf.json`: pubkey + GitHub repo URL
+4. Configure 8 GitHub Secrets (see `docs/CODE_SIGNING.md`)
+
+### Next Session Should
+1. Replace placeholder values in `tauri.conf.json` (pubkey, GitHub repo URL) once Apple Developer account is set up
+2. Consider moving to 5.2 Trial Infrastructure or 5.3 License System
+3. Pause Point V2.5 manual E2E verification of Data Quality Center still pending from last session
+
+---
+
 ## Session 2026-02-06 (V2.5.1 Data Quality Center)
 
 **Phase:** V2.5.1
