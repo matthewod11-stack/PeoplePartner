@@ -15,6 +15,7 @@ mod conversations;
 mod data_quality;
 mod db;
 mod dei;
+mod device_id;
 mod employees;
 mod enps;
 mod file_parser;
@@ -29,6 +30,7 @@ mod pii;
 mod review_cycles;
 mod settings;
 mod signals;
+mod trial;
 
 use db::Database;
 
@@ -90,16 +92,51 @@ async fn send_chat_message(
 /// Send a message to Claude with streaming response
 /// Emits "chat-stream" events as response chunks arrive
 ///
-/// V2.1.4: Now accepts aggregates and query_type for answer verification
+/// Dual-path routing: trial mode goes through proxy, paid mode uses BYOK key directly.
 #[tauri::command]
 async fn send_chat_message_streaming(
     app: tauri::AppHandle,
+    state: tauri::State<'_, Database>,
     messages: Vec<chat::ChatMessage>,
     system_prompt: Option<String>,
     aggregates: Option<context::OrgAggregates>,
     query_type: Option<context::QueryType>,
 ) -> Result<(), chat::ChatError> {
-    chat::send_message_streaming(app, messages, system_prompt, aggregates, query_type).await
+    let is_trial = trial::is_trial_mode(&state.pool)
+        .await
+        .unwrap_or(true); // Default to trial if we can't determine
+
+    if is_trial {
+        // Check message limit before sending
+        let can_send = trial::check_trial_message_limit(&state.pool)
+            .await
+            .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
+        if !can_send {
+            return Err(chat::ChatError::TrialLimitReached);
+        }
+
+        // Get proxy config
+        let proxy_url = trial::get_proxy_url(&state.pool)
+            .await
+            .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
+        let device_id = trial::get_device_id(&state.pool)
+            .await
+            .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
+
+        // Route through proxy
+        chat::send_message_streaming_trial(
+            app, messages, system_prompt, &proxy_url, &device_id, aggregates, query_type,
+        )
+        .await?;
+
+        // Increment message counter on success
+        let _ = trial::increment_trial_messages(&state.pool).await;
+
+        Ok(())
+    } else {
+        // Paid mode: direct to Anthropic API with BYOK key
+        chat::send_message_streaming(app, messages, system_prompt, aggregates, query_type).await
+    }
 }
 
 // ============================================================================
@@ -222,12 +259,21 @@ async fn get_employee_work_states(
 // Employee Management Commands
 // ============================================================================
 
-/// Create a new employee
+/// Create a new employee (with trial mode limit check)
 #[tauri::command]
 async fn create_employee(
     state: tauri::State<'_, Database>,
     input: employees::CreateEmployee,
 ) -> Result<employees::Employee, employees::EmployeeError> {
+    // Enforce trial employee limit
+    if trial::is_trial_mode(&state.pool).await.unwrap_or(false) {
+        let count = employees::get_total_employee_count(&state.pool).await?;
+        if count >= trial::TRIAL_EMPLOYEE_LIMIT {
+            return Err(employees::EmployeeError::Validation(
+                "Trial is limited to 10 employees. Upgrade to add more.".to_string(),
+            ));
+        }
+    }
     employees::create_employee(&state.pool, input).await
 }
 
@@ -306,12 +352,25 @@ async fn get_employee_counts(
     employees::get_employee_counts(&state.pool).await
 }
 
-/// Bulk import employees (upsert by email)
+/// Bulk import employees (upsert by email, with trial mode limit check)
 #[tauri::command]
 async fn import_employees(
     state: tauri::State<'_, Database>,
     employees: Vec<employees::CreateEmployee>,
 ) -> Result<employees::ImportResult, employees::EmployeeError> {
+    // Enforce trial employee limit for imports
+    if trial::is_trial_mode(&state.pool).await.unwrap_or(false) {
+        let current = employees::get_total_employee_count(&state.pool).await?;
+        let import_count = employees.len() as i64;
+        if current + import_count > trial::TRIAL_EMPLOYEE_LIMIT {
+            return Err(employees::EmployeeError::Validation(format!(
+                "Trial is limited to {} employees. You have {} and are importing {}. Upgrade to add more.",
+                trial::TRIAL_EMPLOYEE_LIMIT,
+                current,
+                import_count
+            )));
+        }
+    }
     employees::import_employees(&state.pool, employees).await
 }
 
@@ -1390,6 +1449,42 @@ fn get_data_path(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 // ============================================================================
+// Device ID Commands (Trial Mode)
+// ============================================================================
+
+/// Get or create a stable device ID for trial quota tracking
+#[tauri::command]
+async fn get_device_id(
+    state: tauri::State<'_, Database>,
+) -> Result<String, settings::SettingsError> {
+    device_id::get_or_create_device_id(&state.pool).await
+}
+
+// ============================================================================
+// Trial Mode Commands
+// ============================================================================
+
+/// Get current trial status (is_trial, messages used/limit, employees used/limit)
+#[tauri::command]
+async fn get_trial_status(
+    state: tauri::State<'_, Database>,
+) -> Result<trial::TrialStatus, String> {
+    trial::get_trial_status(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check if adding an employee is allowed under trial limits
+#[tauri::command]
+async fn check_employee_limit(
+    state: tauri::State<'_, Database>,
+) -> Result<trial::EmployeeLimitCheck, String> {
+    trial::check_employee_limit(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
 // Backup & Restore Commands
 // ============================================================================
 
@@ -1660,6 +1755,8 @@ pub fn run() {
             list_audit_entries,
             count_audit_entries,
             export_audit_log,
+            // Device ID (trial mode)
+            get_device_id,
             // Data path
             get_data_path,
             // Backup & restore
@@ -1675,7 +1772,10 @@ pub fn run() {
             apply_corrections_and_revalidate,
             get_hris_presets,
             detect_hris_preset,
-            apply_hris_preset
+            apply_hris_preset,
+            // Trial mode
+            get_trial_status,
+            check_employee_limit
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases

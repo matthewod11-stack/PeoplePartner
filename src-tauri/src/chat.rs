@@ -27,6 +27,10 @@ pub enum ChatError {
     ApiError(String),
     #[error("Failed to parse response: {0}")]
     ParseError(String),
+    #[error("Trial message limit reached. Upgrade to continue chatting.")]
+    TrialLimitReached,
+    #[error("Trial mode error: {0}")]
+    TrialError(String),
 }
 
 impl From<keyring::KeyringError> for ChatError {
@@ -331,67 +335,17 @@ pub async fn send_message(
     })
 }
 
-/// Send a message to Claude with streaming response
-/// Emits "chat-stream" events to the frontend as chunks arrive
-///
-/// V2.1.4: Now accepts optional aggregates and query_type for answer verification.
-/// When provided, verifies numeric claims in the response against ground truth.
-pub async fn send_message_streaming(
-    app: AppHandle,
-    messages: Vec<ChatMessage>,
-    system_prompt: Option<String>,
+/// Process an SSE stream response, emitting "chat-stream" events to the frontend.
+/// Shared between BYOK and trial proxy streaming paths.
+async fn process_sse_stream(
+    app: &AppHandle,
+    response: reqwest::Response,
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
 ) -> Result<(), ChatError> {
-    // Get API key
-    let api_key = keyring::get_api_key()?;
-
-    // Trim conversation to fit within token budget (silently drops oldest messages)
-    let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
-
-    // Build the request with streaming enabled
-    let request = MessageRequest {
-        model: MODEL.to_string(),
-        max_tokens: MAX_TOKENS,
-        messages: trimmed_messages
-            .into_iter()
-            .map(|m| Message {
-                role: m.role,
-                content: m.content,
-            })
-            .collect(),
-        system: system_prompt,
-        stream: Some(true),
-    };
-
-    // Create HTTP client and send request
-    let client = Client::new();
-    let response = client
-        .post(ANTHROPIC_API_URL)
-        .header("x-api-key", &api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("content-type", "application/json")
-        .json(&request)
-        .send()
-        .await?;
-
-    // Check for HTTP errors
-    let status = response.status();
-    if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        if let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(&error_text) {
-            return Err(ChatError::ApiError(format!(
-                "{}: {}",
-                api_error.error.error_type, api_error.error.message
-            )));
-        }
-        return Err(ChatError::ApiError(format!("HTTP {}: {}", status.as_u16(), error_text)));
-    }
-
-    // Process SSE stream
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
-    let mut full_response = String::new(); // V2.1.4: Accumulate for verification
+    let mut full_response = String::new();
 
     while let Some(chunk_result) = stream.next().await {
         let chunk = chunk_result.map_err(|e| ChatError::RequestError(e.to_string()))?;
@@ -409,10 +363,8 @@ pub async fn send_message_streaming(
                     if let Ok(event) = serde_json::from_str::<StreamEvent>(data) {
                         match event {
                             StreamEvent::ContentBlockDelta { delta, .. } => {
-                                // V2.1.4: Accumulate for verification
                                 full_response.push_str(&delta.text);
 
-                                // Emit text chunk to frontend
                                 let _ = app.emit("chat-stream", StreamChunk {
                                     chunk: delta.text,
                                     done: false,
@@ -420,7 +372,6 @@ pub async fn send_message_streaming(
                                 });
                             }
                             StreamEvent::MessageStop => {
-                                // V2.1.4: Verify response if we have aggregates
                                 let verification = query_type.map(|qt| {
                                     crate::context::verify_response(
                                         &full_response,
@@ -429,7 +380,6 @@ pub async fn send_message_streaming(
                                     )
                                 });
 
-                                // Signal completion with verification result
                                 let _ = app.emit("chat-stream", StreamChunk {
                                     chunk: String::new(),
                                     done: true,
@@ -439,7 +389,7 @@ pub async fn send_message_streaming(
                             StreamEvent::Error { error } => {
                                 return Err(ChatError::ApiError(error.message));
                             }
-                            _ => {} // Ignore other events
+                            _ => {}
                         }
                     }
                 }
@@ -448,6 +398,101 @@ pub async fn send_message_streaming(
     }
 
     Ok(())
+}
+
+/// Check HTTP response status and return an error if not successful.
+fn check_http_error_status(status: reqwest::StatusCode, error_text: &str) -> Result<(), ChatError> {
+    if let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(error_text) {
+        return Err(ChatError::ApiError(format!(
+            "{}: {}",
+            api_error.error.error_type, api_error.error.message
+        )));
+    }
+    Err(ChatError::ApiError(format!("HTTP {}: {}", status.as_u16(), error_text)))
+}
+
+/// Build a streaming MessageRequest from chat messages and system prompt.
+fn build_streaming_request(
+    messages: Vec<ChatMessage>,
+    system_prompt: &Option<String>,
+) -> MessageRequest {
+    let trimmed_messages = trim_conversation_to_budget(messages, system_prompt);
+    MessageRequest {
+        model: MODEL.to_string(),
+        max_tokens: MAX_TOKENS,
+        messages: trimmed_messages
+            .into_iter()
+            .map(|m| Message {
+                role: m.role,
+                content: m.content,
+            })
+            .collect(),
+        system: system_prompt.clone(),
+        stream: Some(true),
+    }
+}
+
+/// Send a message to Claude with streaming response (BYOK / paid mode)
+/// Emits "chat-stream" events to the frontend as chunks arrive
+pub async fn send_message_streaming(
+    app: AppHandle,
+    messages: Vec<ChatMessage>,
+    system_prompt: Option<String>,
+    aggregates: Option<crate::context::OrgAggregates>,
+    query_type: Option<crate::context::QueryType>,
+) -> Result<(), ChatError> {
+    let api_key = keyring::get_api_key()?;
+    let request = build_streaming_request(messages, &system_prompt);
+
+    let client = Client::new();
+    let response = client
+        .post(ANTHROPIC_API_URL)
+        .header("x-api-key", &api_key)
+        .header("anthropic-version", ANTHROPIC_VERSION)
+        .header("content-type", "application/json")
+        .json(&request)
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return check_http_error_status(status, &error_text);
+    }
+
+    process_sse_stream(&app, response, aggregates, query_type).await
+}
+
+/// Send a message through the trial proxy with streaming response.
+/// Routes through the proxy URL instead of directly to Anthropic.
+/// The proxy manages the API key; we send a device ID for quota tracking.
+pub async fn send_message_streaming_trial(
+    app: AppHandle,
+    messages: Vec<ChatMessage>,
+    system_prompt: Option<String>,
+    proxy_url: &str,
+    device_id: &str,
+    aggregates: Option<crate::context::OrgAggregates>,
+    query_type: Option<crate::context::QueryType>,
+) -> Result<(), ChatError> {
+    let request = build_streaming_request(messages, &system_prompt);
+
+    let client = Client::new();
+    let response = client
+        .post(proxy_url)
+        .header("x-device-id", device_id)
+        .header("content-type", "application/json")
+        .json(&request)
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return check_http_error_status(status, &error_text);
+    }
+
+    process_sse_stream(&app, response, aggregates, query_type).await
 }
 
 #[cfg(test)]

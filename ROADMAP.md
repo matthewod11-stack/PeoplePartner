@@ -709,41 +709,41 @@ Pre-import validation and fix workflow.
 | Features | All unlocked | All unlocked |
 | Time limit | None | None |
 
-#### 5.2.1 API Proxy Backend
+#### 5.2.1 API Proxy Backend ✓ COMPLETE
 > **Purpose:** Fund trial AI messages without exposing your API key
 
-- [ ] 5.2.1a Choose proxy platform (Cloudflare Workers recommended)
-- [ ] 5.2.1b Implement device/install ID generation in app
-- [ ] 5.2.1c Create proxy endpoint with rate limiting
-- [ ] 5.2.1d Implement 50-message quota tracking per device
-- [ ] 5.2.1e Add your Claude API key to proxy (server-side only)
+- [x] 5.2.1a Choose proxy platform (Cloudflare Workers recommended)
+- [x] 5.2.1b Implement device/install ID generation in app
+- [x] 5.2.1c Create proxy endpoint with rate limiting
+- [x] 5.2.1d Implement 50-message quota tracking per device
+- [x] 5.2.1e Add your Claude API key to proxy (server-side only)
 
-#### 5.2.2 Trial Mode in App
+#### 5.2.2 Trial Mode in App ✓ COMPLETE
 > **Purpose:** Dual-path chat routing (proxy for trial, BYOK for paid)
 
-- [ ] 5.2.2a Add `trial_mode` flag to app state
-- [ ] 5.2.2b Modify `chat.rs` to route via proxy OR direct BYOK
-- [ ] 5.2.2c Implement employee count limit (10 max in trial)
-- [ ] 5.2.2d Block employee add when limit reached (with upgrade prompt)
-- [ ] 5.2.2e Store trial message count locally
+- [x] 5.2.2a Add `trial_mode` flag to app state
+- [x] 5.2.2b Modify `chat.rs` to route via proxy OR direct BYOK
+- [x] 5.2.2c Implement employee count limit (10 max in trial)
+- [x] 5.2.2d Block employee add when limit reached (with upgrade prompt)
+- [x] 5.2.2e Store trial message count locally
 
-#### 5.2.3 Trial UI Components
+#### 5.2.3 Trial UI Components ✓ COMPLETE
 > **Purpose:** Communicate limits and prompt upgrades
 
-- [ ] 5.2.3a Create TrialBanner component ("Free Trial - X messages left")
-- [ ] 5.2.3b Create UpgradePrompt modal (triggered at limit thresholds)
-- [ ] 5.2.3c Add message counter to chat header
-- [ ] 5.2.3d Show employee limit in EmployeePanel ("10/10 employees")
-- [ ] 5.2.3e Create "Upgrade" button in Settings panel
+- [x] 5.2.3a Create TrialBanner component ("Free Trial - X messages left")
+- [x] 5.2.3b Create UpgradePrompt modal (triggered at limit thresholds)
+- [x] 5.2.3c Add message counter to chat header
+- [x] 5.2.3d Show employee limit in EmployeePanel ("10/10 employees")
+- [x] 5.2.3e Create "Upgrade" button in Settings panel
 
-#### 5.2.4 Upgrade Flow
+#### 5.2.4 Upgrade Flow ✓ COMPLETE
 > **Purpose:** Smooth transition from trial to paid
 
-- [ ] 5.2.4a Design upgrade prompt triggers (5 messages left, 0 left, 10 employees)
-- [ ] 5.2.4b Link to purchase page from upgrade prompts
-- [ ] 5.2.4c After license entry, prompt for API key setup (use existing guide)
-- [ ] 5.2.4d Clear trial limits after license validation
-- [ ] 5.2.4e Offer demo data removal option post-purchase
+- [x] 5.2.4a Design upgrade prompt triggers (5 messages left, 0 left, 10 employees)
+- [x] 5.2.4b Link to purchase page from upgrade prompts
+- [x] 5.2.4c After license entry, prompt for API key setup (use existing guide)
+- [x] 5.2.4d Clear trial limits after license validation
+- [x] 5.2.4e Offer demo data removal option post-purchase
 
 ### Pause Point 5B (Trial Ready)
 **Verification Required:**
@@ -864,11 +864,11 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 PHASE 5 - LAUNCH
 [x] 5.1.1-5.1.5 Distribution (5 tasks)
 [ ] PAUSE 5A: Distribution verified
-[ ] 5.2.1a-e API Proxy Backend (5 tasks)
-[ ] 5.2.2a-e Trial Mode in App (5 tasks)
-[ ] 5.2.3a-e Trial UI Components (5 tasks)
-[ ] 5.2.4a-e Upgrade Flow (5 tasks)
-[ ] PAUSE 5B: Trial ready
+[x] 5.2.1a-e API Proxy Backend (5 tasks)
+[x] 5.2.2a-e Trial Mode in App (5 tasks)
+[x] 5.2.3a-e Trial UI Components (5 tasks)
+[x] 5.2.4a-e Upgrade Flow (5 tasks)
+[ ] PAUSE 5B: Trial ready (manual E2E verification pending)
 [ ] 5.3.1-5.3.4 License system (4 tasks)
 [ ] 5.4.1-5.4.4 Payment integration (4 tasks)
 [ ] 5.5.1-5.5.3 Landing page (3 tasks)

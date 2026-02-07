@@ -7,9 +7,11 @@ import {
   useConversationMeta,
   useConversationActions,
 } from './contexts/ConversationContext';
+import { TrialProvider, useTrial } from './contexts/TrialContext';
 import { AppShell } from './components/layout/AppShell';
 import { ChatInput, MessageList, type ChatInputHandle } from './components/chat';
 import { PIINotification } from './components/shared';
+import { Badge } from './components/ui/Badge';
 import { EmployeeDetail } from './components/employees';
 import { TestDataImporter } from './components/dev/TestDataImporter';
 import { OnboardingProvider, OnboardingFlow, useOnboarding } from './components/onboarding';
@@ -28,6 +30,9 @@ const SettingsPanel = lazy(() =>
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const InsightBoardView = lazy(() =>
   import('./components/insights/InsightBoardView').then((module) => ({ default: module.InsightBoardView }))
+);
+const UpgradePrompt = lazy(() =>
+  import('./components/trial/UpgradePrompt').then((module) => ({ default: module.UpgradePrompt }))
 );
 
 // Error Boundary to catch React render errors
@@ -88,6 +93,9 @@ function ChatArea({ chatInputRef }: ChatAreaProps) {
   // Get selected employee from context (for prioritizing in context builder)
   const { selectedEmployeeId, selectEmployee } = useEmployees();
 
+  // Trial status for message counter badge
+  const { isTrialMode, trialStatus, messagesRemaining, isAtMessageLimit, refreshTrialStatus } = useTrial();
+
   // Get network state for offline mode
   const { isOnline, isApiReachable } = useNetwork();
   const isOffline = !isOnline || !isApiReachable;
@@ -110,8 +118,10 @@ function ChatArea({ chatInputRef }: ChatAreaProps) {
     async (content: string) => {
       // Pass selected employee ID to prioritize in context builder
       await sendMessage(content, selectedEmployeeId);
+      // Refresh trial counters after each message
+      refreshTrialStatus();
     },
-    [sendMessage, selectedEmployeeId]
+    [sendMessage, selectedEmployeeId, refreshTrialStatus]
   );
 
   const handlePromptClick = useCallback(
@@ -130,6 +140,17 @@ function ChatArea({ chatInputRef }: ChatAreaProps) {
 
   return (
     <div className="h-full flex flex-col">
+      {/* Trial message counter badge */}
+      {isTrialMode && trialStatus && (
+        <div className="flex justify-end px-2 pt-1">
+          <Badge
+            variant={messagesRemaining <= 5 ? 'warning' : 'default'}
+            size="sm"
+          >
+            {trialStatus.messages_used}/{trialStatus.messages_limit} messages
+          </Badge>
+        </div>
+      )}
       {/* PII redaction notification */}
       <PIINotification
         summary={piiNotification}
@@ -145,7 +166,7 @@ function ChatArea({ chatInputRef }: ChatAreaProps) {
       <ChatInput
         ref={chatInputRef}
         onSubmit={handleSubmit}
-        disabled={isLoading}
+        disabled={isLoading || isAtMessageLimit}
         isOffline={isOffline}
       />
     </div>
@@ -287,6 +308,9 @@ function MainAppContent() {
           onClose={() => setSelectedBoardId(null)}
         />
       </Suspense>
+      <Suspense fallback={null}>
+        <UpgradePrompt />
+      </Suspense>
     </>
   );
 }
@@ -317,9 +341,11 @@ function AppContent() {
     <ErrorBoundary>
       <LayoutProvider>
         <ConversationProvider>
-          <EmployeeProvider>
-            <MainAppContent />
-          </EmployeeProvider>
+          <TrialProvider>
+            <EmployeeProvider>
+              <MainAppContent />
+            </EmployeeProvider>
+          </TrialProvider>
         </ConversationProvider>
       </LayoutProvider>
     </ErrorBoundary>

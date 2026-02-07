@@ -5,6 +5,7 @@ import { OfflineIndicator } from '../shared';
 import { TabSwitcher, ConversationSidebar } from '../conversations';
 import { EmployeePanel } from '../employees';
 import { InsightBoardPanel } from '../insights';
+import { TrialBanner } from '../trial/TrialBanner';
 
 interface AppShellProps {
   children: ReactNode;
@@ -160,6 +161,9 @@ export function AppShell({ children, contextPanel, onSettingsClick, onBoardSelec
           </div>
         </div>
       </header>
+
+      {/* Trial banner */}
+      <TrialBanner />
 
       {/* Main content area */}
       <div className="flex-1 flex overflow-hidden">

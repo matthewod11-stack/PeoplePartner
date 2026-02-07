@@ -17,38 +17,38 @@
 Most recent session should be first.
 -->
 
-## Session 2026-02-07 (Phase 5.1 Distribution)
+## Session 2026-02-07 (Phase 5.1 Distribution + 5.2 Trial Infrastructure)
 
-**Phase:** 5.1
-**Focus:** Configure macOS code signing, notarization, auto-updater, and GitHub Actions release workflow
+**Phase:** 5.1 + 5.2
+**Focus:** Distribution infrastructure (code signing, notarization, auto-updater, GitHub Releases) + Trial infrastructure (API proxy, dual-path chat, trial UI, upgrade flow)
 
-### Completed
-- [x] 5.1.2 macOS code signing: `Entitlements.plist` (sandbox, network, keychain, file access), `signingIdentity: null` in tauri.conf.json (defers to env var)
-- [x] 5.1.3 Notarization: Configured via `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` env vars; Tauri auto-submits during `cargo tauri build`
-- [x] 5.1.4 Auto-updater: `tauri-plugin-updater` + `tauri-plugin-process` added, plugin registered in `lib.rs`, `createUpdaterArtifacts: true`, `useUpdateCheck` hook created
-- [x] 5.1.5 GitHub Releases: `.github/workflows/release.yml` — builds dual-arch (aarch64 + x86_64), signs, notarizes, publishes draft releases on `v*` tags via `tauri-action@v0`
-- [x] `docs/CODE_SIGNING.md` — complete Apple Developer setup guide with troubleshooting
+### Phase 5.1 — Distribution (Completed)
+- [x] 5.1.2 macOS code signing: `Entitlements.plist` (sandbox, network, keychain, file access), `signingIdentity: null` in tauri.conf.json
+- [x] 5.1.3 Notarization: `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` env vars; Tauri auto-submits during build
+- [x] 5.1.4 Auto-updater: `tauri-plugin-updater` + `tauri-plugin-process`, `useUpdateCheck` hook
+- [x] 5.1.5 GitHub Releases: `.github/workflows/release.yml` — dual-arch macOS builds, draft releases on `v*` tags
+- [x] `docs/CODE_SIGNING.md` — complete Apple Developer setup guide
 
-### Agent Team
-- 2 parallel agents: `signing-agent` (code signing + notarization) and `updater-agent` (auto-updater + GitHub Releases)
-- Both ran in plan mode with lead approval before implementation
-- Lead fixes applied: removed redundant manual keychain import from workflow, added `tauri-plugin-process` for `relaunch()` support
+### Phase 5.2 — Trial Infrastructure (Completed)
+- [x] 5.2.1 Cloudflare Workers proxy (`proxy/`): KV-based per-device quota (50 messages), model override, streaming passthrough, CORS, rate limiting. Device ID module (`device_id.rs`) generates stable UUID v4 per install.
+- [x] 5.2.2 Trial mode backend (`trial.rs`): `TrialStatus`/`EmployeeLimitCheck` structs, `is_trial_mode()` derived from keyring+license state, dual-path routing in `chat.rs` (proxy for trial, BYOK for paid), employee limit (10) in `create_employee`/`import_employees`, message counter via settings table. SSE stream processing extracted to shared helper.
+- [x] 5.2.3 Trial UI: `TrialBanner` (amber, session-dismissible), message counter Badge in chat header, employee limit progress bar in EmployeePanel, Upgrade button in Settings
+- [x] 5.2.4 Upgrade flow: `UpgradePrompt` modal (soft at 5 remaining, hard at 0/limit), `TrialContext` provider, placeholder purchase URL, ChatInput disabled at message limit
+
+### Agent Teams
+- **5.1:** 2 agents (signing + updater) — parallel plan-then-implement
+- **5.2:** 3 agents (proxy + backend + frontend) — proxy and backend parallel, frontend after backend
 
 ### Verification
-- [x] `cargo test` — 308 passed, 0 failed
+- [x] `cargo test` — 317 passed, 0 failed (up from 308: +9 trial/device_id tests)
 - [x] `npx tsc --noEmit` — TypeScript clean
-- [x] No hardcoded secrets — all credentials via env vars / GitHub Secrets
-
-### Manual Steps Required (before first real build)
-1. Enroll in Apple Developer Program, create Developer ID Application cert
-2. Generate Tauri signing keys: `npx @tauri-apps/cli signer generate`
-3. Replace placeholders in `tauri.conf.json`: pubkey + GitHub repo URL
-4. Configure 8 GitHub Secrets (see `docs/CODE_SIGNING.md`)
+- [x] No hardcoded secrets
 
 ### Next Session Should
-1. Replace placeholder values in `tauri.conf.json` (pubkey, GitHub repo URL) once Apple Developer account is set up
-2. Consider moving to 5.2 Trial Infrastructure or 5.3 License System
-3. Pause Point V2.5 manual E2E verification of Data Quality Center still pending from last session
+1. Replace placeholder values: `tauri.conf.json` (updater pubkey, GitHub repo URL), `proxy/wrangler.toml` (KV namespace IDs)
+2. Deploy Cloudflare Workers proxy and test end-to-end trial flow
+3. Move to 5.3 License System or 5.4 Payment Integration
+4. Pause Point V2.5 manual E2E verification still pending
 
 ---
 

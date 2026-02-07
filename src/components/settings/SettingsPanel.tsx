@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Modal } from '../shared/Modal';
+import { Button } from '../ui/Button';
 import { ApiKeyInput } from './ApiKeyInput';
 import { CompanySetup } from '../company/CompanySetup';
 import { BackupRestore } from './BackupRestore';
@@ -14,6 +15,7 @@ import { PersonaSelector } from './PersonaSelector';
 import { SignalsDisclaimerModal } from './SignalsDisclaimerModal';
 import { FairnessDisclaimerModal } from './FairnessDisclaimerModal';
 import { getDataPath, getSetting, setSetting } from '../../lib/tauri-commands';
+import { useTrial } from '../../contexts/TrialContext';
 
 interface SettingsPanelProps {
   /** Whether the panel is open */
@@ -22,7 +24,11 @@ interface SettingsPanelProps {
   onClose: () => void;
 }
 
+const UPGRADE_URL = 'https://hrcommand.com/upgrade';
+
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
+  const { isTrialMode, trialStatus } = useTrial();
+
   const [dataPath, setDataPath] = useState<string>('');
   const [telemetryEnabled, setTelemetryEnabled] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState(false);
@@ -177,6 +183,39 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         maxWidth="max-w-xl"
       >
         <div className="space-y-6">
+          {/* Trial Account Section */}
+          {isTrialMode && trialStatus && (
+            <section>
+              <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">
+                Account
+              </h3>
+              <div className="p-4 bg-gradient-to-r from-primary-50 to-amber-50 border border-primary-200 rounded-xl">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-stone-700">Free Trial</p>
+                    <p className="text-xs text-stone-500 mt-0.5">
+                      {trialStatus.messages_used} of {trialStatus.messages_limit} messages used
+                    </p>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={async () => {
+                      try {
+                        const { open } = await import('@tauri-apps/plugin-shell');
+                        await open(UPGRADE_URL);
+                      } catch {
+                        window.open(UPGRADE_URL, '_blank');
+                      }
+                    }}
+                  >
+                    Upgrade &mdash; $99
+                  </Button>
+                </div>
+              </div>
+            </section>
+          )}
+
           {/* API Connection Section */}
           <section>
             <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">

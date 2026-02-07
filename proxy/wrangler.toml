@@ -1,0 +1,14 @@
+name = "hrcommand-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+kv_namespaces = [
+  { binding = "QUOTA", id = "<QUOTA_KV_ID>", preview_id = "<QUOTA_KV_PREVIEW_ID>" }
+]
+
+[vars]
+MAX_MESSAGES = "50"
+ALLOWED_MODEL = "claude-sonnet-4-20250514"
+
+# CLAUDE_API_KEY must be set as a secret:
+#   wrangler secret put CLAUDE_API_KEY

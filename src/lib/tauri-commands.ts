@@ -2065,3 +2065,37 @@ export async function detectDuplicates(
     };
   });
 }
+
+// =============================================================================
+// V2.6 - Trial Mode
+// =============================================================================
+
+/** Trial status returned by the backend */
+export interface TrialStatus {
+  is_trial: boolean;
+  messages_used: number;
+  messages_limit: number;
+  employees_used: number;
+  employees_limit: number;
+}
+
+/** Result of checking whether more employees can be added */
+export interface EmployeeLimitCheck {
+  allowed: boolean;
+  current: number;
+  limit: number;
+}
+
+/**
+ * Get current trial status (limits, usage counts, whether in trial mode)
+ */
+export async function getTrialStatus(): Promise<TrialStatus> {
+  return invoke('get_trial_status');
+}
+
+/**
+ * Check if the employee limit allows adding more employees
+ */
+export async function checkEmployeeLimit(): Promise<EmployeeLimitCheck> {
+  return invoke('check_employee_limit');
+}

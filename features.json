@@ -4,8 +4,8 @@
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
     "lastUpdated": "2026-02-07",
     "project": "HR Command Center",
-    "totalFeatures": 55,
-    "passing": 49,
+    "totalFeatures": 56,
+    "passing": 50,
     "failing": 0,
     "inProgress": 0
   },
@@ -196,7 +196,11 @@
   "phase-5": {
     "distribution": {
       "status": "pass",
-      "notes": "5.1.1-5.1.5 complete: App icon, code signing (Entitlements.plist, signingIdentity via env var), notarization (APPLE_ID/PASSWORD/TEAM_ID env vars), tauri-plugin-updater + tauri-plugin-process, GitHub Actions release workflow (dual-arch, draft releases on v* tags). docs/CODE_SIGNING.md setup guide."
+      "notes": "5.1.1-5.1.5 complete: App icon, code signing, notarization, auto-updater, GitHub Actions release workflow."
+    },
+    "trial-infrastructure": {
+      "status": "pass",
+      "notes": "5.2.1-5.2.4 complete: Cloudflare Workers proxy (KV quota, model override, streaming passthrough), device_id.rs, trial.rs (dual-path chat routing, employee limit, message tracking), TrialContext + TrialBanner + UpgradePrompt (soft/hard), message counter badge, employee limit progress bar, Settings upgrade section. 317 Rust tests passing."
     },
     "license-system": {
       "status": "not-started",

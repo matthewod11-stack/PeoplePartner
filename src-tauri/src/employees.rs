@@ -509,6 +509,14 @@ pub async fn get_departments(pool: &DbPool) -> Result<Vec<String>, EmployeeError
     Ok(departments)
 }
 
+/// Get total employee count (all statuses)
+pub async fn get_total_employee_count(pool: &DbPool) -> Result<i64, EmployeeError> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM employees")
+        .fetch_one(pool)
+        .await?;
+    Ok(row.0)
+}
+
 /// Get employee count by status
 pub async fn get_employee_counts(pool: &DbPool) -> Result<Vec<(String, i64)>, EmployeeError> {
     let rows = sqlx::query(

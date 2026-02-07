@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useEmployees } from '../../contexts/EmployeeContext';
+import { useTrial } from '../../contexts/TrialContext';
 import { RATING_LABELS } from '../../lib/types';
 import { getDepartments } from '../../lib/tauri-commands';
 import { Avatar, getStatusIndicator, getRatingColor } from '../ui';
@@ -246,6 +247,8 @@ export function EmployeePanel() {
     openImportWizard,
   } = useEmployees();
 
+  const { isTrialMode, trialStatus } = useTrial();
+
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [managerFilter, setManagerFilter] = useState('');
@@ -388,19 +391,47 @@ export function EmployeePanel() {
       </div>
 
       {/* Employee count + Import button */}
-      <div className="mt-4 mb-2 flex items-center justify-between">
-        <p className="text-xs font-medium text-stone-500 uppercase tracking-wider">
-          {filteredEmployees.length} {filteredEmployees.length === 1 ? 'Employee' : 'Employees'}
-        </p>
-        <button
-          onClick={openImportWizard}
-          className="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-          </svg>
-          Import
-        </button>
+      <div className="mt-4 mb-2">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-medium text-stone-500 uppercase tracking-wider">
+            {filteredEmployees.length} {filteredEmployees.length === 1 ? 'Employee' : 'Employees'}
+          </p>
+          <button
+            onClick={openImportWizard}
+            className="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            Import
+          </button>
+        </div>
+
+        {/* Trial employee limit indicator */}
+        {isTrialMode && trialStatus && (
+          <div className="mt-1.5">
+            <div className="flex justify-between text-xs text-stone-500">
+              <span>{trialStatus.employees_used}/{trialStatus.employees_limit} employees</span>
+              {trialStatus.employees_used >= trialStatus.employees_limit && (
+                <span className="text-red-500 font-medium">Limit reached</span>
+              )}
+            </div>
+            <div className="mt-1 h-1.5 bg-stone-200 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  trialStatus.employees_used >= trialStatus.employees_limit
+                    ? 'bg-red-500'
+                    : trialStatus.employees_used >= trialStatus.employees_limit * 0.8
+                      ? 'bg-amber-500'
+                      : 'bg-primary-500'
+                }`}
+                style={{
+                  width: `${Math.min(100, (trialStatus.employees_used / trialStatus.employees_limit) * 100)}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Employee list */}
