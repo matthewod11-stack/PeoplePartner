@@ -341,5 +341,20 @@ Session: YYYY-MM-DD
 
 ---
 
-*Last updated: December 2025*
+## PROJECT_STATE.md Maintenance
+
+A `PROJECT_STATE.md` file exists at the project root. It serves as a cross-surface context sync document shared across Claude Chat, Claude Code (multiple machines), and Cowork.
+
+**Rules:**
+- Update `PROJECT_STATE.md` at the end of any session where meaningful changes were made
+- Keep it under 300 lines — replace stale content, don't append indefinitely
+- The "Recent Decisions" section should retain only the last 10 decisions; older ones can be archived or dropped
+- The "Current State" section must reflect what actually exists in the codebase, not what was planned
+- The "Cross-Surface Notes" section should flag any divergences from plans discussed outside this codebase
+- When I say "update project state" or "sync state," regenerate `PROJECT_STATE.md` by scanning the current codebase
+- Treat this file as the single source of truth about the project for external Claude sessions
+
+---
+
+*Last updated: February 2026*
 *Status: Phase 4 complete — V2 Feature Planning Pause*
