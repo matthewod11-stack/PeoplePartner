@@ -65,6 +65,34 @@ export async function validateApiKeyFormat(apiKey: string): Promise<boolean> {
   return invoke('validate_api_key_format', { apiKey });
 }
 
+/**
+ * Store a purchase license key locally.
+ */
+export async function storeLicenseKey(licenseKey: string): Promise<void> {
+  return invoke('store_license_key', { licenseKey });
+}
+
+/**
+ * Check whether a license key exists.
+ */
+export async function hasLicenseKey(): Promise<boolean> {
+  return invoke('has_license_key');
+}
+
+/**
+ * Remove stored license key.
+ */
+export async function deleteLicenseKey(): Promise<void> {
+  return invoke('delete_license_key');
+}
+
+/**
+ * Validate license key format without storing it.
+ */
+export async function validateLicenseKeyFormat(licenseKey: string): Promise<boolean> {
+  return invoke('validate_license_key_format', { licenseKey });
+}
+
 // =============================================================================
 // Phase 1.4 - Chat Commands
 // =============================================================================
@@ -2073,6 +2101,8 @@ export async function detectDuplicates(
 /** Trial status returned by the backend */
 export interface TrialStatus {
   is_trial: boolean;
+  has_license: boolean;
+  has_api_key: boolean;
   messages_used: number;
   messages_limit: number;
   employees_used: number;

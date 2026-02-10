@@ -9,6 +9,11 @@
 
 > "Each new session begins with no memory of what came before."
 
+## Current Implementation Notes (Phase 5)
+
+- Proxy request signing (`TRIAL_SIGNING_SECRET` / `HRCOMMAND_PROXY_SIGNING_SECRET`) remains **optional for local/dev** workflows.
+- Release placeholders (updater pubkey/repo endpoint, Cloudflare KV IDs, purchase URLs) are **intentionally deferred** until release configuration.
+
 We use **structured artifacts** to maintain continuity:
 
 | Artifact | Purpose | Location |

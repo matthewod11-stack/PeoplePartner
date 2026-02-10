@@ -16,7 +16,14 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     pattern: /API key not configured/i,
     type: 'no_api_key',
     message: 'API Key Required',
-    details: 'Please configure your Anthropic API key in settings to continue.',
+    details: 'Add your Anthropic API key in Settings to continue.',
+    retryable: false,
+  },
+  {
+    pattern: /trial message limit reached|trial_limit_reached|upgrade to continue/i,
+    type: 'trial_limit',
+    message: 'Trial Limit Reached',
+    details: 'You have used all trial messages. Upgrade and add a license key to continue.',
     retryable: false,
   },
   {

@@ -233,7 +233,7 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
               You only pay for what you use. No monthly minimums or commitments.
             </p>
             <p className="mt-1 text-primary-600 font-medium">
-              Trial mode coming soon — explore with sample data first!
+              If you purchased a license, enter it in Settings to unlock paid mode.
             </p>
           </div>
         </div>

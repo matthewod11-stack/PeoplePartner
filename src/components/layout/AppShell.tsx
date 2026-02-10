@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react';
 import { useLayout } from '../../contexts/LayoutContext';
 import { useNetwork } from '../../hooks';
+import { useUpdateCheck } from '../../hooks/useUpdateCheck';
 import { OfflineIndicator } from '../shared';
 import { TabSwitcher, ConversationSidebar } from '../conversations';
 import { EmployeePanel } from '../employees';
@@ -81,6 +82,7 @@ function IconButton({
 export function AppShell({ children, contextPanel, onSettingsClick, onBoardSelect }: AppShellProps) {
   const { sidebarOpen, contextPanelOpen, sidebarTab, toggleSidebar, toggleContextPanel, setSidebarTab } = useLayout();
   const { isOnline, errorMessage, checkNow, isChecking } = useNetwork();
+  const { updateAvailable, installing, installUpdate } = useUpdateCheck();
 
   return (
     <div className="h-screen flex flex-col bg-stone-50 overflow-hidden">
@@ -116,6 +118,25 @@ export function AppShell({ children, contextPanel, onSettingsClick, onBoardSelec
         />
 
         <div className="flex items-center gap-1">
+          {updateAvailable && (
+            <button
+              type="button"
+              onClick={() => { void installUpdate(); }}
+              disabled={installing}
+              className="
+                px-2 py-1 mr-1
+                text-xs font-medium
+                text-blue-700
+                bg-blue-100 hover:bg-blue-200
+                rounded-md
+                transition-colors duration-150
+                disabled:opacity-70 disabled:cursor-wait
+              "
+            >
+              {installing ? 'Installing Update...' : 'Update Available'}
+            </button>
+          )}
+
           {/* Command palette hint */}
           <button
             onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}

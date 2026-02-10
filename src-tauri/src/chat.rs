@@ -2,8 +2,10 @@
 // Handles communication with the Anthropic Messages API
 
 use futures::StreamExt;
+use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 
@@ -14,6 +16,7 @@ const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const MODEL: &str = "claude-sonnet-4-20250514";
 const MAX_TOKENS: u32 = 4096;
+type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Error, Debug)]
 pub enum ChatError {
@@ -28,7 +31,7 @@ pub enum ChatError {
     #[error("Failed to parse response: {0}")]
     ParseError(String),
     #[error("Trial message limit reached. Upgrade to continue chatting.")]
-    TrialLimitReached,
+    TrialLimitReached { used: Option<u32>, limit: Option<u32> },
     #[error("Trial mode error: {0}")]
     TrialError(String),
 }
@@ -189,6 +192,21 @@ pub struct StreamChunk {
     /// Verification result - only included when done=true
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verification: Option<crate::context::VerificationResult>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TrialUsageMetadata {
+    pub used: Option<u32>,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ProxyErrorResponse {
+    error: String,
+    #[allow(dead_code)]
+    message: String,
+    used: Option<u32>,
+    limit: Option<u32>,
 }
 
 // ============================================================================
@@ -432,6 +450,32 @@ fn build_streaming_request(
     }
 }
 
+fn parse_trial_usage_headers(headers: &reqwest::header::HeaderMap) -> TrialUsageMetadata {
+    let used = headers
+        .get("x-trial-used")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u32>().ok());
+    let limit = headers
+        .get("x-trial-limit")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u32>().ok());
+
+    TrialUsageMetadata { used, limit }
+}
+
+fn compute_trial_signature(
+    secret: &str,
+    device_id: &str,
+    timestamp: &str,
+    body_json: &str,
+) -> Result<String, ChatError> {
+    let payload = format!("{}:{}:{}", device_id, timestamp, body_json);
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
+        .map_err(|e| ChatError::TrialError(e.to_string()))?;
+    mac.update(payload.as_bytes());
+    Ok(hex::encode(mac.finalize().into_bytes()))
+}
+
 /// Send a message to Claude with streaming response (BYOK / paid mode)
 /// Emits "chat-stream" events to the frontend as chunks arrive
 pub async fn send_message_streaming(
@@ -457,7 +501,14 @@ pub async fn send_message_streaming(
     let status = response.status();
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        return check_http_error_status(status, &error_text);
+        return Err(match check_http_error_status(status, &error_text) {
+            Err(err) => err,
+            Ok(()) => ChatError::ApiError(format!(
+                "HTTP {}: {}",
+                status.as_u16(),
+                error_text
+            )),
+        });
     }
 
     process_sse_stream(&app, response, aggregates, query_type).await
@@ -472,27 +523,64 @@ pub async fn send_message_streaming_trial(
     system_prompt: Option<String>,
     proxy_url: &str,
     device_id: &str,
+    proxy_signing_secret: Option<&str>,
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
-) -> Result<(), ChatError> {
+) -> Result<TrialUsageMetadata, ChatError> {
     let request = build_streaming_request(messages, &system_prompt);
+    let body_json = serde_json::to_string(&request)
+        .map_err(|e| ChatError::ParseError(e.to_string()))?;
 
     let client = Client::new();
-    let response = client
+    let mut request_builder = client
         .post(proxy_url)
         .header("x-device-id", device_id)
         .header("content-type", "application/json")
-        .json(&request)
-        .send()
-        .await?;
+        .header("origin", "tauri://localhost")
+        .body(body_json.clone());
 
-    let status = response.status();
-    if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        return check_http_error_status(status, &error_text);
+    if let Some(secret) = proxy_signing_secret {
+        let timestamp = chrono::Utc::now().timestamp().to_string();
+        let signature = compute_trial_signature(secret, device_id, &timestamp, &body_json)?;
+        request_builder = request_builder
+            .header("x-trial-timestamp", timestamp)
+            .header("x-trial-signature", signature);
     }
 
-    process_sse_stream(&app, response, aggregates, query_type).await
+    let response = request_builder.send().await?;
+
+    let status = response.status();
+    let mut usage = parse_trial_usage_headers(response.headers());
+    if !status.is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 402 {
+            if let Ok(proxy_error) = serde_json::from_str::<ProxyErrorResponse>(&error_text) {
+                if proxy_error.error == "trial_limit_reached" {
+                    if usage.used.is_none() {
+                        usage.used = proxy_error.used;
+                    }
+                    if usage.limit.is_none() {
+                        usage.limit = proxy_error.limit;
+                    }
+                    return Err(ChatError::TrialLimitReached {
+                        used: usage.used,
+                        limit: usage.limit,
+                    });
+                }
+            }
+        }
+        return Err(match check_http_error_status(status, &error_text) {
+            Err(err) => err,
+            Ok(()) => ChatError::ApiError(format!(
+                "HTTP {}: {}",
+                status.as_u16(),
+                error_text
+            )),
+        });
+    }
+
+    process_sse_stream(&app, response, aggregates, query_type).await?;
+    Ok(usage)
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 // HR Command Center - Trial Mode Module
 // Manages trial vs paid mode detection, message limits, and employee limits.
-// Trial status is derived: no API key AND no license key = trial mode.
+// Trial status is derived from license presence.
+// Unlicensed installs are trial-mode; licensed installs are paid-mode (BYOK required).
 // All trial state is stored in the existing `settings` table.
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +23,7 @@ const DEFAULT_PROXY_URL: &str = "https://hrcommand-proxy.workers.dev";
 const KEY_TRIAL_MESSAGES_USED: &str = "trial_messages_used";
 const KEY_PROXY_URL: &str = "proxy_url";
 const KEY_LICENSE_KEY: &str = "license_key";
+const KEY_PROXY_SIGNING_SECRET: &str = "proxy_signing_secret";
 
 // ============================================================================
 // Types
@@ -30,6 +32,8 @@ const KEY_LICENSE_KEY: &str = "license_key";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrialStatus {
     pub is_trial: bool,
+    pub has_license: bool,
+    pub has_api_key: bool,
     pub messages_used: u32,
     pub messages_limit: u32,
     pub employees_used: i64,
@@ -48,25 +52,51 @@ pub struct EmployeeLimitCheck {
 // ============================================================================
 
 /// Determine if the app is in trial mode.
-/// Trial = no API key in Keychain AND no license key in settings.
+/// Trial mode is active when no license key is present.
 pub async fn is_trial_mode(pool: &DbPool) -> Result<bool, SettingsError> {
-    let has_api_key = keyring::has_api_key();
-    let has_license = settings::get_setting(pool, KEY_LICENSE_KEY)
-        .await?
-        .is_some();
+    Ok(!has_license_key(pool).await?)
+}
 
-    // Paid mode requires BOTH an API key and a license
-    Ok(!has_api_key || !has_license)
+/// True when a non-empty license key is stored.
+pub async fn has_license_key(pool: &DbPool) -> Result<bool, SettingsError> {
+    Ok(get_license_key(pool).await?.is_some())
+}
+
+/// Fetch the stored license key, trimmed.
+pub async fn get_license_key(pool: &DbPool) -> Result<Option<String>, SettingsError> {
+    let value = settings::get_setting(pool, KEY_LICENSE_KEY).await?;
+    Ok(value.and_then(|v| {
+        let trimmed = v.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }))
+}
+
+/// Store (or replace) the license key.
+pub async fn store_license_key(pool: &DbPool, license_key: &str) -> Result<(), SettingsError> {
+    settings::set_setting(pool, KEY_LICENSE_KEY, license_key.trim()).await
+}
+
+/// Delete the stored license key.
+pub async fn delete_license_key(pool: &DbPool) -> Result<(), SettingsError> {
+    settings::delete_setting(pool, KEY_LICENSE_KEY).await
 }
 
 /// Get full trial status for frontend display.
 pub async fn get_trial_status(pool: &DbPool) -> Result<TrialStatus, SettingsError> {
-    let is_trial = is_trial_mode(pool).await?;
+    let has_license = has_license_key(pool).await?;
+    let has_api_key = keyring::has_api_key();
+    let is_trial = !has_license;
     let messages_used = get_trial_messages_used(pool).await?;
     let employees_used = get_total_employee_count(pool).await?;
 
     Ok(TrialStatus {
         is_trial,
+        has_license,
+        has_api_key,
         messages_used,
         messages_limit: TRIAL_MESSAGE_LIMIT,
         employees_used,
@@ -99,6 +129,16 @@ pub async fn increment_trial_messages(pool: &DbPool) -> Result<u32, SettingsErro
     let new_count = current + 1;
     settings::set_setting(pool, KEY_TRIAL_MESSAGES_USED, &new_count.to_string()).await?;
     Ok(new_count)
+}
+
+/// Set the trial message counter to a specific value.
+pub async fn set_trial_messages_used(pool: &DbPool, value: u32) -> Result<(), SettingsError> {
+    settings::set_setting(pool, KEY_TRIAL_MESSAGES_USED, &value.to_string()).await
+}
+
+/// Reset the trial message counter.
+pub async fn reset_trial_messages(pool: &DbPool) -> Result<(), SettingsError> {
+    settings::set_setting(pool, KEY_TRIAL_MESSAGES_USED, "0").await
 }
 
 // ============================================================================
@@ -159,6 +199,27 @@ pub async fn get_proxy_url(pool: &DbPool) -> Result<String, SettingsError> {
     Ok(DEFAULT_PROXY_URL.to_string())
 }
 
+/// Get optional proxy signing secret used for request HMAC signatures.
+/// Priority: env var > settings > none.
+pub async fn get_proxy_signing_secret(pool: &DbPool) -> Result<Option<String>, SettingsError> {
+    if let Ok(secret) = std::env::var("HRCOMMAND_PROXY_SIGNING_SECRET") {
+        let trimmed = secret.trim();
+        if !trimmed.is_empty() {
+            return Ok(Some(trimmed.to_string()));
+        }
+    }
+
+    let from_settings = settings::get_setting(pool, KEY_PROXY_SIGNING_SECRET).await?;
+    Ok(from_settings.and_then(|s| {
+        let trimmed = s.trim().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }))
+}
+
 /// Get or create the device ID (delegates to device_id module).
 pub async fn get_device_id(pool: &DbPool) -> Result<String, SettingsError> {
     device_id::get_or_create_device_id(pool).await
@@ -176,12 +237,15 @@ mod tests {
     fn test_trial_status_struct() {
         let status = TrialStatus {
             is_trial: true,
+            has_license: false,
+            has_api_key: false,
             messages_used: 5,
             messages_limit: TRIAL_MESSAGE_LIMIT,
             employees_used: 3,
             employees_limit: TRIAL_EMPLOYEE_LIMIT,
         };
         assert!(status.is_trial);
+        assert!(!status.has_license);
         assert_eq!(status.messages_limit, 50);
         assert_eq!(status.employees_limit, 10);
     }
@@ -220,6 +284,8 @@ mod tests {
     fn test_trial_status_serialization() {
         let status = TrialStatus {
             is_trial: true,
+            has_license: false,
+            has_api_key: false,
             messages_used: 10,
             messages_limit: 50,
             employees_used: 3,
@@ -227,6 +293,8 @@ mod tests {
         };
         let json = serde_json::to_string(&status).unwrap();
         assert!(json.contains("\"is_trial\":true"));
+        assert!(json.contains("\"has_license\":false"));
+        assert!(json.contains("\"has_api_key\":false"));
         assert!(json.contains("\"messages_used\":10"));
         assert!(json.contains("\"messages_limit\":50"));
         assert!(json.contains("\"employees_used\":3"));
@@ -257,7 +325,12 @@ mod tests {
 
     #[test]
     fn test_settings_keys_are_distinct() {
-        let keys = [KEY_TRIAL_MESSAGES_USED, KEY_PROXY_URL, KEY_LICENSE_KEY];
+        let keys = [
+            KEY_TRIAL_MESSAGES_USED,
+            KEY_PROXY_URL,
+            KEY_LICENSE_KEY,
+            KEY_PROXY_SIGNING_SECRET,
+        ];
         for i in 0..keys.len() {
             for j in (i + 1)..keys.len() {
                 assert_ne!(keys[i], keys[j], "Settings keys must be unique");

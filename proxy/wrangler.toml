@@ -9,6 +9,12 @@ kv_namespaces = [
 [vars]
 MAX_MESSAGES = "50"
 ALLOWED_MODEL = "claude-sonnet-4-20250514"
+ALLOWED_ORIGINS = "tauri://localhost,http://localhost:1420"
+MAX_SIGNATURE_AGE_SECONDS = "300"
+MAX_IP_REQUESTS_PER_HOUR = "300"
 
 # CLAUDE_API_KEY must be set as a secret:
 #   wrangler secret put CLAUDE_API_KEY
+#
+# Optional but strongly recommended for abuse protection:
+#   wrangler secret put TRIAL_SIGNING_SECRET

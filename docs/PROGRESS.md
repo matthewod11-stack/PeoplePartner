@@ -17,6 +17,45 @@
 Most recent session should be first.
 -->
 
+## Session 2026-02-07 (Phase 5.2 Hardening + License Flow Follow-through)
+
+**Phase:** 5.2 stabilization (with 5.3 groundwork)
+**Focus:** Resolve trial-mode blockers from implementation review: license path, trial routing correctness, counter sync, proxy hardening, updater wiring
+
+### Completed
+- [x] Added local license key commands and validation in Tauri backend: `store_license_key`, `delete_license_key`, `has_license_key`, `validate_license_key_format`
+- [x] Added license key UI in Settings (`LicenseKeyInput`) and refreshed account state after save/remove
+- [x] Updated trial gating model: trial mode now tracks license presence; paid usage requires license + BYOK key
+- [x] Updated chat routing for licensed-without-API-key state (returns `NoApiKey` instead of consuming trial proxy credits)
+- [x] Added proxy-authoritative trial usage sync via `X-Trial-Used`/`X-Trial-Limit` headers and backend local counter reconciliation
+- [x] Added trial-specific frontend error mapping (`trial_limit`) and ensured trial status refresh runs after chat attempts (success or failure)
+- [x] Fixed trial import cap logic to enforce against **net-new unique emails** instead of raw row count
+- [x] Added trial-status refresh on employee count changes in `EmployeeContext` so employee usage bars stay current
+- [x] Wired updater hook into shell with visible "Update Available" CTA in header
+- [x] Hardened Cloudflare Worker proxy with:
+  - origin allowlist (`ALLOWED_ORIGINS`)
+  - per-IP hourly throttling (`MAX_IP_REQUESTS_PER_HOUR`)
+  - optional HMAC request signing + replay protection (`TRIAL_SIGNING_SECRET`)
+- [x] Updated proxy docs/config (`proxy/README.md`, `proxy/wrangler.toml`) for new security variables
+- [x] Updated `docs/KNOWN_ISSUES.md` statuses for resolved and partially mitigated items
+
+### Verification
+- [x] `npm run type-check` (root) — passes
+- [x] `cargo check --offline` — passes (warnings only)
+- [x] `cargo test --offline` — 317 passed, 0 failed, 1 ignored
+- [x] `npx tsc --noEmit -p proxy/tsconfig.json` — passes
+
+### Notes
+- Installed proxy dependencies (`proxy/package-lock.json` added) to enable Worker TypeScript checks.
+- HMAC enforcement is optional by design for local/dev, but production should set `TRIAL_SIGNING_SECRET` on Worker and matching app config to fully close abuse paths.
+
+### Next Session Should
+1. Populate release/runtime placeholders: updater pubkey, GitHub release endpoint, Cloudflare KV IDs
+2. Configure production `TRIAL_SIGNING_SECRET` and validate signed-request path end-to-end
+3. Add server-side license validation API (Phase 5.3.1/5.3.2) and replace local format-only validation
+
+---
+
 ## Session 2026-02-07 (Phase 5.1 Distribution + 5.2 Trial Infrastructure)
 
 **Phase:** 5.1 + 5.2

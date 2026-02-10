@@ -14,6 +14,7 @@ import { BackupRestore } from './BackupRestore';
 import { PersonaSelector } from './PersonaSelector';
 import { SignalsDisclaimerModal } from './SignalsDisclaimerModal';
 import { FairnessDisclaimerModal } from './FairnessDisclaimerModal';
+import { LicenseKeyInput } from './LicenseKeyInput';
 import { getDataPath, getSetting, setSetting } from '../../lib/tauri-commands';
 import { useTrial } from '../../contexts/TrialContext';
 
@@ -27,7 +28,7 @@ interface SettingsPanelProps {
 const UPGRADE_URL = 'https://hrcommand.com/upgrade';
 
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
-  const { isTrialMode, trialStatus } = useTrial();
+  const { isTrialMode, trialStatus, refreshTrialStatus } = useTrial();
 
   const [dataPath, setDataPath] = useState<string>('');
   const [telemetryEnabled, setTelemetryEnabled] = useState(false);
@@ -184,44 +185,71 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       >
         <div className="space-y-6">
           {/* Trial Account Section */}
-          {isTrialMode && trialStatus && (
-            <section>
-              <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">
-                Account
-              </h3>
-              <div className="p-4 bg-gradient-to-r from-primary-50 to-amber-50 border border-primary-200 rounded-xl">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-stone-700">Free Trial</p>
-                    <p className="text-xs text-stone-500 mt-0.5">
-                      {trialStatus.messages_used} of {trialStatus.messages_limit} messages used
-                    </p>
-                  </div>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={async () => {
-                      try {
-                        const { open } = await import('@tauri-apps/plugin-shell');
-                        await open(UPGRADE_URL);
-                      } catch {
-                        window.open(UPGRADE_URL, '_blank');
-                      }
-                    }}
-                  >
-                    Upgrade &mdash; $99
-                  </Button>
-                </div>
-              </div>
-            </section>
-          )}
+          <section>
+            <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">
+              Account
+            </h3>
+
+            <div className="space-y-3">
+              <LicenseKeyInput
+                compact
+                onSave={refreshTrialStatus}
+                onDelete={refreshTrialStatus}
+              />
+
+              {trialStatus && (
+                <>
+                  {isTrialMode ? (
+                    <div className="p-4 bg-gradient-to-r from-primary-50 to-amber-50 border border-primary-200 rounded-xl">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-stone-700">Free Trial</p>
+                          <p className="text-xs text-stone-500 mt-0.5">
+                            {trialStatus.messages_used} of {trialStatus.messages_limit} messages used
+                          </p>
+                        </div>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={async () => {
+                            try {
+                              const { open } = await import('@tauri-apps/plugin-shell');
+                              await open(UPGRADE_URL);
+                            } catch {
+                              window.open(UPGRADE_URL, '_blank');
+                            }
+                          }}
+                        >
+                          Upgrade &mdash; $99
+                        </Button>
+                      </div>
+                    </div>
+                  ) : trialStatus.has_api_key ? (
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                      <p className="text-sm font-medium text-green-800">Paid Mode Active</p>
+                      <p className="text-xs text-green-600 mt-0.5">
+                        License and API key are configured. Trial limits are disabled.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                      <p className="text-sm font-medium text-amber-800">License Active, API Key Needed</p>
+                      <p className="text-xs text-amber-700 mt-0.5">
+                        Add your Anthropic API key below to start using paid mode.
+                      </p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </section>
 
           {/* API Connection Section */}
           <section>
             <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">
               API Connection
             </h3>
-            <ApiKeyInput compact />
+            <ApiKeyInput compact onSave={refreshTrialStatus} onDelete={refreshTrialStatus} />
           </section>
 
           {/* Company Profile Section */}

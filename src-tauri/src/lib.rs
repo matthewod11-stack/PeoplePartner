@@ -1,6 +1,7 @@
 // HR Command Center - Rust Backend
 // This file contains the core library code for Tauri commands
 
+use std::collections::HashSet;
 use tauri::Manager;
 
 mod analytics;
@@ -76,6 +77,62 @@ fn validate_api_key_format(api_key: String) -> bool {
     api_key.starts_with("sk-ant-") && api_key.len() > 20
 }
 
+/// Store a license key after basic local format validation.
+/// This is local-only storage until server-side validation is wired.
+#[tauri::command]
+async fn store_license_key(
+    state: tauri::State<'_, Database>,
+    license_key: String,
+) -> Result<(), String> {
+    let normalized = license_key.trim().to_string();
+    if !validate_license_key_format(normalized.clone()) {
+        return Err(
+            "License key format is invalid. Use letters, numbers, and dashes only.".to_string(),
+        );
+    }
+
+    trial::store_license_key(&state.pool, &normalized)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Purchased installs should not keep stale trial usage counts.
+    trial::reset_trial_messages(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Remove stored license key.
+#[tauri::command]
+async fn delete_license_key(state: tauri::State<'_, Database>) -> Result<(), String> {
+    trial::delete_license_key(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Check whether a license key is present.
+#[tauri::command]
+async fn has_license_key(state: tauri::State<'_, Database>) -> Result<bool, String> {
+    trial::has_license_key(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Validate license key format without storing it.
+#[tauri::command]
+fn validate_license_key_format(license_key: String) -> bool {
+    let trimmed = license_key.trim();
+    let len = trimmed.len();
+    if len < 12 || len > 80 {
+        return false;
+    }
+    if !trimmed.contains('-') {
+        return false;
+    }
+    trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
 // ============================================================================
 // Chat Commands
 // ============================================================================
@@ -102,19 +159,12 @@ async fn send_chat_message_streaming(
     aggregates: Option<context::OrgAggregates>,
     query_type: Option<context::QueryType>,
 ) -> Result<(), chat::ChatError> {
-    let is_trial = trial::is_trial_mode(&state.pool)
+    let has_license = trial::has_license_key(&state.pool)
         .await
-        .unwrap_or(true); // Default to trial if we can't determine
+        .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
+    let has_api_key = keyring::has_api_key();
 
-    if is_trial {
-        // Check message limit before sending
-        let can_send = trial::check_trial_message_limit(&state.pool)
-            .await
-            .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
-        if !can_send {
-            return Err(chat::ChatError::TrialLimitReached);
-        }
-
+    if !has_license {
         // Get proxy config
         let proxy_url = trial::get_proxy_url(&state.pool)
             .await
@@ -122,17 +172,44 @@ async fn send_chat_message_streaming(
         let device_id = trial::get_device_id(&state.pool)
             .await
             .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
+        let proxy_signing_secret = trial::get_proxy_signing_secret(&state.pool)
+            .await
+            .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
 
         // Route through proxy
-        chat::send_message_streaming_trial(
-            app, messages, system_prompt, &proxy_url, &device_id, aggregates, query_type,
+        let trial_usage = chat::send_message_streaming_trial(
+            app,
+            messages,
+            system_prompt,
+            &proxy_url,
+            &device_id,
+            proxy_signing_secret.as_deref(),
+            aggregates,
+            query_type,
         )
-        .await?;
+        .await;
 
-        // Increment message counter on success
-        let _ = trial::increment_trial_messages(&state.pool).await;
+        let trial_usage = match trial_usage {
+            Ok(usage) => usage,
+            Err(chat::ChatError::TrialLimitReached { used, limit }) => {
+                if let Some(server_used) = used {
+                    let _ = trial::set_trial_messages_used(&state.pool, server_used).await;
+                }
+                return Err(chat::ChatError::TrialLimitReached { used, limit });
+            }
+            Err(other) => return Err(other),
+        };
+
+        // Sync local counter from proxy metadata when available.
+        if let Some(used) = trial_usage.used {
+            let _ = trial::set_trial_messages_used(&state.pool, used).await;
+        } else {
+            let _ = trial::increment_trial_messages(&state.pool).await;
+        }
 
         Ok(())
+    } else if !has_api_key {
+        Err(chat::ChatError::NoApiKey)
     } else {
         // Paid mode: direct to Anthropic API with BYOK key
         chat::send_message_streaming(app, messages, system_prompt, aggregates, query_type).await
@@ -361,13 +438,29 @@ async fn import_employees(
     // Enforce trial employee limit for imports
     if trial::is_trial_mode(&state.pool).await.unwrap_or(false) {
         let current = employees::get_total_employee_count(&state.pool).await?;
-        let import_count = employees.len() as i64;
-        if current + import_count > trial::TRIAL_EMPLOYEE_LIMIT {
+        let mut unique_emails: HashSet<String> = HashSet::new();
+        let mut net_new_count: i64 = 0;
+
+        for employee in &employees {
+            let normalized_email = employee.email.trim().to_lowercase();
+            if !unique_emails.insert(normalized_email.clone()) {
+                continue;
+            }
+
+            if employees::get_employee_by_email(&state.pool, &employee.email)
+                .await?
+                .is_none()
+            {
+                net_new_count += 1;
+            }
+        }
+
+        if current + net_new_count > trial::TRIAL_EMPLOYEE_LIMIT {
             return Err(employees::EmployeeError::Validation(format!(
-                "Trial is limited to {} employees. You have {} and are importing {}. Upgrade to add more.",
+                "Trial is limited to {} employees. You have {} and this import adds {} new records. Upgrade to add more.",
                 trial::TRIAL_EMPLOYEE_LIMIT,
                 current,
-                import_count
+                net_new_count
             )));
         }
     }
@@ -1615,6 +1708,10 @@ pub fn run() {
             has_api_key,
             delete_api_key,
             validate_api_key_format,
+            store_license_key,
+            has_license_key,
+            delete_license_key,
+            validate_license_key_format,
             send_chat_message,
             send_chat_message_streaming,
             check_network_status,

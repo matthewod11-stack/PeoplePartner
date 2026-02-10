@@ -61,6 +61,7 @@ export interface Message {
 
 export type ChatErrorType =
   | 'no_api_key'
+  | 'trial_limit'
   | 'auth_error'
   | 'rate_limit'
   | 'network_error'

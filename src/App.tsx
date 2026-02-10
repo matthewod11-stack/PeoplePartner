@@ -116,10 +116,13 @@ function ChatArea({ chatInputRef }: ChatAreaProps) {
 
   const handleSubmit = useCallback(
     async (content: string) => {
-      // Pass selected employee ID to prioritize in context builder
-      await sendMessage(content, selectedEmployeeId);
-      // Refresh trial counters after each message
-      refreshTrialStatus();
+      try {
+        // Pass selected employee ID to prioritize in context builder
+        await sendMessage(content, selectedEmployeeId);
+      } finally {
+        // Refresh trial counters even when a request fails (for server-authoritative limits).
+        await refreshTrialStatus();
+      }
     },
     [sendMessage, selectedEmployeeId, refreshTrialStatus]
   );

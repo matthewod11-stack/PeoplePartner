@@ -58,6 +58,75 @@ These decisions were made during planning and should NOT be revisited during imp
 
 ## Open Issues
 
+### [PHASE-5.2] Trial mode never exits when API key is present
+**Status:** Resolved  
+**Severity:** High  
+**Discovered:** 2026-02-07  
+**Resolved:** 2026-02-07  
+**Description:** Trial mode had no supported path to exit because `license_key` was required but never settable from app UI.  
+**Workaround:** N/A (fixed)  
+**Resolution:** Added license key commands + settings UI, switched gating to license-based trial mode, and enforced paid mode as "license + BYOK."
+
+### [PHASE-5.2] Trial limit errors surface as generic failures and counters can desync
+**Status:** Resolved  
+**Severity:** Medium  
+**Discovered:** 2026-02-07  
+**Resolved:** 2026-02-07  
+**Description:** Trial limit responses were mapped to generic chat failures, and local counters drifted from proxy counters.  
+**Workaround:** N/A (fixed)  
+**Resolution:** Added trial-specific frontend error mapping, proxy response usage headers (`X-Trial-Used`, `X-Trial-Limit`), backend counter sync from proxy metadata, and always-refresh behavior after chat attempts.
+
+### [PHASE-5.2] Trial import limit over-counts updates
+**Status:** Resolved  
+**Severity:** Medium  
+**Discovered:** 2026-02-07  
+**Resolved:** 2026-02-07  
+**Description:** Trial import validation treated all rows as net-new employees, blocking update-only imports.  
+**Workaround:** N/A (fixed)  
+**Resolution:** Trial guard now computes net-new unique emails only before enforcing the 10-employee cap.
+
+### [PHASE-5.2] Trial employee limit UI does not refresh after CRUD/import
+**Status:** Resolved  
+**Severity:** Low  
+**Discovered:** 2026-02-07  
+**Resolved:** 2026-02-07  
+**Description:** Employee usage indicators could stay stale after imports and employee-count changes.  
+**Workaround:** N/A (fixed)  
+**Resolution:** Employee context now refreshes trial status when total employee count changes, and chat submit now refreshes trial status in a `finally` path.
+
+### [PHASE-5.1] Auto-updater check is unused
+**Status:** Resolved  
+**Severity:** Medium  
+**Discovered:** 2026-02-07  
+**Resolved:** 2026-02-07  
+**Description:** Updater hook existed but was never mounted in app UI.  
+**Workaround:** N/A (fixed)  
+**Resolution:** `useUpdateCheck` is now mounted in the app shell with an in-header "Update Available" action.
+
+### [PHASE-5.2] Trial proxy is open to abuse
+**Status:** In Progress  
+**Severity:** Medium  
+**Discovered:** 2026-02-07  
+**Description:** Original proxy accepted any origin and any UUIDv4 `X-Device-ID`, enabling scripted quota bypass and cost abuse.  
+**Workaround:** Configure `TRIAL_SIGNING_SECRET` in Worker secrets and match it in desktop app config to enforce signed requests.  
+**Resolution:** Mitigated with origin allowlist, coarse per-IP throttling, trial usage headers, optional HMAC signature verification, and replay protection. Final hardening depends on production secret configuration.
+
+### [PHASE-5.3] License key validation is local-only
+**Status:** Open  
+**Severity:** Medium  
+**Discovered:** 2026-02-07  
+**Description:** License entry currently performs only local format validation before storing in `settings`. There is no server-side license verification endpoint yet, so authenticity/revocation checks are not enforced.  
+**Workaround:** Treat this as beta gating only; use trusted distribution and manual support verification for licenses.  
+**Resolution:** Pending Phase 5.3.1/5.3.2 implementation (license validation API + online verification flow).
+
+### [PHASE-5.1] Distribution config placeholders block release
+**Status:** Open  
+**Severity:** Medium  
+**Discovered:** 2026-02-07  
+**Description:** `tauri.conf.json` updater `pubkey` and GitHub endpoints are placeholders; `proxy/wrangler.toml` KV namespace IDs are stubbed; upgrade URLs still point to placeholders. Builds will sign but updater/proxy/upgrade flows will fail until real values are filled.  
+**Workaround:** Populate real pubkey, repo URLs, and KV IDs before any release or trial deployment.  
+**Resolution:** Pending config updates.
+
 ### [PHASE-2.1] file_parser::tests::test_normalize_header test failure
 **Status:** Resolved
 **Severity:** Low

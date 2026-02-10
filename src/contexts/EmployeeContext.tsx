@@ -14,6 +14,7 @@ import {
   type EmployeeWithLatestRating,
   type EmployeeFilter,
 } from '../lib/tauri-commands';
+import { useTrial } from './TrialContext';
 
 // =============================================================================
 // Types
@@ -65,6 +66,8 @@ interface EmployeeProviderProps {
 }
 
 export function EmployeeProvider({ children }: EmployeeProviderProps) {
+  const { refreshTrialStatus } = useTrial();
+
   // Core state
   const [employees, setEmployees] = useState<EmployeeWithLatestRating[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
@@ -80,6 +83,7 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLoadedOnceRef = useRef(false);
+  const lastTotalCountRef = useRef<number | null>(null);
 
   // Debounce search query (300ms delay)
   useEffect(() => {
@@ -127,13 +131,17 @@ export function EmployeeProvider({ children }: EmployeeProviderProps) {
       const result = await listEmployeesWithRatings(effectiveFilter, 200, 0);
       setEmployees(result.employees);
       setTotalCount(result.total);
+      if (lastTotalCountRef.current !== result.total) {
+        lastTotalCountRef.current = result.total;
+        void refreshTrialStatus();
+      }
       hasLoadedOnceRef.current = true;
       setIsLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load employees');
       setIsLoading(false);
     }
-  }, [filter, debouncedSearchQuery]);
+  }, [filter, debouncedSearchQuery, refreshTrialStatus]);
 
   // Select an employee
   const selectEmployee = useCallback((id: string | null) => {
