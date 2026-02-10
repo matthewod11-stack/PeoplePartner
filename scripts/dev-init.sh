@@ -36,7 +36,7 @@ echo ""
 echo -e "${BLUE}Checking session tracking files...${NC}"
 
 TRACKING_FILES=(
-    "docs/ROADMAP.md"
+    "ROADMAP.md"
     "docs/PROGRESS.md"
     "docs/SESSION_PROTOCOL.md"
     "docs/KNOWN_ISSUES.md"
@@ -63,8 +63,8 @@ echo ""
 echo -e "${BLUE}Checking architecture docs...${NC}"
 
 ARCH_FILES=(
-    "HR-Command-Center-Roadmap.md"
-    "HR-Command-Center-Design-Architecture.md"
+    "docs/HR-Command-Center-Roadmap.md"
+    "docs/HR-Command-Center-Design-Architecture.md"
 )
 
 for file in "${ARCH_FILES[@]}"; do
@@ -147,9 +147,9 @@ fi
 # 7. Show next tasks
 echo ""
 echo -e "${BLUE}═══ Next Tasks ═══${NC}"
-if [ -f "docs/ROADMAP.md" ]; then
+if [ -f "ROADMAP.md" ]; then
     # Show first 5 unchecked tasks
-    grep -n "\- \[ \]" docs/ROADMAP.md | head -5 | while read line; do
+    grep -n "\- \[ \]" ROADMAP.md | head -5 | while read line; do
         echo "$line"
     done
 else
@@ -178,6 +178,6 @@ echo -e "${GREEN}Session ready.${NC} Follow single-feature-per-session rule."
 echo ""
 echo "Quick commands:"
 echo "  cat docs/PROGRESS.md     # Full session history"
-echo "  cat docs/ROADMAP.md      # Task checklist"
+echo "  cat ROADMAP.md           # Task checklist"
 echo "  cat features.json        # Pass/fail status"
 echo ""
