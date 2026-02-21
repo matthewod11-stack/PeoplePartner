@@ -5,8 +5,7 @@ import { useCallback } from 'react';
 import { Modal } from '../shared/Modal';
 import { Button } from '../ui/Button';
 import { useTrial } from '../../contexts/TrialContext';
-
-const UPGRADE_URL = 'https://hrcommand.com/upgrade';
+import { UPGRADE_URL } from '../../lib/constants';
 
 async function openUpgradeUrl() {
   try {

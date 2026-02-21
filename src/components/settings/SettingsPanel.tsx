@@ -17,6 +17,7 @@ import { FairnessDisclaimerModal } from './FairnessDisclaimerModal';
 import { LicenseKeyInput } from './LicenseKeyInput';
 import { getDataPath, getSetting, setSetting } from '../../lib/tauri-commands';
 import { useTrial } from '../../contexts/TrialContext';
+import { UPGRADE_URL } from '../../lib/constants';
 
 interface SettingsPanelProps {
   /** Whether the panel is open */
@@ -24,8 +25,6 @@ interface SettingsPanelProps {
   /** Called when the panel should close */
   onClose: () => void;
 }
-
-const UPGRADE_URL = 'https://hrcommand.com/upgrade';
 
 export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const { isTrialMode, trialStatus, refreshTrialStatus } = useTrial();

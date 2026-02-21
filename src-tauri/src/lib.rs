@@ -77,8 +77,33 @@ fn validate_api_key_format(api_key: String) -> bool {
     api_key.starts_with("sk-ant-") && api_key.len() > 20
 }
 
-/// Store a license key after basic local format validation.
-/// This is local-only storage until server-side validation is wired.
+/// Validate a license key against the remote server.
+/// Returns Ok(true) if valid, Ok(false) if server says invalid,
+/// or Err if the server is unreachable (fail-open).
+async fn validate_license_key_remote(license_key: &str) -> Result<bool, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .post("https://hrcommandcenter.com/api/validate-license")
+        .json(&serde_json::json!({ "license_key": license_key }))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    #[derive(serde::Deserialize)]
+    struct ValidationResponse {
+        valid: bool,
+    }
+
+    let body: ValidationResponse = resp.json().await.map_err(|e| e.to_string())?;
+    Ok(body.valid)
+}
+
+/// Store a license key after local format validation and optional remote validation.
+/// Fail-open: if the server is unreachable, the key is accepted on format alone.
 #[tauri::command]
 async fn store_license_key(
     state: tauri::State<'_, Database>,
@@ -89,6 +114,17 @@ async fn store_license_key(
         return Err(
             "License key format is invalid. Use letters, numbers, and dashes only.".to_string(),
         );
+    }
+
+    // Attempt remote validation (fail-open on network errors)
+    match validate_license_key_remote(&normalized).await {
+        Ok(true) => { /* valid — continue */ }
+        Ok(false) => {
+            return Err(
+                "This license key was not recognized. Please check the key and try again.".to_string(),
+            );
+        }
+        Err(_) => { /* server unreachable — accept on format alone */ }
     }
 
     trial::store_license_key(&state.pool, &normalized)
