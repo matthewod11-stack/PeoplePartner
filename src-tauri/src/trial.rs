@@ -17,7 +17,7 @@ use crate::settings::{self, SettingsError};
 
 pub const TRIAL_MESSAGE_LIMIT: u32 = 50;
 pub const TRIAL_EMPLOYEE_LIMIT: i64 = 10;
-const DEFAULT_PROXY_URL: &str = "https://hrcommand-proxy.workers.dev";
+const DEFAULT_PROXY_URL: &str = "https://hrcommand-proxy.hrcommand.workers.dev";
 
 // Settings keys
 const KEY_TRIAL_MESSAGES_USED: &str = "trial_messages_used";
@@ -200,9 +200,16 @@ pub async fn get_proxy_url(pool: &DbPool) -> Result<String, SettingsError> {
 }
 
 /// Get optional proxy signing secret used for request HMAC signatures.
-/// Priority: env var > settings > none.
+/// Priority: env var > build-time > settings > none.
 pub async fn get_proxy_signing_secret(pool: &DbPool) -> Result<Option<String>, SettingsError> {
     if let Ok(secret) = std::env::var("HRCOMMAND_PROXY_SIGNING_SECRET") {
+        let trimmed = secret.trim();
+        if !trimmed.is_empty() {
+            return Ok(Some(trimmed.to_string()));
+        }
+    }
+
+    if let Some(secret) = option_env!("HRCOMMAND_PROXY_SIGNING_SECRET") {
         let trimmed = secret.trim();
         if !trimmed.is_empty() {
             return Ok(Some(trimmed.to_string()));

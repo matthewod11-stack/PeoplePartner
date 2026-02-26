@@ -17,6 +17,48 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-02-26 (Pre-Launch Deployment Checklist — Tasks 1-6)
+
+**Phase:** 5.5 (Pre-Launch Deployment)
+**Focus:** Provision infrastructure, configure secrets, deploy proxy — all pre-launch config tasks before E2E verification
+
+### Completed
+- [x] **Task 1:** Provisioned Vercel Postgres for website entitlement tables
+- [x] **Task 2:** Ran `001_entitlements.sql` migration — `licenses`, `license_activations`, `stripe_webhook_events` tables live
+- [x] **Task 3:** Switched Stripe to live mode — new product/price, live API keys, live webhook endpoint, Vercel env vars updated, redeployed
+- [x] **Task 4:** Deployed Cloudflare Workers proxy — KV namespace created, `CLAUDE_API_KEY` secret set, deployed to `https://hrcommand-proxy.hrcommand.workers.dev`
+- [x] **Task 5:** Configured auto-updater — signing keypair generated, pubkey + GitHub releases endpoint in `tauri.conf.json`, private key stored as GitHub Actions secret
+- [x] **Task 6:** Wired `TRIAL_SIGNING_SECRET` — generated shared HMAC secret, set on Cloudflare Worker and as GitHub Actions secret, added `option_env!` build-time lookup in `trial.rs`
+- [x] Fixed default proxy URL: `hrcommand-proxy.workers.dev` → `hrcommand-proxy.hrcommand.workers.dev`
+- [x] Added proxy URL to CSP `connect-src` in `tauri.conf.json`
+- [x] Linked website repo to Vercel CLI (`vercel link`)
+
+### Code Changes (Desktop Repo)
+- `src-tauri/src/trial.rs` — Updated `DEFAULT_PROXY_URL` to actual deployed URL, added `option_env!("HRCOMMAND_PROXY_SIGNING_SECRET")` build-time lookup
+- `src-tauri/tauri.conf.json` — Set updater pubkey, GitHub releases endpoint, added proxy to CSP `connect-src`
+- `proxy/wrangler.toml` — Set real KV namespace IDs
+
+### Verification
+- [x] `cargo test` — 317 passed, 0 failed, 1 ignored
+- [x] `cargo check` — clean (47 pre-existing warnings)
+- [x] TypeScript — 3 pre-existing type errors (missing runtime-only declarations)
+
+### Infrastructure Provisioned
+| Service | Detail |
+|---------|--------|
+| Vercel Postgres | `hrcommand-entitlements` DB with 3 tables |
+| Stripe (live) | Product, price, webhook, 4 env vars on Vercel |
+| Cloudflare Worker | `hrcommand-proxy.hrcommand.workers.dev` with KV + 2 secrets |
+| GitHub Secrets | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, `HRCOMMAND_PROXY_SIGNING_SECRET` |
+
+### Next Session Should
+1. Execute Task 7: E2E verification — `cargo tauri dev`, test trial proxy chat, upgrade flow, license activation, seat limits, offline mode
+2. If proxy chat fails, debug CORS / CSP / origin issues between Tauri and the Worker
+3. Consider a test purchase + immediate refund to verify live Stripe webhook flow end-to-end
+4. After E2E passes, commit final changes and prep for first release build
+
+---
+
 ## Session: 2026-02-26 (Launch Hardening Execution — Steps 1-6)
 
 **Phase:** 5.3-5.4 (Launch Hardening)
