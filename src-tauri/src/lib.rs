@@ -77,10 +77,21 @@ fn validate_api_key_format(api_key: String) -> bool {
     api_key.starts_with("sk-ant-") && api_key.len() > 20
 }
 
+/// Result of remote license key validation.
+#[derive(Debug)]
+enum LicenseValidationResult {
+    Valid,
+    Invalid,
+    SeatLimitExceeded(String),
+}
+
 /// Validate a license key against the remote server.
-/// Returns Ok(true) if valid, Ok(false) if server says invalid,
-/// or Err if the server is unreachable (fail-open).
-async fn validate_license_key_remote(license_key: &str) -> Result<bool, String> {
+/// Sends device_id for seat-limit enforcement.
+/// Returns the validation result or Err if the server is unreachable (fail-open).
+async fn validate_license_key_remote(
+    license_key: &str,
+    device_id: &str,
+) -> Result<LicenseValidationResult, String> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(5))
         .build()
@@ -88,7 +99,10 @@ async fn validate_license_key_remote(license_key: &str) -> Result<bool, String> 
 
     let resp = client
         .post("https://hrcommandcenter.com/api/validate-license")
-        .json(&serde_json::json!({ "license_key": license_key }))
+        .json(&serde_json::json!({
+            "license_key": license_key,
+            "device_id": device_id,
+        }))
         .send()
         .await
         .map_err(|e| e.to_string())?;
@@ -96,10 +110,22 @@ async fn validate_license_key_remote(license_key: &str) -> Result<bool, String> 
     #[derive(serde::Deserialize)]
     struct ValidationResponse {
         valid: bool,
+        reason: Option<String>,
+        message: Option<String>,
     }
 
     let body: ValidationResponse = resp.json().await.map_err(|e| e.to_string())?;
-    Ok(body.valid)
+
+    if body.valid {
+        Ok(LicenseValidationResult::Valid)
+    } else if body.reason.as_deref() == Some("SEAT_LIMIT_EXCEEDED") {
+        let msg = body
+            .message
+            .unwrap_or_else(|| "This license key has been activated on too many devices.".to_string());
+        Ok(LicenseValidationResult::SeatLimitExceeded(msg))
+    } else {
+        Ok(LicenseValidationResult::Invalid)
+    }
 }
 
 /// Store a license key after local format validation and optional remote validation.
@@ -112,17 +138,25 @@ async fn store_license_key(
     let normalized = license_key.trim().to_string();
     if !validate_license_key_format(normalized.clone()) {
         return Err(
-            "License key format is invalid. Use letters, numbers, and dashes only.".to_string(),
+            "Invalid license key format. Expected format: HRC-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX".to_string(),
         );
     }
 
+    // Fetch device_id for seat-limit enforcement (fall back to empty string on error)
+    let device_id = trial::get_device_id(&state.pool)
+        .await
+        .unwrap_or_default();
+
     // Attempt remote validation (fail-open on network errors)
-    match validate_license_key_remote(&normalized).await {
-        Ok(true) => { /* valid — continue */ }
-        Ok(false) => {
+    match validate_license_key_remote(&normalized, &device_id).await {
+        Ok(LicenseValidationResult::Valid) => { /* valid — continue */ }
+        Ok(LicenseValidationResult::Invalid) => {
             return Err(
                 "This license key was not recognized. Please check the key and try again.".to_string(),
             );
+        }
+        Ok(LicenseValidationResult::SeatLimitExceeded(msg)) => {
+            return Err(format!("Seat limit reached: {}", msg));
         }
         Err(_) => { /* server unreachable — accept on format alone */ }
     }
@@ -154,19 +188,24 @@ async fn has_license_key(state: tauri::State<'_, Database>) -> Result<bool, Stri
 }
 
 /// Validate license key format without storing it.
+/// Expected format: HRC-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX where X is hex (0-9, A-F).
 #[tauri::command]
 fn validate_license_key_format(license_key: String) -> bool {
     let trimmed = license_key.trim();
-    let len = trimmed.len();
-    if len < 12 || len > 80 {
+    // Expected: "HRC-" + 6 groups of 4 hex chars separated by dashes = 33 chars
+    if trimmed.len() != 33 {
         return false;
     }
-    if !trimmed.contains('-') {
+    if !trimmed.starts_with("HRC-") {
         return false;
     }
-    trimmed
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    let groups: Vec<&str> = trimmed[4..].split('-').collect();
+    if groups.len() != 6 {
+        return false;
+    }
+    groups.iter().all(|g| {
+        g.len() == 4 && g.chars().all(|c| c.is_ascii_hexdigit())
+    })
 }
 
 // ============================================================================

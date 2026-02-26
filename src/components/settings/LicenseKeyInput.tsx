@@ -63,7 +63,14 @@ export function LicenseKeyInput({
       setTimeout(() => setStatus('idle'), 2000);
     } catch (err) {
       setStatus('error');
-      setErrorMessage(err instanceof Error ? err.message : 'Failed to save license key');
+      const raw = err instanceof Error ? err.message : String(err);
+      if (/seat.?limit|already activated on/i.test(raw)) {
+        setErrorMessage(
+          'This license is already active on 2 devices. Contact support@hrcommandcenter.com to deactivate a device.'
+        );
+      } else {
+        setErrorMessage(raw || 'Failed to save license key');
+      }
     }
   }, [isValid, licenseKey, onSave]);
 
@@ -144,7 +151,7 @@ export function LicenseKeyInput({
             setErrorMessage('');
             setStatus('idle');
           }}
-          placeholder="HRC-XXXX-XXXX-XXXX"
+          placeholder="HRC-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"
           disabled={status === 'saving'}
           aria-label="License key"
           className={`
@@ -192,7 +199,7 @@ export function LicenseKeyInput({
 
       {licenseKey && !isValid && !errorMessage && (
         <p className="mt-2 text-xs text-amber-600">
-          Use letters, numbers, and dashes (for example: <code className="bg-stone-100 px-1 rounded">HRC-XXXX-XXXX</code>).
+          Expected format: <code className="bg-stone-100 px-1 rounded">HRC-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX</code>
         </p>
       )}
     </div>
