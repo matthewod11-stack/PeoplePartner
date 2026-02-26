@@ -38,10 +38,10 @@ A desktop AI assistant for HR professionals that keeps your employee data local 
 | 2. Context | ✅ Done | AI knows your company, query-adaptive retrieval, 63 tests |
 | 3. Protection | ✅ Done | PII redaction, audit logging, error handling, offline mode |
 | 4. Polish | ✅ Done | Onboarding, Settings, Backup/Restore, Monday Digest |
-| V2 Features | ✅ V2.4 Done | Intelligence & visualization enhancements |
-| 5. Launch | 🔨 Current | Distribution, license system, beta users |
+| V2 Features | ✅ Done | Intelligence & visualization (analytics, signals, DEI, data quality) |
+| 5. Launch | ✅ Done | Distribution, trial, license + seat limits, payment, landing page |
 
-**Current:** V2.4.2 DEI & Fairness Lens complete. Next: V2.5 Data Quality Center or Phase 5 Distribution.
+**Current:** Launch hardening complete. Remaining: Switch Stripe to live mode (5.5.5), E2E verification, then public launch.
 
 ## Key Features (Planned)
 

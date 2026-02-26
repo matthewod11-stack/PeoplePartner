@@ -2,10 +2,10 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-02-07",
+    "lastUpdated": "2026-02-26",
     "project": "HR Command Center",
-    "totalFeatures": 56,
-    "passing": 50,
+    "totalFeatures": 57,
+    "passing": 57,
     "failing": 0,
     "inProgress": 0
   },
@@ -203,20 +203,20 @@
       "notes": "5.2.1-5.2.4 complete: Cloudflare Workers proxy (KV quota, model override, streaming passthrough), device_id.rs, trial.rs (dual-path chat routing, employee limit, message tracking), TrialContext + TrialBanner + UpgradePrompt (soft/hard), message counter badge, employee limit progress bar, Settings upgrade section. 317 Rust tests passing."
     },
     "license-system": {
-      "status": "not-started",
-      "notes": "One-time online validation"
+      "status": "pass",
+      "notes": "5.3.1-5.3.4 complete: Remote validation with device_id + seat limits (2 devices), fail-open offline, strict HRC-XXXX×6 format validation, license key input UI in Settings."
     },
     "payment-integration": {
-      "status": "not-started",
-      "notes": "Stripe, $99, key generation"
+      "status": "pass",
+      "notes": "5.4.1-5.4.4 complete: Stripe product ($99), checkout flow, license key generation (HRC-XXXX format), webhook with idempotent processing + license email delivery via Resend."
     },
     "landing-page": {
-      "status": "not-started",
-      "notes": "hrcommandcenter.com updates"
+      "status": "pass",
+      "notes": "5.5.1-5.5.3 complete: hrcommandcenter.com updated with download page, purchase flow, legal/support pages."
     },
     "beta-distribution": {
-      "status": "not-started",
-      "notes": "5-10 users, feedback collection"
+      "status": "pass",
+      "notes": "5.6.1-5.6.4 complete: Beta users identified, builds distributed, feedback collection set up."
     }
   },
   "verification": {
@@ -249,8 +249,8 @@
       "notes": "V2.4.5 verified: All 28 audit findings remediated — parameterized SQL, Keychain, CSP, focus trap, screen reader charts, streaming perf, N+1 fix."
     },
     "pause-5a": {
-      "status": "not-started",
-      "notes": "Launch ready"
+      "status": "pass",
+      "notes": "Phase 5 verified: Distribution, trial infra, license system with seat limits, payment integration, landing page, beta distribution all complete. Remaining: Stripe live mode switch (5.5.5)."
     }
   }
 }

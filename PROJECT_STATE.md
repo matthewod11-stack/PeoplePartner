@@ -1,13 +1,13 @@
 # HR Command Center — Project State
 
 > Cross-surface context document. Shared across Claude Chat, Claude Code, and Cowork sessions.
-> **Last regenerated:** 2026-02-08 | **Generated from:** codebase scan
+> **Last regenerated:** 2026-02-26 | **Generated from:** codebase scan
 
 ---
 
 ## Project Overview
 
-HR Command Center is a macOS desktop app that gives HR professionals (solo practitioners, accidental HR people, founders without HR) a private, AI-powered assistant that understands their specific company context. It runs as a Tauri app with a React frontend and Rust backend, stores all employee data locally in SQLite, connects to Claude API for AI chat, and auto-redacts PII before anything leaves the machine. The app is feature-complete through Phase V2 (intelligence layer, analytics, data quality) and Phase 5.2 (trial infrastructure). It is not yet publicly released — license validation, payment integration, and beta distribution remain.
+HR Command Center is a macOS desktop app that gives HR professionals (solo practitioners, accidental HR people, founders without HR) a private, AI-powered assistant that understands their specific company context. It runs as a Tauri app with a React frontend and Rust backend, stores all employee data locally in SQLite, connects to Claude API for AI chat, and auto-redacts PII before anything leaves the machine. The app is feature-complete through Phase V2 (intelligence layer, analytics, data quality) and Phase 5 (launch infrastructure: distribution, trial, license + seat limits, payment, landing page). Remaining before public launch: switch Stripe to live mode and E2E verification.
 
 ---
 
@@ -109,17 +109,18 @@ employees, conversations, company, settings, audit_log, review_cycles, performan
 - **Distribution infra:** Code signing, notarization config, auto-updater plugin, GitHub Actions release workflow
 - **Trial infra:** Cloudflare Workers proxy (50-msg quota per device), dual-path chat routing, trial banner, message counter, employee limit (10), upgrade prompts, license key input UI
 
+- **License system (5.3):** Remote validation via `hrcommandcenter.com/api/validate-license`, device_id sent for seat-limit enforcement (2 devices max), fail-open offline, strict HRC-XXXX×6 format validation, license key input UI in Settings with seat-limit error handling
+- **Payment integration (5.4):** Stripe checkout ($99 one-time), license key generation (HRC-XXXX format), idempotent webhook processing, refund/dispute → REVOKED, license email delivery via Resend
+- **Landing page (5.5):** hrcommandcenter.com on Vercel with download page, purchase flow, legal/support/status pages
+- **Website entitlement DB:** Vercel Postgres with licenses, license_activations, stripe_webhook_events tables. Unused trial_devices and entitlement/check endpoint removed during launch hardening.
+
 ### Stubbed / Partially Built
-- **License validation:** Local format-only check exists; no server-side verification API (Phase 5.3)
 - **Auto-updater:** Plugin wired + UI hook mounted, but `tauri.conf.json` has placeholder pubkey and GitHub endpoint
 - **Proxy deployment:** Code complete but not deployed; `wrangler.toml` has placeholder KV namespace IDs
 - **HMAC request signing:** Optional path implemented in proxy + app; needs `TRIAL_SIGNING_SECRET` configured in production
+- **Stripe live mode:** Currently running test keys; 5.5.5 tasks to switch to live mode pending
 
 ### Not Started
-- Server-side license validation API (5.3)
-- Stripe payment integration (5.4)
-- Landing page / hrcommandcenter.com (5.5)
-- Beta distribution + feedback collection (5.6)
 - Org chart view (deferred to post-launch)
 - Document/PDF ingestion (parking lot)
 - SQLCipher encryption at rest (deferred)
@@ -128,16 +129,16 @@ employees, conversations, company, settings, audit_log, review_cycles, performan
 
 ## Recent Decisions
 
-1. **Decision:** Trial mode gated on license presence, not API key absence — **Reason:** API key alone couldn't distinguish trial from paid; license provides a clean binary state
-2. **Decision:** Proxy counter is authoritative, local counter syncs from `X-Trial-Used`/`X-Trial-Limit` headers — **Reason:** Prevents client-side counter drift and ensures consistent quota enforcement
-3. **Decision:** Trial import cap enforces net-new unique emails, not raw row count — **Reason:** Update-only imports (re-importing existing employees) shouldn't count against the 10-employee cap
-4. **Decision:** HMAC request signing on proxy is optional (off by default) — **Reason:** Enables local dev without secrets while allowing production hardening
-5. **Decision:** Org Chart deferred to post-launch — **Reason:** Analytics panel delivers more core value; org chart adds visual complexity without powering queries
-6. **Decision:** SQLCipher encryption at rest deferred — **Reason:** Current mitigations (0600 file permissions, Keychain for API keys) acceptable for launch; SQLCipher migration risks destabilizing release
-7. **Decision:** `signingIdentity: null` in tauri.conf.json — **Reason:** Defers to environment variable at build time; avoids hardcoding developer identity
-8. **Decision:** ConversationContext split into Data + Actions contexts — **Reason:** Streaming chat was causing full sidebar/search re-renders; split isolates update frequency
-9. **Decision:** All intelligence features (attrition signals, DEI lens) require opt-in + disclaimers — **Reason:** Heuristic outputs must not be mistaken for predictions; ethical guardrails required
-10. **Decision:** $99 one-time pricing, BYOK after purchase — **Reason:** Simple, honest pricing; trial proxy funds initial 50 messages, then user brings own Claude API key
+1. **Decision:** Message-count trial model (50 msgs via proxy), not time-based — **Reason:** Proxy-based tracking already works; time-based trials (website's trial_devices) were incompatible and removed
+2. **Decision:** UUID v4 device identity, not hardware fingerprinting — **Reason:** Sufficient for seat tracking; hardware fingerprints add complexity and privacy concerns
+3. **Decision:** Validate license once at entry, fail-open offline — **Reason:** Simpler than periodic re-validation; handle revocations manually via support for now
+4. **Decision:** Seat limits enforced server-side (2 devices per license) — **Reason:** Desktop sends device_id to validate-license; website tracks activations in DB
+5. **Decision:** Removed website's `evaluateEntitlement()` state machine → replaced with `validateLicense()` — **Reason:** Only validate-license endpoint uses it after deleting entitlement/check; 120 lines of trial/entitlement code removed
+6. **Decision:** Website `isValidDeviceIdentifier()` accepts both SHA-256 hash and UUID v4 — **Reason:** Backward compatibility with any future hash-based clients while supporting desktop's UUID v4
+7. **Decision:** Desktop `store_license_key()` uses `unwrap_or_default()` for device_id fallback — **Reason:** Empty string still lets validation proceed (server decides); better than skipping validation entirely
+8. **Decision:** Proxy counter is authoritative, local counter syncs from `X-Trial-Used`/`X-Trial-Limit` headers — **Reason:** Prevents client-side counter drift
+9. **Decision:** All intelligence features (attrition signals, DEI lens) require opt-in + disclaimers — **Reason:** Heuristic outputs must not be mistaken for predictions
+10. **Decision:** $99 one-time pricing, BYOK after purchase — **Reason:** Simple, honest pricing; trial proxy funds initial 50 messages
 
 ---
 
@@ -147,45 +148,43 @@ employees, conversations, company, settings, audit_log, review_cycles, performan
 |-------|----------|--------|
 | `tauri.conf.json` updater pubkey + GitHub endpoint are placeholders | Medium | Open — blocks real auto-update |
 | `proxy/wrangler.toml` KV namespace IDs are stubs | Medium | Open — blocks proxy deployment |
-| Upgrade URLs in trial UI point to placeholder | Low | Open — needs real purchase page |
-| License validation is local format-only (no server check) | Medium | Open — Phase 5.3 |
+| Stripe still in test mode (5.5.5) | High | Open — blocks real payments |
 | Proxy abuse mitigation is partial (origin allowlist + IP throttle + optional HMAC) | Medium | In progress |
 | No frontend test runner (Jest/Vitest) | Low | Technical debt |
-| Conversation sidebar title truncation (titles overflow) | Low | UI polish |
-| README project status table is stale (says V2.4 current, actually through 5.2) | Low | Needs update |
-| `features.json` "Data Quality Center" status table still says "Not started" in KNOWN_ISSUES.md | Low | Doc drift |
-| No E2E manual verification of Pause Points V2.5 or 5B yet | Medium | Pending |
+| No E2E manual verification of full purchase → license → seat limit flow | Medium | Step 7 pending |
+| License revocation not detected by desktop (validate-once model) | Low | Conscious deferral |
 
 ---
 
 ## What's Next
 
-**Immediate (next 1-3 sessions):**
-1. Populate production placeholders: updater pubkey, GitHub repo URL, Cloudflare KV namespace IDs, upgrade purchase URL
-2. Deploy Cloudflare Workers proxy and test end-to-end trial flow
-3. Configure `TRIAL_SIGNING_SECRET` for production HMAC signing
-4. Manual E2E verification of Pause Points V2.5 and 5B
+**Immediate (next 1-2 sessions):**
+1. Switch Stripe to live mode (5.5.5a-e): create live product/price, copy live API keys, create live webhook, update Vercel env vars
+2. Populate production placeholders: updater pubkey, GitHub repo URL, Cloudflare KV namespace IDs
+3. Deploy Cloudflare Workers proxy and test end-to-end trial flow
+4. Configure `TRIAL_SIGNING_SECRET` for production HMAC signing
 
-**Short-term (next 3-6 sessions):**
-5. Phase 5.3: Server-side license validation API
-6. Phase 5.4: Stripe payment integration ($99 one-time)
-7. Phase 5.5: Landing page (hrcommandcenter.com)
+**Before launch (E2E verification — Step 7):**
+5. Manual test: fresh install → trial mode → 50-msg limit → upgrade → purchase → license entry → seat activation → 3rd device rejected → offline resilience
+6. Provision Vercel Postgres for website entitlement DB
+7. Stripe CLI webhook replay testing
 
-**Medium-term:**
-8. Phase 5.6: Beta distribution (5-10 users, feedback collection)
-9. Update README to reflect Phase 5.2 completion
-10. Consider adding Vitest for frontend component tests
+**Post-launch:**
+8. Monitor license revocation manually (validate-once model)
+9. Consider adding Vitest for frontend component tests
+10. Org chart view (parking lot)
 
 ---
 
 ## Cross-Surface Notes
 
-- **Data Quality Center status:** KNOWN_ISSUES.md "Promoted to Roadmap" table still shows V2.5.1 as "Not started" but it is fully implemented (backend + frontend + all 4 import types refactored). The backend has 28 tests and 9 Tauri commands.
-- **README drift:** README says "Current: V2.4.2" but the project is actually through Phase 5.2 (trial infrastructure complete).
-- **Trial architecture divergence:** Original Claude Chat planning discussed a simpler "API key = paid" model. Implementation evolved to license-based gating (license + BYOK = paid, no license + no key = trial) after discovering the original model had no exit path from trial mode.
-- **Proxy security:** Claude Chat discussions may reference a simple open proxy. The current implementation includes origin allowlist, per-IP throttling, optional HMAC signature verification with replay protection, and proxy-authoritative usage headers.
-- **Phase numbering:** V2.5.1 (Data Quality Center) and Phase 5.1/5.2 (Distribution/Trial) were built in parallel across sessions. The roadmap numbering can be confusing — V2.x are feature phases, 5.x are launch infrastructure phases.
-- **Test count:** 317 Rust tests passing (includes 28 data quality + 9 trial/device_id tests added in recent sessions). No frontend test framework — type-checking only.
+- **Launch hardening reconciliation (2026-02-25/26):** The original 9-step hardening plan accidentally landed Steps 6-7 in a stale iCloud repo. A corrected plan was written and executed: Steps 1-3 cleaned up the website (removed trial_devices, added seat limits to validate-license, deleted entitlement/check), Steps 4-5 updated the desktop (device_id in validation, seat-limit UI, format alignment). Both repos committed.
+- **Two repos:** Website is at `/Users/mattod/Desktop/Misc/Archive/HR-Tools/hr-command-center` (Vercel/Next.js). Desktop is at `/Users/mattod/Desktop/HRCommand` (Tauri/Rust). These are independently versioned.
+- **Trial architecture:** Trials are message-count only (50 msgs via Cloudflare proxy). The website's time-based trial system (14 days, Postgres trial_devices table) was removed during hardening — it was incompatible with the proxy model.
+- **Seat limits:** Enforced server-side. Desktop sends UUID v4 device_id → website's `validate-license` endpoint registers activation → rejects 3rd device with `SEAT_LIMIT_EXCEEDED`. Frontend shows friendly "Contact support" message.
+- **Proxy security:** Includes origin allowlist, per-IP throttling, optional HMAC signature verification with replay protection, and proxy-authoritative usage headers.
+- **Test count:** 317 Rust tests passing. No frontend test framework — type-checking only.
+- **features.json:** 57 features, all 57 passing. Only outstanding items: Stripe live mode (5.5.5) and E2E manual verification.
 
 ---
 

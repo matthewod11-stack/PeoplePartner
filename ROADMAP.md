@@ -36,8 +36,8 @@ This is a **long-running, multi-session implementation**. Follow these rules:
 | 2 | Context | ✓ Complete | 2A: Context injection works ✓ |
 | 3 | Protection | ✓ Complete | 3A: PII redaction works ✓ |
 | 4 | Polish | ✓ Complete | 4A: Onboarding complete ✓ |
-| V2 | Intelligence & Visualization | **← Current** | V2.1-V2.5: See below |
-| 5 | Launch | Not started | 5A: Distribution, 5B: Trial ready, 5C: Beta ready |
+| V2 | Intelligence & Visualization | ✓ Complete | V2.1-V2.5: See below |
+| 5 | Launch | **← Current** | 5A ✓, 5B ✓, 5C ✓ — Remaining: 5.5.5 Stripe live mode |
 
 ---
 
