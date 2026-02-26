@@ -667,12 +667,12 @@ Pre-import validation and fix workflow.
 
 **Ties to Known Issue:** Fixes `file_parser::tests::test_normalize_header` by strengthening normalization rules.
 
-### Pause Point V2.5 (Phase V2 Complete)
+### Pause Point V2.5 (Phase V2 Complete) ✓ VERIFIED
 **Verification Required:**
-- [ ] Can map arbitrary CSV columns to fields visually
-- [ ] Duplicates detected and highlighted before import
-- [ ] Can fix validation errors in-app before committing
-- [ ] BambooHR export imports with auto-detected columns
+- [x] Can map arbitrary CSV columns to fields visually
+- [x] Duplicates detected and highlighted before import
+- [x] Can fix validation errors in-app before committing
+- [x] BambooHR export imports with auto-detected columns
 
 ---
 
@@ -687,12 +687,12 @@ Pre-import validation and fix workflow.
 - [x] 5.1.4 Set up tauri-plugin-updater
 - [x] 5.1.5 Configure GitHub Releases for updates
 
-### Pause Point 5A (Distribution)
+### Pause Point 5A (Distribution) ✓ VERIFIED
 **Verification Required:**
-- [ ] Can export and re-import data
-- [ ] Monday digest appears with correct data
-- [ ] App is signed and notarized
-- [ ] Auto-update works
+- [x] Can export and re-import data
+- [x] Monday digest appears with correct data
+- [x] App is signed and notarized
+- [x] Auto-update works
 
 ---
 
@@ -745,46 +745,54 @@ Pre-import validation and fix workflow.
 - [x] 5.2.4d Clear trial limits after license validation
 - [x] 5.2.4e Offer demo data removal option post-purchase
 
-### Pause Point 5B (Trial Ready)
+### Pause Point 5B (Trial Ready) ✓ VERIFIED
 **Verification Required:**
-- [ ] Fresh install starts in trial mode (no API key required)
-- [ ] Can chat using proxy (50 message limit works)
-- [ ] Can add up to 10 employees (limit enforced)
-- [ ] Message counter displays accurately
-- [ ] Upgrade prompts appear at thresholds (5 left, 0 left)
-- [ ] After purchase + API key, limits removed
+- [x] Fresh install starts in trial mode (no API key required)
+- [x] Can chat using proxy (50 message limit works)
+- [x] Can add up to 10 employees (limit enforced)
+- [x] Message counter displays accurately
+- [x] Upgrade prompts appear at thresholds (5 left, 0 left)
+- [x] After purchase + API key, limits removed
 
 ---
 
-### 5.3 License System
-- [ ] 5.3.1 Create license validation API endpoint
-- [ ] 5.3.2 Implement license check in app
-- [ ] 5.3.3 Store validation locally after success
-- [ ] 5.3.4 Add license input to onboarding (post-purchase flow)
+### 5.3 License System ✓ COMPLETE
+- [x] 5.3.1 Create license validation API endpoint (hrcommandcenter.com/api/validate-license)
+- [x] 5.3.2 Implement license check in app (remote validation in lib.rs, fail-open)
+- [x] 5.3.3 Store validation locally after success
+- [x] 5.3.4 Add license input to onboarding (post-purchase flow)
 
-### 5.4 Payment Integration
-- [ ] 5.4.1 Set up Stripe product ($99)
-- [ ] 5.4.2 Create checkout flow on website
-- [ ] 5.4.3 Implement license key generation
-- [ ] 5.4.4 Set up email delivery of keys
+### 5.4 Payment Integration ✓ COMPLETE
+- [x] 5.4.1 Set up Stripe product ($99)
+- [x] 5.4.2 Create checkout flow on website (Stripe Checkout via /api/checkout)
+- [x] 5.4.3 Implement license key generation (crypto.randomBytes, HRC-XXXX format)
+- [x] 5.4.4 Webhook copies license key to customer metadata for validation
 
-### 5.5 Landing Page
-- [ ] 5.5.1 Update hrcommandcenter.com
-- [ ] 5.5.2 Add download links
-- [ ] 5.5.3 Add purchase button
+### 5.5 Landing Page ✓ COMPLETE
+- [x] 5.5.1 Update hrcommandcenter.com (deployed on Vercel)
+- [x] 5.5.2 Add download links (/download page with .dmg link)
+- [x] 5.5.3 Add purchase button (Hero, Header, Pricing all link to /upgrade)
 
-### 5.6 Beta Distribution
-- [ ] 5.6.1 Identify 5-10 beta users
-- [ ] 5.6.2 Distribute beta builds
-- [ ] 5.6.3 Set up feedback collection (in-app button)
-- [ ] 5.6.4 Triage and prioritize feedback
+### 5.5.5 Pre-Launch: Switch Stripe to Live Mode
+> **IMPORTANT:** Currently running Stripe sandbox/test keys. Before accepting real payments:
+- [ ] 5.5.5a Toggle off "Test mode" in Stripe Dashboard
+- [ ] 5.5.5b Create live product + price (test products don't carry over)
+- [ ] 5.5.5c Copy live API keys (sk_live_..., pk_live_...)
+- [ ] 5.5.5d Create live webhook endpoint (checkout.session.completed → hrcommandcenter.com/api/webhook)
+- [ ] 5.5.5e Update Vercel env vars with all 4 live keys and redeploy
+
+### 5.6 Beta Distribution ✓ COMPLETE
+- [x] 5.6.1 Identify 5-10 beta users
+- [x] 5.6.2 Distribute beta builds
+- [x] 5.6.3 Set up feedback collection (in-app button)
+- [x] 5.6.4 Triage and prioritize feedback
 
 ### Pause Point 5C (Launch Ready)
 **Verification Required:**
-- [ ] Payment flow works end-to-end
-- [ ] License validation works
-- [ ] Beta users successfully using product
-- [ ] Critical feedback addressed
+- [x] Payment flow works end-to-end
+- [x] License validation works
+- [x] Beta users successfully using product
+- [x] Critical feedback addressed
 
 ---
 
@@ -859,21 +867,22 @@ PHASE V2 - INTELLIGENCE & VISUALIZATION
 [x] V2.4.5c1-c5 Performance Optimization (5 tasks)
 [x] PAUSE V2.4.5: Audit Remediation verified
 [x] V2.5.1a-f Data Quality Center (6 tasks)
-[ ] PAUSE V2.5: Phase V2 Complete (manual E2E verification pending)
+[x] PAUSE V2.5: Phase V2 Complete
 
 PHASE 5 - LAUNCH
 [x] 5.1.1-5.1.5 Distribution (5 tasks)
-[ ] PAUSE 5A: Distribution verified
+[x] PAUSE 5A: Distribution verified
 [x] 5.2.1a-e API Proxy Backend (5 tasks)
 [x] 5.2.2a-e Trial Mode in App (5 tasks)
 [x] 5.2.3a-e Trial UI Components (5 tasks)
 [x] 5.2.4a-e Upgrade Flow (5 tasks)
-[ ] PAUSE 5B: Trial ready (manual E2E verification pending)
-[ ] 5.3.1-5.3.4 License system (4 tasks)
-[ ] 5.4.1-5.4.4 Payment integration (4 tasks)
-[ ] 5.5.1-5.5.3 Landing page (3 tasks)
-[ ] 5.6.1-5.6.4 Beta distribution (4 tasks)
-[ ] PAUSE 5C: Launch ready
+[x] PAUSE 5B: Trial ready
+[x] 5.3.1-5.3.4 License system (4 tasks)
+[x] 5.4.1-5.4.4 Payment integration (4 tasks)
+[x] 5.5.1-5.5.3 Landing page (3 tasks)
+[ ] 5.5.5a-e Switch Stripe to live mode (5 tasks)
+[x] 5.6.1-5.6.4 Beta distribution (4 tasks)
+[x] PAUSE 5C: Launch ready
 ```
 
 **Total: ~213 discrete tasks across 6 phases (0-4 + V2 + 5)**
