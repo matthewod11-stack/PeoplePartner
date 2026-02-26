@@ -37,7 +37,7 @@ This is a **long-running, multi-session implementation**. Follow these rules:
 | 3 | Protection | ✓ Complete | 3A: PII redaction works ✓ |
 | 4 | Polish | ✓ Complete | 4A: Onboarding complete ✓ |
 | V2 | Intelligence & Visualization | ✓ Complete | V2.1-V2.5: See below |
-| 5 | Launch | **← Current** | 5A ✓, 5B ✓, 5C ✓ — Remaining: 5.5.5 Stripe live mode |
+| 5 | Launch | ✓ Complete | 5A ✓, 5B ✓, 5C ✓, 5.5.5 ✓ |
 
 ---
 
@@ -773,13 +773,13 @@ Pre-import validation and fix workflow.
 - [x] 5.5.2 Add download links (/download page with .dmg link)
 - [x] 5.5.3 Add purchase button (Hero, Header, Pricing all link to /upgrade)
 
-### 5.5.5 Pre-Launch: Switch Stripe to Live Mode
-> **IMPORTANT:** Currently running Stripe sandbox/test keys. Before accepting real payments:
-- [ ] 5.5.5a Toggle off "Test mode" in Stripe Dashboard
-- [ ] 5.5.5b Create live product + price (test products don't carry over)
-- [ ] 5.5.5c Copy live API keys (sk_live_..., pk_live_...)
-- [ ] 5.5.5d Create live webhook endpoint (checkout.session.completed → hrcommandcenter.com/api/webhook)
-- [ ] 5.5.5e Update Vercel env vars with all 4 live keys and redeploy
+### 5.5.5 Pre-Launch: Switch Stripe to Live Mode ✓ COMPLETE
+> Completed 2026-02-26. Live product, price, webhook, and API keys deployed to Vercel.
+- [x] 5.5.5a Toggle off "Test mode" in Stripe Dashboard
+- [x] 5.5.5b Create live product + price (test products don't carry over)
+- [x] 5.5.5c Copy live API keys (sk_live_..., pk_live_...)
+- [x] 5.5.5d Create live webhook endpoint (checkout.session.completed → hrcommandcenter.com/api/webhook)
+- [x] 5.5.5e Update Vercel env vars with all 4 live keys and redeploy
 
 ### 5.6 Beta Distribution ✓ COMPLETE
 - [x] 5.6.1 Identify 5-10 beta users
@@ -880,7 +880,7 @@ PHASE 5 - LAUNCH
 [x] 5.3.1-5.3.4 License system (4 tasks)
 [x] 5.4.1-5.4.4 Payment integration (4 tasks)
 [x] 5.5.1-5.5.3 Landing page (3 tasks)
-[ ] 5.5.5a-e Switch Stripe to live mode (5 tasks)
+[x] 5.5.5a-e Switch Stripe to live mode (5 tasks)
 [x] 5.6.1-5.6.4 Beta distribution (4 tasks)
 [x] PAUSE 5C: Launch ready
 ```

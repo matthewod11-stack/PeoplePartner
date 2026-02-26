@@ -532,8 +532,9 @@ pub async fn send_message_streaming_trial(
         .map_err(|e| ChatError::ParseError(e.to_string()))?;
 
     let client = Client::new();
+    let endpoint = format!("{}/v1/messages", proxy_url.trim_end_matches('/'));
     let mut request_builder = client
-        .post(proxy_url)
+        .post(&endpoint)
         .header("x-device-id", device_id)
         .header("content-type", "application/json")
         .header("origin", "tauri://localhost")

@@ -17,6 +17,35 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-02-26 (E2E Verification — Code Audit + Bug Fix)
+
+**Phase:** 5.5 (Pre-Launch Deployment)
+**Focus:** Systematic code audit of all integration points in the trial → purchase → license flow
+
+### Completed
+- [x] **Bug Fix:** Proxy URL missing `/v1/messages` path — `trial.rs` default URL lacked the path, and `chat.rs` posted directly to it. Worker returns 404 for anything except `/v1/messages`. Fixed by appending path in `chat.rs` (`format!("{}/v1/messages", proxy_url.trim_end_matches('/'))`)
+- [x] **Audit: Trial chat → Proxy** — Headers (x-device-id, origin, content-type), body format, response parsing, error handling (402/trial_limit_reached) all match between Rust and Worker
+- [x] **Audit: HMAC signing** — Payload format `{device_id}:{timestamp}:{body}` identical on both sides. Key encoding (UTF-8), hash (SHA-256), output (lowercase hex) match. Timestamp is Unix seconds.
+- [x] **Audit: License validation** — Rust sends `{license_key, device_id}` to correct URL. Response parsing handles Valid/Invalid/SeatLimitExceeded. Fail-open on network error. 5s timeout.
+- [x] **Audit: Proxy → Anthropic** — Model override (`claude-sonnet-4-20250514`) and max_tokens cap (4096) match Rust constants
+- [x] **Audit: CSP + URLs** — All 3 external domains in connect-src. Upgrade/download/validation URLs correct. Updater pubkey + endpoint populated.
+- [x] **ROADMAP cleanup** — Checked off 5.5.5a-e (Stripe live mode), updated phase status to Complete
+
+### Code Changes
+- `src-tauri/src/chat.rs:535` — Construct full endpoint URL: `format!("{}/v1/messages", proxy_url.trim_end_matches('/'))`
+
+### Verification
+- [x] `cargo test` — 317 passed, 0 failed, 1 ignored
+- [x] `cargo check` — clean (47 pre-existing warnings)
+
+### Next Session Should
+1. Run `cargo tauri dev` and test trial chat against the live proxy (first real E2E test)
+2. If proxy chat works, test the full upgrade flow: purchase → license email → license entry → paid mode
+3. Consider a test purchase + immediate refund to verify live Stripe webhook
+4. After E2E passes, prep first release build
+
+---
+
 ## Session: 2026-02-26 (Pre-Launch Deployment Checklist — Tasks 1-6)
 
 **Phase:** 5.5 (Pre-Launch Deployment)
