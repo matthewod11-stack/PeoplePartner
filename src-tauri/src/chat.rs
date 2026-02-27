@@ -1,5 +1,5 @@
-// HR Command Center - Claude API Integration
-// Handles communication with the Anthropic Messages API
+// HR Command Center - Chat Module
+// Provider-agnostic orchestration for AI chat (streaming, trimming, trial proxy)
 
 use futures::StreamExt;
 use hmac::{Hmac, Mac};
@@ -11,11 +11,10 @@ use thiserror::Error;
 
 use crate::context::{estimate_tokens, get_max_conversation_tokens};
 use crate::keyring;
+use crate::provider::{Provider, ProviderMessage, StreamDelta};
+use crate::providers;
+use crate::providers::anthropic::AnthropicProvider;
 
-const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
-const ANTHROPIC_VERSION: &str = "2023-06-01";
-const MODEL: &str = "claude-sonnet-4-20250514";
-const MAX_TOKENS: u32 = 4096;
 type HmacSha256 = Hmac<Sha256>;
 
 #[derive(Error, Debug)]
@@ -62,112 +61,6 @@ impl serde::Serialize for ChatError {
 }
 
 // ============================================================================
-// Request/Response Types (Anthropic Messages API)
-// ============================================================================
-
-#[derive(Debug, Serialize)]
-pub struct MessageRequest {
-    pub model: String,
-    pub max_tokens: u32,
-    pub messages: Vec<Message>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MessageResponse {
-    pub id: String,
-    pub content: Vec<ContentBlock>,
-    pub model: String,
-    pub stop_reason: Option<String>,
-    pub usage: Usage,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ContentBlock {
-    #[serde(rename = "type")]
-    pub content_type: String,
-    pub text: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Usage {
-    pub input_tokens: u32,
-    pub output_tokens: u32,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ApiErrorResponse {
-    #[serde(rename = "type")]
-    pub error_type: String,
-    pub error: ApiErrorDetail,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ApiErrorDetail {
-    #[serde(rename = "type")]
-    pub error_type: String,
-    pub message: String,
-}
-
-// ============================================================================
-// Streaming Event Types (SSE)
-// ============================================================================
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub enum StreamEvent {
-    #[serde(rename = "message_start")]
-    MessageStart { message: StreamMessageStart },
-    #[serde(rename = "content_block_start")]
-    ContentBlockStart { index: u32, content_block: ContentBlock },
-    #[serde(rename = "content_block_delta")]
-    ContentBlockDelta { index: u32, delta: TextDelta },
-    #[serde(rename = "content_block_stop")]
-    ContentBlockStop { index: u32 },
-    #[serde(rename = "message_delta")]
-    MessageDelta { delta: MessageDeltaData, usage: Option<UsageDelta> },
-    #[serde(rename = "message_stop")]
-    MessageStop,
-    #[serde(rename = "ping")]
-    Ping,
-    #[serde(rename = "error")]
-    Error { error: ApiErrorDetail },
-}
-
-#[derive(Debug, Deserialize)]
-pub struct StreamMessageStart {
-    pub id: String,
-    pub model: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TextDelta {
-    #[serde(rename = "type")]
-    pub delta_type: String,
-    #[serde(default)]
-    pub text: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MessageDeltaData {
-    pub stop_reason: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct UsageDelta {
-    pub output_tokens: u32,
-}
-
-// ============================================================================
 // Simplified types for frontend communication
 // ============================================================================
 
@@ -207,6 +100,21 @@ struct ProxyErrorResponse {
     message: String,
     used: Option<u32>,
     limit: Option<u32>,
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/// Convert ChatMessages to ProviderMessages
+fn to_provider_messages(messages: Vec<ChatMessage>) -> Vec<ProviderMessage> {
+    messages
+        .into_iter()
+        .map(|m| ProviderMessage {
+            role: m.role,
+            content: m.content,
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -274,82 +182,39 @@ pub async fn send_message(
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
 ) -> Result<ChatResponse, ChatError> {
+    let provider = providers::get_default_provider();
+
     // Get API key from Keychain
     let api_key = keyring::get_api_key()?;
 
     // Trim conversation to fit within token budget (silently drops oldest messages)
     let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
+    let provider_messages = to_provider_messages(trimmed_messages);
 
-    // Build the request
-    let request = MessageRequest {
-        model: MODEL.to_string(),
-        max_tokens: MAX_TOKENS,
-        messages: trimmed_messages
-            .into_iter()
-            .map(|m| Message {
-                role: m.role,
-                content: m.content,
-            })
-            .collect(),
-        system: system_prompt,
-        stream: None,
-    };
-
-    // Create HTTP client and send request
+    // Build and send the request via the provider
     let client = Client::new();
-    let response = client
-        .post(ANTHROPIC_API_URL)
-        .header("x-api-key", &api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("content-type", "application/json")
-        .json(&request)
-        .send()
-        .await?;
+    let request_builder = provider.build_request(&client, &provider_messages, &system_prompt, &api_key);
+    let response = request_builder.send().await?;
 
     // Check for HTTP errors
     let status = response.status();
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
-
-        // Try to parse as API error
-        if let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(&error_text) {
-            return Err(ChatError::ApiError(format!(
-                "{}: {}",
-                api_error.error.error_type, api_error.error.message
-            )));
-        }
-
-        return Err(ChatError::ApiError(format!(
-            "HTTP {}: {}",
-            status.as_u16(),
-            error_text
-        )));
+        let parsed = provider.parse_error_response(&error_text);
+        return Err(ChatError::ApiError(format!("HTTP {}: {}", status.as_u16(), parsed)));
     }
 
-    // Parse successful response
-    let api_response: MessageResponse = response
-        .json()
-        .await
+    // Parse successful response via the provider
+    let body_text = response.text().await
         .map_err(|e| ChatError::ParseError(e.to_string()))?;
 
-    // Extract text content from response
-    let content = api_response
-        .content
-        .iter()
-        .filter_map(|block| {
-            if block.content_type == "text" {
-                block.text.clone()
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("");
+    let provider_response = provider.parse_response(&body_text)
+        .map_err(|e| ChatError::ParseError(e))?;
 
     Ok(ChatResponse {
-        content,
-        input_tokens: api_response.usage.input_tokens,
-        output_tokens: api_response.usage.output_tokens,
+        content: provider_response.content,
+        input_tokens: provider_response.input_tokens,
+        output_tokens: provider_response.output_tokens,
     })
 }
 
@@ -358,6 +223,7 @@ pub async fn send_message(
 async fn process_sse_stream(
     app: &AppHandle,
     response: reqwest::Response,
+    provider: &dyn Provider,
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
 ) -> Result<(), ChatError> {
@@ -378,18 +244,18 @@ async fn process_sse_stream(
             // Parse SSE event
             for line in event_data.lines() {
                 if let Some(data) = line.strip_prefix("data: ") {
-                    if let Ok(event) = serde_json::from_str::<StreamEvent>(data) {
-                        match event {
-                            StreamEvent::ContentBlockDelta { delta, .. } => {
-                                full_response.push_str(&delta.text);
+                    if let Some(delta) = provider.parse_sse_event(data) {
+                        match delta {
+                            StreamDelta::TextDelta(text) => {
+                                full_response.push_str(&text);
 
                                 let _ = app.emit("chat-stream", StreamChunk {
-                                    chunk: delta.text,
+                                    chunk: text,
                                     done: false,
                                     verification: None,
                                 });
                             }
-                            StreamEvent::MessageStop => {
+                            StreamDelta::Done => {
                                 let verification = query_type.map(|qt| {
                                     crate::context::verify_response(
                                         &full_response,
@@ -404,10 +270,9 @@ async fn process_sse_stream(
                                     verification,
                                 });
                             }
-                            StreamEvent::Error { error } => {
-                                return Err(ChatError::ApiError(error.message));
+                            StreamDelta::Error(msg) => {
+                                return Err(ChatError::ApiError(msg));
                             }
-                            _ => {}
                         }
                     }
                 }
@@ -419,35 +284,13 @@ async fn process_sse_stream(
 }
 
 /// Check HTTP response status and return an error if not successful.
-fn check_http_error_status(status: reqwest::StatusCode, error_text: &str) -> Result<(), ChatError> {
-    if let Ok(api_error) = serde_json::from_str::<ApiErrorResponse>(error_text) {
-        return Err(ChatError::ApiError(format!(
-            "{}: {}",
-            api_error.error.error_type, api_error.error.message
-        )));
-    }
-    Err(ChatError::ApiError(format!("HTTP {}: {}", status.as_u16(), error_text)))
-}
-
-/// Build a streaming MessageRequest from chat messages and system prompt.
-fn build_streaming_request(
-    messages: Vec<ChatMessage>,
-    system_prompt: &Option<String>,
-) -> MessageRequest {
-    let trimmed_messages = trim_conversation_to_budget(messages, system_prompt);
-    MessageRequest {
-        model: MODEL.to_string(),
-        max_tokens: MAX_TOKENS,
-        messages: trimmed_messages
-            .into_iter()
-            .map(|m| Message {
-                role: m.role,
-                content: m.content,
-            })
-            .collect(),
-        system: system_prompt.clone(),
-        stream: Some(true),
-    }
+fn check_http_error_status(
+    status: reqwest::StatusCode,
+    error_text: &str,
+    provider: &dyn Provider,
+) -> Result<(), ChatError> {
+    let parsed = provider.parse_error_response(error_text);
+    Err(ChatError::ApiError(format!("HTTP {}: {}", status.as_u16(), parsed)))
 }
 
 fn parse_trial_usage_headers(headers: &reqwest::header::HeaderMap) -> TrialUsageMetadata {
@@ -485,33 +328,33 @@ pub async fn send_message_streaming(
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
 ) -> Result<(), ChatError> {
+    let provider = providers::get_default_provider();
     let api_key = keyring::get_api_key()?;
-    let request = build_streaming_request(messages, &system_prompt);
 
+    // Trim and convert messages
+    let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
+    let provider_messages = to_provider_messages(trimmed_messages);
+
+    // Build and send the request via the provider
     let client = Client::new();
-    let response = client
-        .post(ANTHROPIC_API_URL)
-        .header("x-api-key", &api_key)
-        .header("anthropic-version", ANTHROPIC_VERSION)
-        .header("content-type", "application/json")
-        .json(&request)
-        .send()
-        .await?;
+    let request_builder = provider.build_streaming_request(
+        &client,
+        &provider_messages,
+        &system_prompt,
+        &api_key,
+    );
+    let response = request_builder.send().await?;
 
     let status = response.status();
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        return Err(match check_http_error_status(status, &error_text) {
+        return Err(match check_http_error_status(status, &error_text, &*provider) {
             Err(err) => err,
-            Ok(()) => ChatError::ApiError(format!(
-                "HTTP {}: {}",
-                status.as_u16(),
-                error_text
-            )),
+            Ok(()) => unreachable!(),
         });
     }
 
-    process_sse_stream(&app, response, aggregates, query_type).await
+    process_sse_stream(&app, response, &*provider, aggregates, query_type).await
 }
 
 /// Send a message through the trial proxy with streaming response.
@@ -527,7 +370,14 @@ pub async fn send_message_streaming_trial(
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
 ) -> Result<TrialUsageMetadata, ChatError> {
-    let request = build_streaming_request(messages, &system_prompt);
+    let anthropic = AnthropicProvider::new();
+
+    // Trim and convert messages
+    let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
+    let provider_messages = to_provider_messages(trimmed_messages);
+
+    // Build the serializable request body for the proxy
+    let request = anthropic.build_message_request(&provider_messages, &system_prompt, true);
     let body_json = serde_json::to_string(&request)
         .map_err(|e| ChatError::ParseError(e.to_string()))?;
 
@@ -570,17 +420,13 @@ pub async fn send_message_streaming_trial(
                 }
             }
         }
-        return Err(match check_http_error_status(status, &error_text) {
+        return Err(match check_http_error_status(status, &error_text, &anthropic) {
             Err(err) => err,
-            Ok(()) => ChatError::ApiError(format!(
-                "HTTP {}: {}",
-                status.as_u16(),
-                error_text
-            )),
+            Ok(()) => unreachable!(),
         });
     }
 
-    process_sse_stream(&app, response, aggregates, query_type).await?;
+    process_sse_stream(&app, response, &anthropic, aggregates, query_type).await?;
     Ok(usage)
 }
 

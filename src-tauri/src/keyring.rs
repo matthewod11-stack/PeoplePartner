@@ -13,7 +13,13 @@ use security_framework::passwords::{
 use security_framework_sys::base::errSecItemNotFound;
 
 const KEYCHAIN_SERVICE: &str = "com.hrcommandcenter.app";
+#[allow(dead_code)]
 const KEYCHAIN_ACCOUNT: &str = "anthropic_api_key";
+
+/// Get the Keychain account name for a provider
+fn keychain_account_for_provider(provider_id: &str) -> String {
+    format!("{}_api_key", provider_id)
+}
 
 #[derive(Error, Debug)]
 pub enum KeyringError {
@@ -64,58 +70,47 @@ fn delete_legacy_api_key() -> Result<(), KeyringError> {
     Ok(())
 }
 
-// Make KeyringError serializable for Tauri commands
-impl serde::Serialize for KeyringError {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.to_string())
-    }
-}
+// --- Per-provider API key functions (generic, no format validation) ---
 
-/// Store the Anthropic API key
-pub fn store_api_key(api_key: &str) -> Result<(), KeyringError> {
-    // Validate format: Anthropic keys start with "sk-ant-"
-    if !api_key.starts_with("sk-ant-") {
-        return Err(KeyringError::InvalidFormat);
-    }
+/// Store an API key for a specific provider (no format validation — caller validates)
+pub fn store_provider_api_key(provider_id: &str, api_key: &str) -> Result<(), KeyringError> {
+    let account = keychain_account_for_provider(provider_id);
 
     #[cfg(target_os = "macos")]
     {
-        set_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT, api_key.as_bytes())
+        set_generic_password(KEYCHAIN_SERVICE, &account, api_key.as_bytes())
             .map_err(|err| KeyringError::StorageAccess(format!("Keychain write failed: {}", err)))?;
-
-        // Cleanup legacy file storage if present
-        let _ = delete_legacy_api_key();
         return Ok(());
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        // Non-macOS fallback keeps existing file-based behavior.
-        let path = get_legacy_key_path()?;
+        let home = std::env::var("HOME")
+            .map_err(|_| KeyringError::StorageAccess("Could not find home directory".into()))?;
+        let app_dir = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("com.hrcommandcenter.app");
+        fs::create_dir_all(&app_dir)?;
+        let path = app_dir.join(format!(".{}", account));
         fs::write(&path, api_key)?;
-
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let perms = fs::Permissions::from_mode(0o600);
             fs::set_permissions(&path, perms)?;
         }
-
         Ok(())
     }
 }
 
-/// Retrieve the Anthropic API key
-pub fn get_api_key() -> Result<String, KeyringError> {
+/// Retrieve the API key for a specific provider
+pub fn get_provider_api_key(provider_id: &str) -> Result<String, KeyringError> {
+    let account = keychain_account_for_provider(provider_id);
+
     #[cfg(target_os = "macos")]
     {
-        match generic_password(PasswordOptions::new_generic_password(
-            KEYCHAIN_SERVICE,
-            KEYCHAIN_ACCOUNT,
-        )) {
+        match generic_password(PasswordOptions::new_generic_password(KEYCHAIN_SERVICE, &account)) {
             Ok(key_bytes) => {
                 return String::from_utf8(key_bytes)
                     .map(|key| key.trim().to_string())
@@ -126,52 +121,119 @@ pub fn get_api_key() -> Result<String, KeyringError> {
                     });
             }
             Err(err) if err.code() == errSecItemNotFound => {
-                // Migrate legacy plaintext key file to Keychain on first read.
-                if let Ok(legacy_key) = get_legacy_api_key() {
-                    store_api_key(&legacy_key)?;
-                    return Ok(legacy_key);
-                }
                 return Err(KeyringError::NotFound);
             }
             Err(err) => {
                 return Err(KeyringError::StorageAccess(format!(
                     "Keychain read failed: {}",
                     err
-                )))
+                )));
             }
         }
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        get_legacy_api_key()
+        let home = std::env::var("HOME")
+            .map_err(|_| KeyringError::StorageAccess("Could not find home directory".into()))?;
+        let path = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("com.hrcommandcenter.app")
+            .join(format!(".{}", account));
+        let key = fs::read_to_string(&path)?;
+        Ok(key.trim().to_string())
     }
 }
 
-/// Delete the API key
-pub fn delete_api_key() -> Result<(), KeyringError> {
+/// Delete the API key for a specific provider
+pub fn delete_provider_api_key(provider_id: &str) -> Result<(), KeyringError> {
+    let account = keychain_account_for_provider(provider_id);
+
     #[cfg(target_os = "macos")]
     {
-        match delete_generic_password(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT) {
+        match delete_generic_password(KEYCHAIN_SERVICE, &account) {
             Ok(_) => {}
-            // Already missing is fine for delete operations
             Err(err) if err.code() == errSecItemNotFound => {}
             Err(err) => {
                 return Err(KeyringError::StorageAccess(format!(
                     "Keychain delete failed: {}",
                     err
-                )))
+                )));
             }
         }
-
-        let _ = delete_legacy_api_key();
         return Ok(());
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        delete_legacy_api_key()
+        let home = std::env::var("HOME")
+            .map_err(|_| KeyringError::StorageAccess("Could not find home directory".into()))?;
+        let path = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support")
+            .join("com.hrcommandcenter.app")
+            .join(format!(".{}", account));
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
     }
+}
+
+/// Check if an API key exists for a specific provider
+pub fn has_provider_api_key(provider_id: &str) -> bool {
+    get_provider_api_key(provider_id).is_ok()
+}
+
+// Make KeyringError serializable for Tauri commands
+impl serde::Serialize for KeyringError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+/// Store the Anthropic API key (validates sk-ant- prefix, delegates to per-provider storage)
+pub fn store_api_key(api_key: &str) -> Result<(), KeyringError> {
+    // Validate format: Anthropic keys start with "sk-ant-"
+    if !api_key.starts_with("sk-ant-") {
+        return Err(KeyringError::InvalidFormat);
+    }
+
+    store_provider_api_key("anthropic", api_key)?;
+
+    // Cleanup legacy file storage if present
+    let _ = delete_legacy_api_key();
+
+    Ok(())
+}
+
+/// Retrieve the Anthropic API key (with legacy file migration)
+pub fn get_api_key() -> Result<String, KeyringError> {
+    // First try the generic provider path
+    match get_provider_api_key("anthropic") {
+        Ok(key) => return Ok(key),
+        Err(KeyringError::NotFound) => {
+            // Legacy migration: try old file-based storage
+            if let Ok(legacy_key) = get_legacy_api_key() {
+                // store_api_key validates and stores in keychain, cleans up legacy file
+                store_api_key(&legacy_key)?;
+                return Ok(legacy_key);
+            }
+            Err(KeyringError::NotFound)
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// Delete the Anthropic API key (delegates to per-provider, plus legacy cleanup)
+pub fn delete_api_key() -> Result<(), KeyringError> {
+    delete_provider_api_key("anthropic")?;
+    let _ = delete_legacy_api_key();
+    Ok(())
 }
 
 /// Check if an API key exists
@@ -199,5 +261,12 @@ mod tests {
     fn test_storage_path() {
         let path = get_legacy_key_path().unwrap();
         assert!(path.to_string_lossy().contains("com.hrcommandcenter.app"));
+    }
+
+    #[test]
+    fn test_keychain_account_for_provider() {
+        assert_eq!(keychain_account_for_provider("anthropic"), "anthropic_api_key");
+        assert_eq!(keychain_account_for_provider("openai"), "openai_api_key");
+        assert_eq!(keychain_account_for_provider("gemini"), "gemini_api_key");
     }
 }

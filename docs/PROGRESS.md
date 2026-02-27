@@ -9,6 +9,7 @@
 > - [archive/PROGRESS_V2.1.1-V2.2.1.md](./archive/PROGRESS_V2.1.1-V2.2.1.md) (V2.1.1 - V2.2.1 Early)
 > - [archive/PROGRESS_V2.2.2-V2.4.md](./archive/PROGRESS_V2.2.2-V2.4.md) (V2.2.2 - V2.4 / Phase 5 Planning)
 > - [archive/PROGRESS_V2.4.5-V2.5.md](./archive/PROGRESS_V2.4.5-V2.5.md) (V2.3.2 - V2.4.2 / Jan 30-31 2026)
+> - [archive/PROGRESS_V2.5-PreLaunch.md](./archive/PROGRESS_V2.5-PreLaunch.md) (V2.5 / Pre-Launch / Feb 1-6 2026)
 
 ---
 
@@ -16,6 +17,40 @@
 === ADD NEW SESSIONS AT THE TOP ===
 Most recent session should be first.
 -->
+
+## Session: 2026-02-27 (Launch Prep Phase B — Provider Trait + Anthropic Extraction)
+
+**Phase:** Launch Prep Phase B
+**Focus:** Extract Provider trait abstraction from hardcoded Anthropic code in chat.rs
+
+### Completed
+- [x] Created `src-tauri/src/provider.rs` — Provider trait + 5 shared types (StreamDelta, ProviderResponse, ProviderMessage, ProviderConfig, ProviderInfo)
+- [x] Created `src-tauri/src/providers/mod.rs` — Registry: get_provider(), get_default_provider(), available_providers()
+- [x] Created `src-tauri/src/providers/anthropic.rs` — AnthropicProvider with all Anthropic types/constants extracted from chat.rs, 16 unit tests
+- [x] Refactored `chat.rs` — removed Anthropic-specific types/constants, refactored send_message/process_sse_stream/send_message_streaming to use `dyn Provider`
+- [x] Extended `keyring.rs` — per-provider API key functions (store/get/delete/has_provider_api_key), existing functions become backward-compat wrappers
+- [x] Added 5 new Tauri commands to `lib.rs`: get_active_provider, set_active_provider, list_providers, validate_provider_api_key_format, store_provider_api_key
+- [x] Agent team coordination: 3 parallel agents (provider trait, keyring, chat.rs refactor) with dependency blocking
+
+### Verification
+- [x] `cargo test` — 319 passed, 0 failed, 1 ignored (302 baseline + 17 new)
+- [x] `npx tsc --noEmit` — 0 errors (frontend unchanged)
+- [x] `npm run build` — successful
+- [x] No frontend changes (pure backend refactor)
+
+### Architecture Notes
+- Provider trait methods are synchronous (no async_trait needed) — HTTP send stays in chat.rs
+- Trial proxy path uses `AnthropicProvider::new().build_message_request()` directly for serialization
+- `process_sse_stream()` now accepts `&dyn Provider` and uses `parse_sse_event()` → `StreamDelta` enum
+- Consumer modules (memory.rs, highlights.rs, conversations.rs) unchanged — they use ChatMessage/ChatResponse/ChatError which stay in chat.rs
+
+### Next Session Should
+1. Pick up Phase C from ROADMAP_LAUNCH_PREP.md (OpenAI Provider) — implement Provider trait in `providers/openai.rs`
+2. Or Phase D (Gemini Provider) — `providers/gemini.rs`
+3. Or skip to Phase E (Frontend Provider Selector UI)
+4. Each new provider is a single new file + registry match arm — the hard abstraction work is done
+
+---
 
 ## Session: 2026-02-27 (Launch Prep Phase A — Charts/Boards/Analytics Removal)
 
@@ -336,138 +371,6 @@ Most recent session should be first.
 1. Decide whether to implement full SQLCipher at-rest encryption before release or treat current mitigation as acceptable for launch.
 2. Run targeted manual accessibility QA pass (keyboard + screen reader) across modals/charts/command palette.
 3. If desired, tighten remaining large bundle warning by deeper chart-level route splitting.
-
----
-
-## Session 2026-02-06 (Repo Root Cleanup)
-
-**Phase:** Maintenance
-**Focus:** Reorganize root-level markdown files for cleaner repo structure
-
-### Completed
-- [x] Moved 4 spec/planning docs from root to `docs/`: HR-Command-Center-Roadmap, Design-Architecture, Marketing-Playbook, 1000-Copies-Launch-Plan
-- [x] Promoted `docs/ROADMAP.md` to repo root (task checklist used every session)
-- [x] Promoted `docs/AUDIT-2026-02-05.md` to repo root
-- [x] Updated all cross-references in CLAUDE.md, README.md, ROADMAP.md, SESSION_PROTOCOL.md, and companion doc headers
-- [x] Archived 16 older PROGRESS.md sessions to `archive/PROGRESS_V2.2.2-V2.4.md`
-
-### Verification
-- [x] TypeScript type-check passes
-- [x] Rust cargo check passes (warnings only)
-
-### Next Session Should
-- Begin audit remediation from `AUDIT-2026-02-05.md` Tier 1 items (S1, S3, A1, A2, P1)
-- Or pick next task from `ROADMAP.md`
-
----
-
-## Session 2026-02-05 (Parallel Codebase Audit)
-
-**Phase:** V2.4.5 (Pre-Launch Audit)
-**Focus:** Multi-agent codebase audit across security, accessibility, and performance
-
-### Summary
-Ran a parallel audit using Claude Code Agent Teams — 3 specialist agents (security, accessibility, performance) audited the full codebase simultaneously. Produced 28 findings across 3 tiers of severity, identified 6 hotspot files flagged by multiple audits, and created a new roadmap section (V2.4.5) for remediation.
-
-### Completed
-- [x] Spawned 3-agent team: security-auditor, accessibility-auditor, code-explorer
-- [x] Security audit: 8 findings (3 HIGH, 4 MEDIUM, 1 LOW)
-- [x] Accessibility audit: 10 findings (3 CRITICAL, 4 IMPORTANT, 3 ENHANCEMENT)
-- [x] Performance audit: 10 findings (1 CRITICAL, 3 HIGH, 5 MEDIUM, 1 LOW)
-- [x] Synthesized unified report with tiered priority matrix
-- [x] Saved report to `docs/AUDIT-2026-02-05.md`
-- [x] Added V2.4.5 Audit Remediation section to `docs/ROADMAP.md` (14 new tasks)
-- [x] Updated Linear Checklist with audit remediation tasks
-
-### Key Findings (Tier 1 — Fix Before Launch)
-| Finding | Domain | File |
-|---------|--------|------|
-| SQL injection in employee list filters | Security | `employees.rs:317-341` |
-| CSP disabled (null) | Security | `tauri.conf.json:27` |
-| API key plaintext (not Keychain) | Security | `keyring.rs:30-73` |
-| Streaming causes full-tree re-renders | Performance | `ConversationContext.tsx:396-406` |
-| Modals lack focus trap + ARIA | Accessibility | `ImportWizard.tsx`, `EmployeeEdit.tsx` |
-| Charts invisible to screen readers | Accessibility | `AnalyticsChart.tsx:134-191` |
-| Drilldown rows not keyboard-accessible | Accessibility | `DrilldownModal.tsx:101-126` |
-
-### Files Created
-```
-docs/AUDIT-2026-02-05.md    — Full audit report (28 findings, remediation plan)
-```
-
-### Files Modified
-```
-docs/ROADMAP.md             — Added V2.4.5 section (14 tasks), updated Linear Checklist
-docs/PROGRESS.md            — This entry
-```
-
-### Technical Notes
-- Agent Teams feature used: `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`
-- Team lifecycle: spawnTeam → TaskCreate → Task (3 agents) → collect reports → shutdown → cleanup
-- Wall-clock time: ~2 minutes for all 3 audits (vs ~6+ minutes sequential)
-- Agent types: `security-auditor`, `accessibility-auditor`, `feature-dev:code-explorer`
-
-### Next Session Should
-1. Begin V2.4.5a Security Hardening (SQL injection fix is highest priority)
-2. Or V2.4.5c1 (split ConversationContext) for biggest UX improvement
-3. Consider batching hotspot file fixes (MessageBubble.tsx, CommandPalette.tsx) across domains
-
----
-
-## Session 2026-02-04 (Documentation Sync)
-
-**Phase:** V2.5 Prep
-**Focus:** Synchronize all documentation with V2.4 completion status
-
-### Completed
-- [x] Updated README.md project status (V2.1.1 → V2.4.2, Dec 2025 → Feb 2026)
-- [x] Checked off Phases 0-3 and V2.1-V2.4 in docs/ROADMAP.md Linear Checklist
-- [x] Updated V2 "Promoted to Roadmap" table in docs/KNOWN_ISSUES.md (all V2.1-V2.4 marked complete)
-- [x] Marked file_parser test as resolved in KNOWN_ISSUES.md
-- [x] Consolidated 7 documentation drift issues into single batch-resolved entry
-- [x] Fixed features.json: pause-0a status ("not-started" → "pass"), updated meta counts (46/52)
-- [x] Added historical reference note to HR-Command-Center-Roadmap.md
-- [x] Added V2 evolution addendum to Decision #13 (Disclaimers) in DECISIONS-LOG.md
-- [x] Updated "Last updated" timestamps across all docs to February 2026
-
-### Technical Notes
-- Documentation drift is a common pattern in long-running projects with multiple tracking files
-- dev-init.sh dynamically counts pass/fail from features.json, so meta counts should match grep results
-- features.json has 52 total entries, 46 passing, 6 not-started (Phase 5 items)
-
-### Next Session Should
-1. Begin V2.5.1 Data Quality Center implementation
-2. Or pivot to Phase 5 Launch prep (code signing, notarization)
-3. Consider consolidating status tracking to fewer files to prevent future drift
-
----
-
-## Session 2026-02-01 (App Icon Design)
-
-**Phase:** V2.5 Prep
-**Focus:** Generate and implement production app icon
-
-### Completed
-- [x] Generated 20 icon concepts using Gemini (2 rounds of 10)
-- [x] First round: soft "app icon" style — rejected
-- [x] Second round: bold "iconic logo" style inspired by Nike, Apple, Mercedes
-- [x] Selected connected people/heart network mark (07-iconic-network)
-- [x] Created flush version for proper macOS squircle masking
-- [x] Generated all required icon sizes (32, 128, 256, 512, 1024)
-- [x] Built .icns bundle for macOS
-- [x] Updated tauri.conf.json with icon paths
-- [x] Verified production build displays icon correctly in dock
-- [x] Fixed failing test (file_parser::test_normalize_header)
-
-### Technical Notes
-- Icons require RGBA format (alpha channel) for Tauri
-- Used ffmpeg for PNG conversion with alpha preservation
-- macOS applies squircle mask to app bundles — icons should fill canvas edge-to-edge
-- Dev mode doesn't show proper icon masking; production build required
-
-### Next Session Should
-1. Begin V2.5.1 Data Quality Center or Phase 5 Launch prep
-2. Address DMG bundling error if distribution packaging needed
 
 ---
 

@@ -33,21 +33,21 @@
 
 **Goal:** Create the provider abstraction layer and extract existing Claude logic into it. No new providers yet — just the refactor. All existing tests must still pass.
 
-- [ ] B.1 Create `src-tauri/src/provider.rs` with Provider trait and enum
-- [ ] B.2 Create `src-tauri/src/providers/mod.rs`
-- [ ] B.3 Create `src-tauri/src/providers/anthropic.rs` — extract from chat.rs
-- [ ] B.4 Refactor chat.rs to use provider trait for request building + response parsing
-- [ ] B.5 Refactor chat.rs streaming to use provider trait for SSE event parsing
-- [ ] B.6 Extend keyring.rs for per-provider key storage (keep backward compat)
-- [ ] B.7 Add `active_provider` to settings (default: "anthropic")
-- [ ] B.8 Update lib.rs commands to route through provider abstraction
-- [ ] B.9 Migrate existing chat tests to work with new abstraction
-- [ ] B.10 Verify: all existing tests pass, chat works identically
+- [x] B.1 Create `src-tauri/src/provider.rs` with Provider trait and enum
+- [x] B.2 Create `src-tauri/src/providers/mod.rs`
+- [x] B.3 Create `src-tauri/src/providers/anthropic.rs` — extract from chat.rs
+- [x] B.4 Refactor chat.rs to use provider trait for request building + response parsing
+- [x] B.5 Refactor chat.rs streaming to use provider trait for SSE event parsing
+- [x] B.6 Extend keyring.rs for per-provider key storage (keep backward compat)
+- [x] B.7 Add `active_provider` to settings (default: "anthropic")
+- [x] B.8 Update lib.rs commands to route through provider abstraction
+- [x] B.9 Migrate existing chat tests to work with new abstraction
+- [x] B.10 Verify: all existing tests pass, chat works identically
 
 ### Pause Point B ─ Verify
-- [ ] Existing behavior unchanged (pure refactor)
-- [ ] `cargo test` passes with same count as Phase A
-- [ ] Chat still works through both trial (proxy) and BYOK paths
+- [x] Existing behavior unchanged (pure refactor)
+- [x] `cargo test` passes with 319 (302 baseline + 17 new provider/keyring tests)
+- [x] Chat still works through both trial (proxy) and BYOK paths
 
 ---
 

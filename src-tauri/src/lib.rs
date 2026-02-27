@@ -27,6 +27,8 @@ mod performance_reviews;
 mod pii;
 mod review_cycles;
 mod settings;
+mod provider;
+mod providers;
 mod signals;
 mod trial;
 
@@ -72,6 +74,56 @@ fn delete_api_key() -> Result<(), keyring::KeyringError> {
 #[tauri::command]
 fn validate_api_key_format(api_key: String) -> bool {
     api_key.starts_with("sk-ant-") && api_key.len() > 20
+}
+
+// ============================================================================
+// Provider Management Commands
+// ============================================================================
+
+/// Get the active AI provider (default: "anthropic")
+#[tauri::command]
+async fn get_active_provider(
+    state: tauri::State<'_, Database>,
+) -> Result<String, settings::SettingsError> {
+    let value = settings::get_setting(&state.pool, "active_provider").await?;
+    Ok(value.unwrap_or_else(|| "anthropic".to_string()))
+}
+
+/// Set the active AI provider (validates provider exists)
+#[tauri::command]
+async fn set_active_provider(
+    state: tauri::State<'_, Database>,
+    provider_id: String,
+) -> Result<(), String> {
+    if providers::get_provider(&provider_id).is_none() {
+        return Err(format!("Unknown provider: {}", provider_id));
+    }
+    settings::set_setting(&state.pool, "active_provider", &provider_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// List all available AI providers
+#[tauri::command]
+fn list_providers() -> Vec<provider::ProviderInfo> {
+    providers::available_providers()
+}
+
+/// Validate an API key format for a specific provider
+#[tauri::command]
+fn validate_provider_api_key_format(provider_id: String, api_key: String) -> Result<bool, String> {
+    let p = providers::get_provider(&provider_id)
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?;
+    Ok(p.validate_key_format(&api_key))
+}
+
+/// Store an API key for a specific provider in Keychain
+#[tauri::command]
+fn store_provider_api_key(
+    provider_id: String,
+    api_key: String,
+) -> Result<(), keyring::KeyringError> {
+    keyring::store_provider_api_key(&provider_id, &api_key)
 }
 
 /// Result of remote license key validation.
@@ -1642,6 +1694,12 @@ pub fn run() {
             has_api_key,
             delete_api_key,
             validate_api_key_format,
+            // Provider management
+            get_active_provider,
+            set_active_provider,
+            list_providers,
+            validate_provider_api_key_format,
+            store_provider_api_key,
             store_license_key,
             has_license_key,
             delete_license_key,
