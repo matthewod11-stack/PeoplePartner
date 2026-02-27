@@ -32,6 +32,12 @@ Most recent session should be first.
 - [x] Added 5 new Tauri commands to `lib.rs`: get_active_provider, set_active_provider, list_providers, validate_provider_api_key_format, store_provider_api_key
 - [x] Agent team coordination: 3 parallel agents (provider trait, keyring, chat.rs refactor) with dependency blocking
 
+### Assessment Findings (Fixed)
+- [x] **Finding 1 (Medium):** active_provider was stored/read but NOT used in chat execution — `send_message()` and `send_message_streaming()` still used `get_default_provider()` (always Anthropic). **Fix:** Added `provider_id: &str` param to both functions, added `resolve_provider()` and `get_api_key_for_provider()` helpers in chat.rs, wired active_provider setting through lib.rs commands
+- [x] **Finding 2 (Low-Medium):** `store_provider_api_key` command wrote to Keychain without validating provider existence or key format. **Fix:** Added `get_provider()` existence check and `validate_key_format()` call before storing
+- [x] **Finding 3 (Testing):** No live E2E re-proven — acknowledged as Phase F scope; unit/build/type checks are the correct bar for a pure refactor
+- [x] Updated all internal callers (highlights.rs x2, memory.rs x1, conversations.rs x1) to pass `"anthropic"` as provider_id
+
 ### Verification
 - [x] `cargo test` — 319 passed, 0 failed, 1 ignored (302 baseline + 17 new)
 - [x] `npx tsc --noEmit` — 0 errors (frontend unchanged)
@@ -42,7 +48,9 @@ Most recent session should be first.
 - Provider trait methods are synchronous (no async_trait needed) — HTTP send stays in chat.rs
 - Trial proxy path uses `AnthropicProvider::new().build_message_request()` directly for serialization
 - `process_sse_stream()` now accepts `&dyn Provider` and uses `parse_sse_event()` → `StreamDelta` enum
-- Consumer modules (memory.rs, highlights.rs, conversations.rs) unchanged — they use ChatMessage/ChatResponse/ChatError which stay in chat.rs
+- Consumer modules (memory.rs, highlights.rs, conversations.rs) pass `"anthropic"` as provider_id — internal AI tasks always use Anthropic
+- `resolve_provider()` falls back to default if unknown provider_id is passed
+- `get_api_key_for_provider("anthropic")` preserves legacy file→Keychain migration path
 
 ### Next Session Should
 1. Pick up Phase C from ROADMAP_LAUNCH_PREP.md (OpenAI Provider) — implement Provider trait in `providers/openai.rs`
