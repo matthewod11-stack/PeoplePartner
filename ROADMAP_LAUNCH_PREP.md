@@ -55,14 +55,14 @@
 
 **Goal:** Implement OpenAI adapter. User can paste an OpenAI key and chat works.
 
-- [ ] C.1 Create `src-tauri/src/providers/openai.rs` implementing Provider trait
-- [ ] C.2 Implement build_request() — OpenAI message format, Bearer auth
-- [ ] C.3 Implement parse_response() — OpenAI response → internal format
-- [ ] C.4 Implement parse_stream_event() — `chat.completion.chunk` SSE events
-- [ ] C.5 Implement validate_key_format() — `sk-` prefix
-- [ ] C.6 Add provider_hints() for OpenAI (system prompt suffix if needed)
-- [ ] C.7 Set model + endpoint constants (gpt-4o, max tokens, API URL)
-- [ ] C.8 Unit tests: request building, response parsing, stream parsing, key validation
+- [x] C.1 Create `src-tauri/src/providers/openai.rs` implementing Provider trait
+- [x] C.2 Implement build_request() — OpenAI message format, Bearer auth
+- [x] C.3 Implement parse_response() — OpenAI response → internal format
+- [x] C.4 Implement parse_stream_event() — `chat.completion.chunk` SSE events
+- [x] C.5 Implement validate_key_format() — `sk-` prefix
+- [x] C.6 Add provider_hints() for OpenAI (system prompt suffix if needed)
+- [x] C.7 Set model + endpoint constants (gpt-4o, max tokens, API URL)
+- [x] C.8 Unit tests: request building, response parsing, stream parsing, key validation
 - [ ] C.9 Verify: `cargo test` passes, manually test with real OpenAI key
 
 ### Pause Point C ─ Verify
@@ -76,14 +76,14 @@
 
 **Goal:** Implement Gemini adapter. User can paste a Gemini key and chat works.
 
-- [ ] D.1 Create `src-tauri/src/providers/gemini.rs` implementing Provider trait
-- [ ] D.2 Implement build_request() — Gemini message format, system_instruction field
-- [ ] D.3 Implement parse_response() — Gemini response → internal format
-- [ ] D.4 Implement parse_stream_event() — Gemini streaming format
-- [ ] D.5 Implement validate_key_format() — Gemini key format
-- [ ] D.6 Add provider_hints() for Gemini (system prompt suffix if needed)
-- [ ] D.7 Set model + endpoint constants (gemini-2.0-flash or similar, API URL)
-- [ ] D.8 Unit tests: request building, response parsing, stream parsing, key validation
+- [x] D.1 Create `src-tauri/src/providers/gemini.rs` implementing Provider trait
+- [x] D.2 Implement build_request() — Gemini message format, system_instruction field
+- [x] D.3 Implement parse_response() — Gemini response → internal format
+- [x] D.4 Implement parse_stream_event() — Gemini streaming format
+- [x] D.5 Implement validate_key_format() — Gemini key format
+- [x] D.6 Add provider_hints() for Gemini (system prompt suffix if needed)
+- [x] D.7 Set model + endpoint constants (gemini-2.5-flash, API URL)
+- [x] D.8 Unit tests: request building, response parsing, stream parsing, key validation
 - [ ] D.9 Verify: `cargo test` passes, manually test with real Gemini key
 
 ### Pause Point D ─ Verify

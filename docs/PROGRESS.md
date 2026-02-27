@@ -18,6 +18,73 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-02-27 (Launch Prep Phase D — Gemini Provider)
+
+**Phase:** Launch Prep Phase D
+**Focus:** Implement Google Gemini as third AI provider
+
+### Completed
+- [x] Created `src-tauri/src/providers/gemini.rs` (~290 LOC) — full Provider trait implementation for Gemini Generative Language API
+- [x] Wire types: GenerateContentRequest, GeminiContent, Part, SystemInstruction, GenerationConfig, GenerateContentResponse, Candidate, CandidateContent, UsageMetadata, ApiErrorResponse
+- [x] System prompt via separate `systemInstruction` field (like Anthropic's top-level `system`)
+- [x] Role mapping: `"assistant"` → `"model"` for Gemini API compatibility
+- [x] Separate streaming endpoint: `streamGenerateContent?alt=sse` (vs body flag for Anthropic/OpenAI)
+- [x] Auth: `x-goog-api-key` header (vs Bearer for OpenAI, x-api-key for Anthropic)
+- [x] Key validation: `AIzaSy` prefix + exactly 39 chars total
+- [x] Token mapping: `promptTokenCount` → `input_tokens`, `candidatesTokenCount` → `output_tokens`
+- [x] SSE streaming: finishReason field signals Done (no `[DONE]` marker like OpenAI)
+- [x] Multiple text parts joined in both response and SSE parsing
+- [x] Registered in `providers/mod.rs`: module declaration, `get_provider("gemini")` match arm, `available_providers()` entry
+- [x] 19 unit tests covering all trait methods, request building, role mapping, URL construction
+- [x] Checked off D.1–D.8 in ROADMAP_LAUNCH_PREP.md
+
+### Verification
+- [x] `cargo test gemini` — 19 passed, 0 failed
+- [x] `cargo test` — 354 passed, 0 failed, 1 ignored (335 existing + 19 new)
+- [x] `npx tsc --noEmit` — clean
+- [x] `npm run build` — success
+
+### Next Session Should
+- Pick up Phase D.9 (manual test with real Gemini key) or move to Phase E (Frontend provider picker + updated onboarding)
+
+---
+
+## Session: 2026-02-27 (Launch Prep Phase C — OpenAI Provider)
+
+**Phase:** Launch Prep Phase C
+**Focus:** Implement OpenAI as second AI provider using the Provider trait abstraction
+
+### Completed
+- [x] Created `src-tauri/src/providers/openai.rs` (~280 LOC) — full Provider trait implementation for OpenAI Chat Completions API
+- [x] Wire types: ChatCompletionRequest, OpenAIMessage, ChatCompletionResponse, Choice, Usage, ApiErrorResponse, StreamChunkResponse, StreamChoice, StreamDeltaContent
+- [x] System prompt injected as `messages[0]` with `role: "system"` (vs Anthropic's top-level `system` field)
+- [x] SSE streaming: `[DONE]` checked before JSON parse, `finish_reason: "stop"` returns None to avoid double-Done
+- [x] Auth: `Authorization: Bearer {key}` header (vs Anthropic's `x-api-key`)
+- [x] Key validation: `sk-` prefix + length > 20
+- [x] Token mapping: `prompt_tokens` → `input_tokens`, `completion_tokens` → `output_tokens`
+- [x] Registered in `providers/mod.rs`: module declaration, `get_provider("openai")` match arm, `available_providers()` entry
+- [x] 16 unit tests covering all trait methods + request building
+- [x] Checked off C.1–C.8 in ROADMAP_LAUNCH_PREP.md
+
+### Verification
+- [x] `cargo test openai` — 16 passed, 0 failed
+- [x] `cargo test` — 335 passed, 0 failed, 1 ignored (319 existing + 16 new)
+- [x] `npx tsc --noEmit` — 0 errors (no frontend changes)
+- [x] `npm run build` — successful
+
+### Architecture Notes
+- Zero changes to chat.rs, keyring.rs, lib.rs, Cargo.toml, or frontend — the Phase B abstraction handles everything
+- `build_chat_request()` is private (unlike Anthropic's public `build_message_request()` which the trial proxy needs)
+- Model defaults to `gpt-4o` with 4096 max tokens
+- OpenAI's null content field handled via `unwrap_or_default()`
+
+### Next Session Should
+1. C.9 — Manual test with a real OpenAI API key (`cargo tauri dev`, switch provider, enter key, send message)
+2. Pick up Phase D (Gemini Provider) — same pattern: one file + registry edits
+3. Or skip to Phase E (Frontend Provider Picker UI) if provider backends are sufficient
+
+---
+
 ## Session: 2026-02-27 (Launch Prep Phase B — Provider Trait + Anthropic Extraction)
 
 **Phase:** Launch Prep Phase B
