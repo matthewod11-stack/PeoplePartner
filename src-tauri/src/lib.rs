@@ -118,12 +118,19 @@ fn validate_provider_api_key_format(provider_id: String, api_key: String) -> Res
 }
 
 /// Store an API key for a specific provider in Keychain
+/// Validates that the provider exists and the key format is correct before storing.
 #[tauri::command]
 fn store_provider_api_key(
     provider_id: String,
     api_key: String,
-) -> Result<(), keyring::KeyringError> {
+) -> Result<(), String> {
+    let p = providers::get_provider(&provider_id)
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?;
+    if !p.validate_key_format(&api_key) {
+        return Err(format!("Invalid API key format for {}", p.display_name()));
+    }
     keyring::store_provider_api_key(&provider_id, &api_key)
+        .map_err(|e| e.to_string())
 }
 
 /// Result of remote license key validation.
@@ -261,16 +268,21 @@ fn validate_license_key_format(license_key: String) -> bool {
 // Chat Commands
 // ============================================================================
 
-/// Send a message to Claude and get a response (non-streaming)
+/// Send a message to the active AI provider and get a response (non-streaming)
 #[tauri::command]
 async fn send_chat_message(
+    state: tauri::State<'_, Database>,
     messages: Vec<chat::ChatMessage>,
     system_prompt: Option<String>,
 ) -> Result<chat::ChatResponse, chat::ChatError> {
-    chat::send_message(messages, system_prompt).await
+    let provider_id = settings::get_setting(&state.pool, "active_provider")
+        .await
+        .map_err(|e| chat::ChatError::RequestError(e.to_string()))?
+        .unwrap_or_else(|| "anthropic".to_string());
+    chat::send_message(messages, system_prompt, &provider_id).await
 }
 
-/// Send a message to Claude with streaming response
+/// Send a message with streaming response
 /// Emits "chat-stream" events as response chunks arrive
 ///
 /// Dual-path routing: trial mode goes through proxy, paid mode uses BYOK key directly.
@@ -286,10 +298,17 @@ async fn send_chat_message_streaming(
     let has_license = trial::has_license_key(&state.pool)
         .await
         .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
-    let has_api_key = keyring::has_api_key();
+
+    // Read the user's active provider preference
+    let provider_id = settings::get_setting(&state.pool, "active_provider")
+        .await
+        .map_err(|e| chat::ChatError::RequestError(e.to_string()))?
+        .unwrap_or_else(|| "anthropic".to_string());
+
+    let has_key = keyring::has_provider_api_key(&provider_id);
 
     if !has_license {
-        // Get proxy config
+        // Get proxy config — trial always uses Anthropic via proxy
         let proxy_url = trial::get_proxy_url(&state.pool)
             .await
             .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
@@ -332,11 +351,13 @@ async fn send_chat_message_streaming(
         }
 
         Ok(())
-    } else if !has_api_key {
+    } else if !has_key {
         Err(chat::ChatError::NoApiKey)
     } else {
-        // Paid mode: direct to Anthropic API with BYOK key
-        chat::send_message_streaming(app, messages, system_prompt, aggregates, query_type).await
+        // Paid mode: direct to provider with BYOK key
+        chat::send_message_streaming(
+            app, messages, system_prompt, aggregates, query_type, &provider_id,
+        ).await
     }
 }
 

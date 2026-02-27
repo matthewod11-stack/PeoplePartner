@@ -349,7 +349,7 @@ pub async fn extract_highlights_for_review(
         content: user_prompt,
     }];
 
-    let response = chat::send_message(messages, Some(EXTRACTION_SYSTEM_PROMPT.to_string()))
+    let response = chat::send_message(messages, Some(EXTRACTION_SYSTEM_PROMPT.to_string()), "anthropic")
         .await
         .map_err(HighlightsError::from)?;
 
@@ -514,7 +514,7 @@ pub async fn generate_employee_summary(
         content: user_prompt,
     }];
 
-    let response = chat::send_message(messages, Some(SUMMARY_SYSTEM_PROMPT.to_string()))
+    let response = chat::send_message(messages, Some(SUMMARY_SYSTEM_PROMPT.to_string()), "anthropic")
         .await
         .map_err(HighlightsError::from)?;
 

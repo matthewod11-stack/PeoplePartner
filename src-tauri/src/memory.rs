@@ -145,7 +145,7 @@ async fn generate_summary_internal(
 
     // Use a simpler, direct API call for summaries
     // This avoids the conversation trimming logic meant for longer chats
-    chat::send_message(messages, Some(SUMMARY_SYSTEM_PROMPT.to_string()))
+    chat::send_message(messages, Some(SUMMARY_SYSTEM_PROMPT.to_string()), "anthropic")
         .await
         .map_err(MemoryError::from)
 }

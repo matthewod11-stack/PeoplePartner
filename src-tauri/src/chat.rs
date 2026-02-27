@@ -117,6 +117,21 @@ fn to_provider_messages(messages: Vec<ChatMessage>) -> Vec<ProviderMessage> {
         .collect()
 }
 
+/// Resolve a provider by ID, falling back to the default if unknown.
+fn resolve_provider(provider_id: &str) -> Box<dyn Provider> {
+    providers::get_provider(provider_id).unwrap_or_else(|| providers::get_default_provider())
+}
+
+/// Get the API key for a provider. Uses the legacy-migration-aware path for
+/// Anthropic to preserve first-launch backward compatibility.
+fn get_api_key_for_provider(provider_id: &str) -> Result<String, ChatError> {
+    if provider_id == "anthropic" {
+        keyring::get_api_key().map_err(ChatError::from)
+    } else {
+        keyring::get_provider_api_key(provider_id).map_err(ChatError::from)
+    }
+}
+
 // ============================================================================
 // Conversation Trimming
 // ============================================================================
@@ -177,15 +192,14 @@ pub fn trim_conversation_to_budget(
 // API Client
 // ============================================================================
 
-/// Send a message to Claude and get a response (non-streaming)
+/// Send a message to an AI provider and get a response (non-streaming)
 pub async fn send_message(
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
+    provider_id: &str,
 ) -> Result<ChatResponse, ChatError> {
-    let provider = providers::get_default_provider();
-
-    // Get API key from Keychain
-    let api_key = keyring::get_api_key()?;
+    let provider = resolve_provider(provider_id);
+    let api_key = get_api_key_for_provider(provider_id)?;
 
     // Trim conversation to fit within token budget (silently drops oldest messages)
     let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
@@ -319,7 +333,7 @@ fn compute_trial_signature(
     Ok(hex::encode(mac.finalize().into_bytes()))
 }
 
-/// Send a message to Claude with streaming response (BYOK / paid mode)
+/// Send a message with streaming response (BYOK / paid mode)
 /// Emits "chat-stream" events to the frontend as chunks arrive
 pub async fn send_message_streaming(
     app: AppHandle,
@@ -327,9 +341,10 @@ pub async fn send_message_streaming(
     system_prompt: Option<String>,
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
+    provider_id: &str,
 ) -> Result<(), ChatError> {
-    let provider = providers::get_default_provider();
-    let api_key = keyring::get_api_key()?;
+    let provider = resolve_provider(provider_id);
+    let api_key = get_api_key_for_provider(provider_id)?;
 
     // Trim and convert messages
     let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
