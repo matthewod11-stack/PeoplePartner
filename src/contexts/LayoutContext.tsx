@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
 
-export type SidebarTab = 'conversations' | 'employees' | 'boards';
+export type SidebarTab = 'conversations' | 'employees';
 
 interface LayoutState {
   sidebarOpen: boolean;

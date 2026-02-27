@@ -27,7 +27,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          recharts: ['recharts'],
           markdown: ['react-markdown', 'remark-gfm', 'rehype-sanitize'],
           search: ['fuse.js'],
         },

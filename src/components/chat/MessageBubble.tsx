@@ -8,7 +8,6 @@
  * User messages are rendered as plain text to preserve what they typed.
  *
  * V2.1.4: Now supports verification badges for aggregate query responses.
- * V2.3.2: Now supports chart visualization for analytics queries.
  */
 
 import { memo } from 'react';
@@ -16,9 +15,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import { VerificationBadge } from './VerificationBadge';
-import { AnalyticsChart } from '../analytics';
 import type { VerificationResult } from '../../lib/types';
-import type { ChartData, AnalyticsRequest } from '../../lib/analytics-types';
 
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm];
 const MARKDOWN_REHYPE_PLUGINS = [rehypeSanitize];
@@ -52,12 +49,6 @@ interface MessageBubbleProps {
   showTimestamp?: boolean;
   /** V2.1.4: Verification result for aggregate queries */
   verification?: VerificationResult;
-  /** V2.3.2: Chart data for analytics visualization */
-  chartData?: ChartData;
-  /** V2.3.2h: Analytics request for pinning to insight canvas */
-  analyticsRequest?: AnalyticsRequest;
-  /** V2.3.2h: Message ID for pinning to insight canvas */
-  messageId?: string;
   /** Render as plain text when streaming to avoid markdown re-parse churn */
   renderAsPlainText?: boolean;
 }
@@ -68,9 +59,6 @@ export const MessageBubble = memo(function MessageBubble({
   timestamp,
   showTimestamp = true,
   verification,
-  chartData,
-  analyticsRequest,
-  messageId,
   renderAsPlainText = false,
 }: MessageBubbleProps) {
   const isUser = role === 'user';
@@ -140,17 +128,6 @@ export const MessageBubble = memo(function MessageBubble({
           </span>
         )}
       </div>
-
-      {/* V2.3.2: Analytics chart visualization (rendered outside bubble for wider display) */}
-      {!isUser && chartData && (
-        <div className="w-full max-w-[90%] mt-2">
-          <AnalyticsChart
-            data={chartData}
-            analyticsRequest={analyticsRequest}
-            messageId={messageId}
-          />
-        </div>
-      )}
     </div>
   );
 });

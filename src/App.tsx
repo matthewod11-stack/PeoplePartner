@@ -28,9 +28,6 @@ const SettingsPanel = lazy(() =>
   import('./components/settings/SettingsPanel').then((module) => ({ default: module.SettingsPanel }))
 );
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
-const InsightBoardView = lazy(() =>
-  import('./components/insights/InsightBoardView').then((module) => ({ default: module.InsightBoardView }))
-);
 const UpgradePrompt = lazy(() =>
   import('./components/trial/UpgradePrompt').then((module) => ({ default: module.UpgradePrompt }))
 );
@@ -256,7 +253,6 @@ function TestDataModal({
 function MainAppContent() {
   const [isTestDataModalOpen, setIsTestDataModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [selectedBoardId, setSelectedBoardId] = useState<string | null>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
 
   // Command palette hook (uses useLayout internally)
@@ -283,7 +279,6 @@ function MainAppContent() {
       <AppShell
         contextPanel={<EmployeeDetail />}
         onSettingsClick={() => setIsSettingsOpen(true)}
-        onBoardSelect={setSelectedBoardId}
       >
         <ChatArea chatInputRef={chatInputRef} />
       </AppShell>
@@ -303,12 +298,6 @@ function MainAppContent() {
         <CommandPalette
           isOpen={isPaletteOpen}
           onClose={closePalette}
-        />
-      </Suspense>
-      <Suspense fallback={null}>
-        <InsightBoardView
-          boardId={selectedBoardId}
-          onClose={() => setSelectedBoardId(null)}
         />
       </Suspense>
       <Suspense fallback={null}>

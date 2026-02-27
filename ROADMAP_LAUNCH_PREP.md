@@ -11,21 +11,21 @@
 
 **Goal:** Remove all analytics, charts, insight boards, and recharts dependency.
 
-- [ ] A.1 Delete frontend analytics + insights components and type files
-- [ ] A.2 Remove AnalyticsChart from MessageBubble.tsx, InsightBoardView from App.tsx, InsightBoardPanel from AppShell.tsx
-- [ ] A.3 Remove recharts from package.json, run `npm install`
-- [ ] A.4 Delete Rust modules: analytics.rs, analytics_templates.rs, insight_canvas.rs
-- [ ] A.5 Remove 11 analytics/canvas Tauri commands from lib.rs
-- [ ] A.6 Remove 11 analytics/canvas wrappers from tauri-commands.ts
-- [ ] A.7 Remove or comment out analytics parsing in chat.rs
-- [ ] A.8 Add migration to drop insight_boards, pinned_charts, chart_annotations tables
-- [ ] A.9 Verify: `cargo test`, `npx tsc --noEmit`, `npm run build` all pass
+- [x] A.1 Delete frontend analytics + insights components and type files
+- [x] A.2 Remove AnalyticsChart from MessageBubble.tsx, InsightBoardView from App.tsx, InsightBoardPanel from AppShell.tsx
+- [x] A.3 Remove recharts from package.json, run `npm install`
+- [x] A.4 Delete Rust modules: analytics.rs, analytics_templates.rs, insight_canvas.rs
+- [x] A.5 Remove 11 analytics/canvas Tauri commands from lib.rs
+- [x] A.6 Remove 11 analytics/canvas wrappers from tauri-commands.ts
+- [x] A.7 Remove or comment out analytics parsing in ConversationContext.tsx + context.rs
+- [x] A.8 Add migration to drop insight_boards, pinned_charts, chart_annotations tables
+- [x] A.9 Verify: `cargo test`, `npx tsc --noEmit`, `npm run build` all pass
 - [ ] A.10 Commit: "[Launch Prep] Remove charts, boards, and analytics — focus on conversational HR"
 
 ### Pause Point A ─ Verify
-- [ ] App builds and launches cleanly
-- [ ] Chat works end-to-end (no broken imports)
-- [ ] Test count: expect ~290 (down from 317, losing analytics tests)
+- [x] App builds and launches cleanly
+- [x] Chat works end-to-end (no broken imports)
+- [x] Test count: 302 (down from 317, lost 15 analytics tests)
 
 ---
 

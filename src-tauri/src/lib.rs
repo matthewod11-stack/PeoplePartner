@@ -4,8 +4,6 @@
 use std::collections::HashSet;
 use tauri::Manager;
 
-mod analytics;
-mod analytics_templates;
 mod audit;
 mod backup;
 mod bulk_import;
@@ -21,7 +19,6 @@ mod employees;
 mod enps;
 mod file_parser;
 mod highlights;
-mod insight_canvas;
 mod keyring;
 mod memory;
 mod network;
@@ -1073,144 +1070,6 @@ async fn get_aggregate_enps(
 }
 
 // ============================================================================
-// Analytics Commands (V2.3.2)
-// ============================================================================
-
-/// Execute an analytics request and return chart data
-#[tauri::command]
-async fn execute_analytics(
-    state: tauri::State<'_, Database>,
-    request: analytics::AnalyticsRequest,
-) -> Result<analytics::ChartResult, String> {
-    analytics_templates::execute_analytics(&state.pool, &request)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-// ============================================================================
-// Insight Canvas Commands (V2.3.2g-l)
-// ============================================================================
-
-/// Create a new insight board
-#[tauri::command]
-async fn create_insight_board(
-    state: tauri::State<'_, Database>,
-    input: insight_canvas::CreateBoardInput,
-) -> Result<insight_canvas::InsightBoard, insight_canvas::InsightCanvasError> {
-    insight_canvas::create_board(&state.pool, input).await
-}
-
-/// Get an insight board by ID
-#[tauri::command]
-async fn get_insight_board(
-    state: tauri::State<'_, Database>,
-    id: String,
-) -> Result<insight_canvas::InsightBoard, insight_canvas::InsightCanvasError> {
-    insight_canvas::get_board(&state.pool, &id).await
-}
-
-/// Update an insight board
-#[tauri::command]
-async fn update_insight_board(
-    state: tauri::State<'_, Database>,
-    id: String,
-    input: insight_canvas::UpdateBoardInput,
-) -> Result<insight_canvas::InsightBoard, insight_canvas::InsightCanvasError> {
-    insight_canvas::update_board(&state.pool, &id, input).await
-}
-
-/// Delete an insight board (and all its charts)
-#[tauri::command]
-async fn delete_insight_board(
-    state: tauri::State<'_, Database>,
-    id: String,
-) -> Result<(), insight_canvas::InsightCanvasError> {
-    insight_canvas::delete_board(&state.pool, &id).await
-}
-
-/// List all insight boards
-#[tauri::command]
-async fn list_insight_boards(
-    state: tauri::State<'_, Database>,
-) -> Result<Vec<insight_canvas::InsightBoardListItem>, insight_canvas::InsightCanvasError> {
-    insight_canvas::list_boards(&state.pool).await
-}
-
-/// Pin a chart to a board
-#[tauri::command]
-async fn pin_chart(
-    state: tauri::State<'_, Database>,
-    input: insight_canvas::PinChartInput,
-) -> Result<insight_canvas::PinnedChart, insight_canvas::InsightCanvasError> {
-    insight_canvas::pin_chart(&state.pool, input).await
-}
-
-/// Get all charts for a board
-#[tauri::command]
-async fn get_charts_for_board(
-    state: tauri::State<'_, Database>,
-    board_id: String,
-) -> Result<Vec<insight_canvas::PinnedChart>, insight_canvas::InsightCanvasError> {
-    insight_canvas::get_charts_for_board(&state.pool, &board_id).await
-}
-
-/// Update a pinned chart
-#[tauri::command]
-async fn update_pinned_chart(
-    state: tauri::State<'_, Database>,
-    id: String,
-    input: insight_canvas::UpdatePinnedChartInput,
-) -> Result<insight_canvas::PinnedChart, insight_canvas::InsightCanvasError> {
-    insight_canvas::update_pinned_chart(&state.pool, &id, input).await
-}
-
-/// Remove a chart from a board
-#[tauri::command]
-async fn unpin_chart(
-    state: tauri::State<'_, Database>,
-    id: String,
-) -> Result<(), insight_canvas::InsightCanvasError> {
-    insight_canvas::unpin_chart(&state.pool, &id).await
-}
-
-/// Create an annotation on a chart
-#[tauri::command]
-async fn create_chart_annotation(
-    state: tauri::State<'_, Database>,
-    input: insight_canvas::CreateAnnotationInput,
-) -> Result<insight_canvas::ChartAnnotation, insight_canvas::InsightCanvasError> {
-    insight_canvas::create_annotation(&state.pool, input).await
-}
-
-/// Get all annotations for a chart
-#[tauri::command]
-async fn get_annotations_for_chart(
-    state: tauri::State<'_, Database>,
-    chart_id: String,
-) -> Result<Vec<insight_canvas::ChartAnnotation>, insight_canvas::InsightCanvasError> {
-    insight_canvas::get_annotations_for_chart(&state.pool, &chart_id).await
-}
-
-/// Update an annotation
-#[tauri::command]
-async fn update_chart_annotation(
-    state: tauri::State<'_, Database>,
-    id: String,
-    content: String,
-) -> Result<insight_canvas::ChartAnnotation, insight_canvas::InsightCanvasError> {
-    insight_canvas::update_annotation(&state.pool, &id, &content).await
-}
-
-/// Delete an annotation
-#[tauri::command]
-async fn delete_chart_annotation(
-    state: tauri::State<'_, Database>,
-    id: String,
-) -> Result<(), insight_canvas::InsightCanvasError> {
-    insight_canvas::delete_annotation(&state.pool, &id).await
-}
-
-// ============================================================================
 // Attention Signals Commands (V2.4.1)
 // ============================================================================
 
@@ -1872,22 +1731,6 @@ pub fn run() {
             get_employee_context,
             get_company_context,
             get_aggregate_enps,
-            // Analytics (V2.3.2)
-            execute_analytics,
-            // Insight Canvas (V2.3.2g-l)
-            create_insight_board,
-            get_insight_board,
-            update_insight_board,
-            delete_insight_board,
-            list_insight_boards,
-            pin_chart,
-            get_charts_for_board,
-            update_pinned_chart,
-            unpin_chart,
-            create_chart_annotation,
-            get_annotations_for_chart,
-            update_chart_annotation,
-            delete_chart_annotation,
             // Attention Signals (V2.4.1)
             is_signals_enabled,
             get_attention_signals,

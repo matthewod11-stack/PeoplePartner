@@ -2,10 +2,10 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-02-26",
+    "lastUpdated": "2026-02-27",
     "project": "HR Command Center",
-    "totalFeatures": 58,
-    "passing": 58,
+    "totalFeatures": 53,
+    "passing": 51,
     "failing": 0,
     "inProgress": 0
   },
@@ -149,32 +149,12 @@
       "notes": "V2.2.5d complete: Replaced button scale transforms with shadow/brightness for smoother hover effects. Slowed loading spinners from 1s to 1.5s (animate-spin-slow). 16 files updated. OfflineIndicator kept fast for quick status checks."
     },
     "analytics-panel": {
-      "status": "pass",
-      "notes": "V2.3.2a-f+ complete: Analytics request schema, NL→SQL templates, Recharts rendering (bar/pie), filter captions, fallback handling. Chart coverage expanded 14→24 combinations (60%); user chart type override (suggested_chart honored). ~1,300 LOC across 10 files."
+      "status": "removed",
+      "notes": "Removed in Launch Prep Phase A (2026-02-27). V2 scope creep — charts/analytics not reliable. Git history preserves code. Focus on conversational HR."
     },
-    "insight-canvas-foundation": {
-      "status": "pass",
-      "notes": "V2.3.2g complete: Database schema (3 tables), insight_canvas.rs CRUD (~540 LOC), TypeScript types, 13 Tauri commands. Foundation for persistent chart storage."
-    },
-    "pin-to-canvas": {
-      "status": "pass",
-      "notes": "V2.3.2h complete: Pin button in AnalyticsChart, BoardSelectorModal for selecting/creating boards, analyticsRequest stored on Message, pinChart() integration. ~210 LOC new."
-    },
-    "named-boards-ui": {
-      "status": "pass",
-      "notes": "V2.3.2i complete: Boards sidebar tab, InsightBoardPanel (list/create/delete), InsightBoardView modal (chart grid, rename, unpin). ~450 LOC across 4 new files."
-    },
-    "chart-annotations": {
-      "status": "pass",
-      "notes": "V2.3.2j complete: ChartAnnotationForm (Note/Callout/Question types), ChartAnnotationList with edit/delete, integrated into InsightBoardView. ~180 LOC across 2 new files."
-    },
-    "report-export": {
-      "status": "pass",
-      "notes": "V2.3.2k complete: PrintableReport component, @media print CSS styles, Export button in board view. Browser-based print with clean formatting. ~220 LOC."
-    },
-    "chart-drilldown": {
-      "status": "pass",
-      "notes": "V2.3.2l complete: DrilldownModal, drilldown-utils.ts (buildEmployeeFilter), onClick handlers in AnalyticsChart. Extended EmployeeFilter with gender/ethnicity. ~200 LOC across 3 files."
+    "insight-canvas": {
+      "status": "removed",
+      "notes": "Removed in Launch Prep Phase A (2026-02-27). Insight boards, pinned charts, annotations, drilldowns, report export all removed. Focus on conversational HR."
     },
     "attrition-signals": {
       "status": "pass",

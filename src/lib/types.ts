@@ -39,8 +39,6 @@ export interface Conversation {
   updated_at: string;
 }
 
-import type { ChartData, AnalyticsRequest } from './analytics-types';
-
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -49,10 +47,6 @@ export interface Message {
   error?: ChatError;
   /** V2.1.4: Answer verification result for aggregate queries */
   verification?: VerificationResult;
-  /** V2.3.2: Chart data for analytics visualization */
-  chartData?: ChartData;
-  /** V2.3.2h: Analytics request for pinning to insight canvas */
-  analyticsRequest?: AnalyticsRequest;
 }
 
 // =============================================================================

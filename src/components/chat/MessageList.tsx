@@ -195,9 +195,6 @@ export function MessageList({
                 role={message.role}
                 timestamp={message.timestamp}
                 verification={message.verification}
-                chartData={message.chartData}
-                analyticsRequest={message.analyticsRequest}
-                messageId={message.id}
                 renderAsPlainText={
                   isLoading &&
                   index === messages.length - 1 &&

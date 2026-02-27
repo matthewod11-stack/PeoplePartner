@@ -87,7 +87,7 @@ export function UpgradePrompt() {
             {[
               'Unlimited messages with Claude AI',
               'Unlimited employee records',
-              'All analytics and insight features',
+              'Full HR knowledge base features',
               'Cross-conversation memory',
               'Backup and restore',
               'Lifetime updates',

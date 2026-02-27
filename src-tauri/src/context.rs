@@ -12,7 +12,6 @@ use sqlx::{FromRow, Row};
 use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::analytics;
 use crate::db::DbPool;
 use crate::highlights;
 use crate::memory;
@@ -507,7 +506,6 @@ pub struct ChatContext {
     pub employee_ids_used: Vec<String>,
     pub memory_summaries: Vec<String>,
     pub metrics: RetrievalMetrics,                  // V2.2.2: retrieval observability
-    pub is_chart_query: bool,                       // V2.3.2: analytics/visualization request
 }
 
 // ============================================================================
@@ -567,10 +565,6 @@ pub struct QueryMentions {
     pub requested_themes: Vec<String>,
     /// V2.2.2b: Target field for theme search (strengths vs opportunities vs any)
     pub theme_target: ThemeTarget,
-    /// V2.3.2: Whether query requests a chart/visualization
-    pub is_chart_query: bool,
-    /// V2.3.2: Chart keywords found in query (for debugging/logging)
-    pub chart_keywords: Vec<String>,
 }
 
 /// Extract potential employee names and departments from a query
@@ -842,10 +836,6 @@ pub fn extract_mentions(query: &str) -> QueryMentions {
             break;
         }
     }
-
-    // V2.3.2: Chart/visualization query detection
-    mentions.is_chart_query = analytics::is_chart_query(query);
-    mentions.chart_keywords = analytics::find_chart_keywords(query);
 
     mentions
 }
@@ -2542,7 +2532,6 @@ pub fn build_system_prompt(
     memory_summaries: &[String],
     user_name: Option<&str>,
     persona_id: Option<&str>,
-    is_chart_query: bool,
 ) -> String {
     let persona = get_persona(persona_id);
     let company_name = company.map(|c| c.name.as_str()).unwrap_or("your company");
@@ -2585,81 +2574,6 @@ pub fn build_system_prompt(
         format!("\nRELEVANT EMPLOYEES:\n{}", employee_context)
     };
 
-    // V2.3.2: Analytics instructions for chart queries
-    let analytics_section = if is_chart_query {
-        eprintln!("[Analytics] Chart query detected - including visualization instructions");
-        r#"
-
-CRITICAL - CHART GENERATION REQUIRED:
-The user wants a chart. You MUST include an analytics_request block.
-
-⚠️ NO BLOCK = NO CHART. Text descriptions or ASCII art will NOT render as charts.
-
-FORMAT:
-1. One short sentence (max 10 words)
-2. The analytics_request block (REQUIRED)
-
-SUPPORTED CHART COMBINATIONS (use ONLY these):
-| Intent              | group_by      | Example query                        |
-|---------------------|---------------|--------------------------------------|
-| headcount_by        | department    | "headcount by department"            |
-| headcount_by        | status        | "headcount by status"                |
-| headcount_by        | gender        | "gender breakdown"                   |
-| headcount_by        | ethnicity     | "ethnicity breakdown"                |
-| headcount_by        | work_state    | "employees by state"                 |
-| headcount_by        | tenure_bucket | "tenure breakdown"                   |
-| headcount_by        | quarter       | "headcount trend over time"          |
-| rating_distribution | rating_bucket | "performance rating distribution"    |
-| rating_distribution | department    | "ratings by department"              |
-| rating_distribution | gender        | "ratings by gender"                  |
-| rating_distribution | tenure_bucket | "ratings by tenure"                  |
-| enps_breakdown      | status        | "eNPS breakdown" or "team eNPS"      |
-| enps_breakdown      | department    | "eNPS by department"                 |
-| enps_breakdown      | gender        | "eNPS by gender"                     |
-| enps_breakdown      | tenure_bucket | "eNPS by tenure"                     |
-| attrition_analysis  | quarter       | "attrition trend"                    |
-| attrition_analysis  | department    | "turnover by department"             |
-| attrition_analysis  | gender        | "attrition by gender"                |
-| attrition_analysis  | tenure_bucket | "attrition by tenure"                |
-| tenure_distribution | tenure_bucket | "tenure distribution"                |
-| tenure_distribution | department    | "tenure by department"               |
-| tenure_distribution | status        | "tenure by status"                   |
-
-CHART TYPE OVERRIDE:
-If the user specifies a chart type (e.g., "as a bar chart", "pie chart", "line graph"),
-include it in suggested_chart. Options: "bar", "pie", "line", "horizontal_bar"
-
-EXAMPLES:
-
-Query: "show me headcount by department"
-Response:
-Here's the department breakdown.
-
-<analytics_request>
-{"intent": "headcount_by", "group_by": "department", "filters": {}, "description": "Headcount by department"}
-</analytics_request>
-
-Query: "show me our eNPS" or "team eNPS chart"
-Response:
-Here's the eNPS breakdown.
-
-<analytics_request>
-{"intent": "enps_breakdown", "group_by": "status", "filters": {}, "description": "eNPS score distribution"}
-</analytics_request>
-
-Query: "show me headcount by department as a bar chart"
-Response:
-Here's the department headcount as a bar chart.
-
-<analytics_request>
-{"intent": "headcount_by", "group_by": "department", "suggested_chart": "bar", "filters": {}, "description": "Headcount by department"}
-</analytics_request>
-
-NEVER create ASCII art, tables, or text visualizations. The analytics_request block renders a real interactive chart."#.to_string()
-    } else {
-        String::new()
-    };
-
     format!(
 r#"{preamble}
 
@@ -2687,7 +2601,6 @@ BOUNDARIES:
 
 RELEVANT PAST CONVERSATIONS:
 {memories}
-{analytics_section}
 
 Answer questions as {persona_name} would—{persona_style}."#,
         preamble = preamble,
@@ -2698,7 +2611,6 @@ Answer questions as {persona_name} would—{persona_style}."#,
         org_data = org_data,
         employee_section = employee_section,
         memories = memories,
-        analytics_section = analytics_section,
         persona_name = persona.name,
         persona_style = persona.style.to_lowercase(),
     )
@@ -2893,7 +2805,6 @@ pub async fn build_chat_context(
         employee_ids_used,
         memory_summaries,
         metrics,
-        is_chart_query: mentions.is_chart_query,
     })
 }
 
@@ -2939,7 +2850,6 @@ pub async fn get_system_prompt_for_message(
         &context.memory_summaries,
         user_name.as_deref(),
         persona_id.as_deref(),
-        context.is_chart_query,
     );
 
     Ok(SystemPromptResult {

@@ -92,6 +92,8 @@ async fn run_migrations(pool: &DbPool) -> DbResult<()> {
         include_str!("../migrations/002_performance_enps.sql"),
         include_str!("../migrations/003_review_highlights.sql"),
         include_str!("../migrations/004_insight_canvas.sql"),
+        include_str!("../migrations/005_dei_audit.sql"),
+        include_str!("../migrations/006_drop_insight_canvas.sql"),
     ];
 
     for migration_sql in migrations {

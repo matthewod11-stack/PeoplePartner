@@ -17,6 +17,47 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-02-27 (Launch Prep Phase A — Charts/Boards/Analytics Removal)
+
+**Phase:** Launch Prep Phase A
+**Focus:** Remove all analytics, charts, insight boards, and recharts dependency
+
+### Completed
+- [x] Deleted `src/components/analytics/` (8 files), `src/components/insights/` (7 files)
+- [x] Deleted `src/lib/analytics-types.ts`, `src/lib/insight-canvas-types.ts`, `src/lib/drilldown-utils.ts`
+- [x] Patched MessageBubble.tsx — removed AnalyticsChart import, chartData/analyticsRequest props, chart JSX
+- [x] Patched App.tsx — removed InsightBoardView lazy import, selectedBoardId state, board select prop
+- [x] Patched AppShell.tsx — removed InsightBoardPanel import, onBoardSelect prop, boards tab rendering
+- [x] Patched types.ts — removed ChartData/AnalyticsRequest imports and Message fields
+- [x] Patched ConversationContext.tsx — removed analytics parsing block, executeAnalytics import
+- [x] Patched tauri-commands.ts — removed analytics section (1 function) and insight canvas section (11 functions + type re-exports)
+- [x] Removed `recharts` from package.json + vite.config.ts manualChunks
+- [x] Deleted Rust modules: analytics.rs (~504 LOC), analytics_templates.rs (~1,064 LOC), insight_canvas.rs (~542 LOC)
+- [x] Patched lib.rs — removed mod declarations, 15 command functions, 15 generate_handler entries
+- [x] Patched context.rs — removed analytics import, is_chart_query fields from ChatContext + QueryMentions, chart detection calls, analytics_section in build_system_prompt
+- [x] Removed "Boards" tab from TabSwitcher + SidebarTab type
+- [x] Updated LayoutContext SidebarTab type (removed 'boards')
+- [x] Created migration 006_drop_insight_canvas.sql (drops 3 tables in dependency order)
+- [x] Updated features.json — analytics/insight features marked as "removed"
+
+### Verification
+- [x] `cargo test` — 302 passed, 0 failed, 1 ignored (down from 317; 15 analytics tests removed)
+- [x] `npx tsc --noEmit` — 0 errors
+- [x] `npm run build` — successful (846ms)
+
+### Additional Fixes (discovered during removal)
+- TabSwitcher still had a "Boards" tab — removed to prevent empty sidebar panel
+- LayoutContext SidebarTab type still included 'boards' — removed
+- vite.config.ts had recharts in manualChunks — removed (caused build failure)
+- MessageList.tsx still passed chartData/analyticsRequest/messageId props — removed
+- UpgradePrompt.tsx referenced "analytics and insight features" — updated copy
+
+### Next Session Should
+1. Pick up Phase B from ROADMAP_LAUNCH_PREP.md (Provider Trait + Anthropic Extraction)
+2. Or commit Phase A first if not yet committed
+
+---
+
 ## Session: 2026-02-26 (E2E Verification — Code Audit + Bug Fix)
 
 **Phase:** 5.5 (Pre-Launch Deployment)

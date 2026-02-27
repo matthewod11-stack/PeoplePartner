@@ -5,7 +5,6 @@ import { useUpdateCheck } from '../../hooks/useUpdateCheck';
 import { OfflineIndicator } from '../shared';
 import { TabSwitcher, ConversationSidebar } from '../conversations';
 import { EmployeePanel } from '../employees';
-import { InsightBoardPanel } from '../insights';
 import { TrialBanner } from '../trial/TrialBanner';
 
 interface AppShellProps {
@@ -13,8 +12,6 @@ interface AppShellProps {
   contextPanel?: ReactNode;
   /** Handler for settings button click */
   onSettingsClick?: () => void;
-  /** Handler for board selection (opens board view modal) */
-  onBoardSelect?: (boardId: string) => void;
 }
 
 function ToggleButton({
@@ -79,7 +76,7 @@ function IconButton({
   );
 }
 
-export function AppShell({ children, contextPanel, onSettingsClick, onBoardSelect }: AppShellProps) {
+export function AppShell({ children, contextPanel, onSettingsClick }: AppShellProps) {
   const { sidebarOpen, contextPanelOpen, sidebarTab, toggleSidebar, toggleContextPanel, setSidebarTab } = useLayout();
   const { isOnline, errorMessage, checkNow, isChecking } = useNetwork();
   const { updateAvailable, installing, installUpdate } = useUpdateCheck();
@@ -213,10 +210,8 @@ export function AppShell({ children, contextPanel, onSettingsClick, onBoardSelec
             <div className="flex-1 overflow-hidden">
               {sidebarTab === 'conversations' ? (
                 <ConversationSidebar />
-              ) : sidebarTab === 'employees' ? (
-                <EmployeePanel />
               ) : (
-                <InsightBoardPanel onBoardSelect={onBoardSelect ?? (() => {})} />
+                <EmployeePanel />
               )}
             </div>
           </div>
