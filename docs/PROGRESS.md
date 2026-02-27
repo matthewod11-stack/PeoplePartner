@@ -44,7 +44,12 @@ Most recent session should be first.
 - [x] `npx tsc --noEmit` — clean
 - [x] `npm run build` — success
 
+### Issues Encountered
+- `openai.rs` from Phase C session is still untracked (never committed) — should be committed
+- Test key string was 1 char short initially; fixed by verifying exact 39-char length
+
 ### Next Session Should
+- Commit the orphaned `src-tauri/src/providers/openai.rs` from Phase C
 - Pick up Phase D.9 (manual test with real Gemini key) or move to Phase E (Frontend provider picker + updated onboarding)
 
 ---
