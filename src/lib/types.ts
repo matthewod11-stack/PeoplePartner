@@ -622,3 +622,13 @@ export interface DocumentFolderStats {
   error_file_count: number;
   last_scanned_at: string | null;
 }
+
+/** Aggregate indexing stats for the active document folder */
+export interface DocumentStats {
+  total_files: number;
+  total_chunks: number;
+  files_with_pii: number;
+  files_with_errors: number;
+  files_by_type: Record<string, number>;
+  last_scanned_at: string | null;
+}

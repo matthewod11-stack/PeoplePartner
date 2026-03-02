@@ -20,6 +20,40 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-03-02 (V3.0 Document Ingestion — Medium/Low/Nit Follow-up)
+
+**Phase:** V3.0 Bug Fixes
+**Focus:** Resolve remaining medium, low, and nit items from post-remediation review
+
+### Completed
+- [x] **Medium:** Made folder switching atomic in `set_document_folder()` by wrapping delete + upsert in one SQL transaction
+- [x] **Low:** Implemented real `DocumentStats` model and backend query path (`documents::get_document_stats`) with `files_by_type` aggregation and zeroed fallback when no folder is configured
+- [x] **Low:** Updated Tauri command + TypeScript contracts so `get_document_stats` now returns `DocumentStats` (not `DocumentFolderStats`)
+- [x] **Low:** Added watcher progress event emission (`documents-scan`) with `started`, `completed`, and `failed` statuses from watcher-triggered scans
+- [x] **Low:** Increased backend coverage with async DB-backed tests for:
+  - active-folder filtering in `search_documents()`
+  - zero-state behavior for `get_document_stats()`
+- [x] **Nit:** Reordered Settings sections so **Documents** appears between **AI Provider** and **Company Profile** (matching plan placement)
+
+### Verification
+- [x] `cargo test --manifest-path src-tauri/Cargo.toml` — **373 passed, 0 failed, 1 ignored**
+- [x] `npx tsc --noEmit` — clean
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `src-tauri/src/documents.rs` | Atomic folder set transaction, DocumentStats API, watcher event emission, 2 new async DB tests |
+| `src-tauri/src/lib.rs` | `get_document_stats` returns `DocumentStats`; watcher startup signature updated |
+| `src/lib/types.ts` | Added `DocumentStats` interface |
+| `src/lib/tauri-commands.ts` | Updated `getDocumentStats()` return type to `DocumentStats` |
+| `src/components/settings/SettingsPanel.tsx` | Moved Documents section before Company Profile |
+
+### Next Session Should
+1. Run manual E2E in `cargo tauri dev` and observe `documents-scan` events during watcher-triggered rescans
+2. Optionally add frontend listener/indicator for watcher progress events in `DocumentFolderConfig`
+
+---
+
 ## Session: 2026-03-02 (V3.0 Document Ingestion — Assessment Remediation)
 
 **Phase:** V3.0 Bug Fixes

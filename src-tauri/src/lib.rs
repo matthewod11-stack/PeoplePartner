@@ -1665,8 +1665,8 @@ async fn rescan_documents(
 #[tauri::command]
 async fn get_document_stats(
     state: tauri::State<'_, Database>,
-) -> Result<Option<documents::DocumentFolderStats>, String> {
-    documents::get_folder_stats(&state.pool)
+) -> Result<documents::DocumentStats, String> {
+    documents::get_document_stats(&state.pool)
         .await
         .map_err(|e| e.to_string())
 }
@@ -1980,7 +1980,7 @@ pub fn run() {
                 match db::init_db(&handle).await {
                     Ok(pool) => {
                         // Start document folder watcher (V3.0)
-                        let watcher_state = documents::start_watcher(pool.clone());
+                        let watcher_state = documents::start_watcher(pool.clone(), handle.clone());
                         handle.manage(watcher_state);
 
                         // Store database pool in app state

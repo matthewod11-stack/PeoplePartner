@@ -26,6 +26,7 @@ import type {
   ProviderInfo,
   // V3.0 - Document Ingestion
   DocumentFolderStats,
+  DocumentStats,
 } from './types';
 
 /**
@@ -2064,6 +2065,6 @@ export async function rescanDocuments(): Promise<DocumentFolderStats> {
 }
 
 /** Get document indexing stats */
-export async function getDocumentStats(): Promise<DocumentFolderStats | null> {
+export async function getDocumentStats(): Promise<DocumentStats> {
   return invoke('get_document_stats');
 }

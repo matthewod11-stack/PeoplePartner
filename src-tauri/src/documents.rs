@@ -6,8 +6,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -120,6 +122,16 @@ pub struct DocumentFolderStats {
     pub last_scanned_at: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocumentStats {
+    pub total_files: u32,
+    pub total_chunks: u32,
+    pub files_with_pii: u32,
+    pub files_with_errors: u32,
+    pub files_by_type: HashMap<String, u32>,
+    pub last_scanned_at: Option<String>,
+}
+
 /// A parsed chunk before indexing (pre-PII-redaction)
 #[derive(Debug, Clone)]
 pub struct RawChunk {
@@ -141,10 +153,12 @@ pub async fn set_document_folder(pool: &DbPool, path: &str) -> Result<DocumentFo
 
     let path_str = path.to_string_lossy().to_string();
 
+    let mut tx = pool.begin().await?;
+
     // Delete all other folders (CASCADE removes their docs + chunks from FTS)
     sqlx::query("DELETE FROM document_folders WHERE path != ?1")
         .bind(&path_str)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
     let folder = sqlx::query_as::<_, DocumentFolder>(
@@ -153,8 +167,10 @@ pub async fn set_document_folder(pool: &DbPool, path: &str) -> Result<DocumentFo
          RETURNING *"
     )
     .bind(&path_str)
-    .fetch_one(pool)
+    .fetch_one(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(folder)
 }
@@ -217,6 +233,61 @@ pub async fn get_folder_stats(pool: &DbPool) -> Result<Option<DocumentFolderStat
         error_file_count: error_count.0 as u32,
         last_scanned_at: folder.last_scanned_at,
     }))
+}
+
+/// Get aggregate document indexing stats for the active folder.
+/// Returns zeroed stats when no folder is configured.
+pub async fn get_document_stats(pool: &DbPool) -> Result<DocumentStats, DocumentError> {
+    let folder = get_document_folder(pool).await?;
+    let Some(folder) = folder else {
+        return Ok(DocumentStats {
+            total_files: 0,
+            total_chunks: 0,
+            files_with_pii: 0,
+            files_with_errors: 0,
+            files_by_type: HashMap::new(),
+            last_scanned_at: None,
+        });
+    };
+
+    let total_files: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM documents WHERE folder_id = ?1"
+    ).bind(folder.id).fetch_one(pool).await?;
+
+    let total_chunks: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM document_chunks dc
+         JOIN documents d ON dc.document_id = d.id
+         WHERE d.folder_id = ?1"
+    ).bind(folder.id).fetch_one(pool).await?;
+
+    let files_with_pii: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM documents WHERE folder_id = ?1 AND pii_detected = 1"
+    ).bind(folder.id).fetch_one(pool).await?;
+
+    let files_with_errors: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM documents WHERE folder_id = ?1 AND error IS NOT NULL"
+    ).bind(folder.id).fetch_one(pool).await?;
+
+    let by_type_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT file_type, COUNT(*) as count
+         FROM documents
+         WHERE folder_id = ?1
+         GROUP BY file_type"
+    ).bind(folder.id).fetch_all(pool).await?;
+
+    let mut files_by_type = HashMap::new();
+    for (file_type, count) in by_type_rows {
+        files_by_type.insert(file_type, count as u32);
+    }
+
+    Ok(DocumentStats {
+        total_files: total_files.0 as u32,
+        total_chunks: total_chunks.0 as u32,
+        files_with_pii: files_with_pii.0 as u32,
+        files_with_errors: files_with_errors.0 as u32,
+        files_by_type,
+        last_scanned_at: folder.last_scanned_at,
+    })
 }
 
 // ============================================================================
@@ -962,13 +1033,15 @@ use std::time::Duration;
 pub struct WatcherState {
     handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
     stop_signal: Arc<AtomicBool>,
+    app_handle: AppHandle,
 }
 
 impl WatcherState {
-    pub fn new() -> Self {
+    pub fn new(app_handle: AppHandle) -> Self {
         Self {
             handle: std::sync::Mutex::new(None),
             stop_signal: Arc::new(AtomicBool::new(false)),
+            app_handle,
         }
     }
 
@@ -990,13 +1063,18 @@ impl WatcherState {
 
         if let Ok(mut guard) = self.handle.lock() {
             let stop = self.stop_signal.clone();
-            *guard = start_watcher_inner(pool, stop);
+            let app_handle = self.app_handle.clone();
+            *guard = start_watcher_inner(pool, app_handle, stop);
         }
     }
 }
 
 /// Internal watcher loop that respects a stop signal
-fn start_watcher_inner(pool: DbPool, stop_signal: Arc<AtomicBool>) -> Option<std::thread::JoinHandle<()>> {
+fn start_watcher_inner(
+    pool: DbPool,
+    app_handle: AppHandle,
+    stop_signal: Arc<AtomicBool>,
+) -> Option<std::thread::JoinHandle<()>> {
     // We need a tokio runtime handle for async DB operations
     let rt = match tokio::runtime::Handle::try_current() {
         Ok(h) => h,
@@ -1050,10 +1128,31 @@ fn start_watcher_inner(pool: DbPool, stop_signal: Arc<AtomicBool>) -> Option<std
                     }
                     // Debounce period passed — scan
                     println!("[Documents] Changes detected, re-scanning...");
+                    let _ = app_handle.emit("documents-scan", serde_json::json!({
+                        "status": "started",
+                        "source": "watcher"
+                    }));
                     let pool_clone = pool.clone();
+                    let app_handle_clone = app_handle.clone();
                     rt.block_on(async {
-                        if let Err(e) = scan_folder(&pool_clone).await {
-                            eprintln!("[Documents] Re-scan failed: {}", e);
+                        match scan_folder(&pool_clone).await {
+                            Ok(stats) => {
+                                let _ = app_handle_clone.emit("documents-scan", serde_json::json!({
+                                    "status": "completed",
+                                    "source": "watcher",
+                                    "file_count": stats.file_count,
+                                    "chunk_count": stats.chunk_count,
+                                    "last_scanned_at": stats.last_scanned_at,
+                                }));
+                            }
+                            Err(e) => {
+                                eprintln!("[Documents] Re-scan failed: {}", e);
+                                let _ = app_handle_clone.emit("documents-scan", serde_json::json!({
+                                    "status": "failed",
+                                    "source": "watcher",
+                                    "error": e.to_string(),
+                                }));
+                            }
                         }
                     });
                 }
@@ -1076,8 +1175,8 @@ fn start_watcher_inner(pool: DbPool, stop_signal: Arc<AtomicBool>) -> Option<std
 
 /// Start watching the active document folder for changes.
 /// Returns a WatcherState that can be used to stop/restart the watcher.
-pub fn start_watcher(pool: DbPool) -> WatcherState {
-    let state = WatcherState::new();
+pub fn start_watcher(pool: DbPool, app_handle: AppHandle) -> WatcherState {
+    let state = WatcherState::new(app_handle);
     state.start(pool);
     state
 }
@@ -1090,7 +1189,50 @@ pub fn start_watcher(pool: DbPool) -> WatcherState {
 mod tests {
     use super::*;
     use std::fs;
+    use sqlx::SqlitePool;
     use tempfile::TempDir;
+
+    async fn run_migration_sql(pool: &DbPool, migration_sql: &str) {
+        let mut current_statement = String::new();
+        let mut inside_begin_block = false;
+
+        for line in migration_sql.lines() {
+            let trimmed = line.trim();
+            let upper = trimmed.to_uppercase();
+
+            if trimmed.is_empty() || trimmed.starts_with("--") {
+                continue;
+            }
+
+            current_statement.push_str(line);
+            current_statement.push('\n');
+
+            if upper.contains(" BEGIN") || upper.ends_with(" BEGIN") {
+                inside_begin_block = true;
+            }
+
+            let is_end_of_block = upper.starts_with("END;") || upper == "END";
+            if is_end_of_block && inside_begin_block {
+                inside_begin_block = false;
+            }
+
+            if trimmed.ends_with(';') && !inside_begin_block {
+                sqlx::query(&current_statement).execute(pool).await.unwrap();
+                current_statement.clear();
+            }
+        }
+
+        if !current_statement.trim().is_empty() {
+            sqlx::query(&current_statement).execute(pool).await.unwrap();
+        }
+    }
+
+    async fn setup_documents_test_db() -> DbPool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        run_migration_sql(&pool, include_str!("../migrations/007_documents.sql")).await;
+        run_migration_sql(&pool, include_str!("../migrations/008_document_chunks_unique.sql")).await;
+        pool
+    }
 
     #[test]
     fn test_is_supported_file() {
@@ -1325,5 +1467,68 @@ mod tests {
         for chunk in &result {
             assert!(chunk.content.len() <= MAX_CHUNK_CHARS, "All chunks must fit within limit");
         }
+    }
+
+    #[tokio::test]
+    async fn test_get_document_stats_zero_when_no_folder() {
+        let pool = setup_documents_test_db().await;
+        let stats = get_document_stats(&pool).await.unwrap();
+        assert_eq!(stats.total_files, 0);
+        assert_eq!(stats.total_chunks, 0);
+        assert_eq!(stats.files_with_pii, 0);
+        assert_eq!(stats.files_with_errors, 0);
+        assert!(stats.files_by_type.is_empty());
+        assert!(stats.last_scanned_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_search_documents_only_returns_active_folder_chunks() {
+        let pool = setup_documents_test_db().await;
+
+        sqlx::query("INSERT INTO document_folders (id, path, active) VALUES (1, '/active', 1)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO document_folders (id, path, active) VALUES (2, '/inactive', 0)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "INSERT INTO documents (id, folder_id, file_path, file_name, file_type, file_size, content_hash, chunk_count, pii_detected, error)
+             VALUES (10, 1, '/active/policy.md', 'policy.md', 'md', 100, 'h1', 1, 0, NULL)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO documents (id, folder_id, file_path, file_name, file_type, file_size, content_hash, chunk_count, pii_detected, error)
+             VALUES (20, 2, '/inactive/old-policy.md', 'old-policy.md', 'md', 100, 'h2', 1, 0, NULL)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO document_chunks (document_id, chunk_index, section_title, content, char_count)
+             VALUES (10, 0, 'Leave', 'Policy says active folder leave is 20 days.', 41)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO document_chunks (document_id, chunk_index, section_title, content, char_count)
+             VALUES (20, 0, 'Leave', 'Policy says inactive folder leave is 99 days.', 43)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let results = search_documents(&pool, "policy leave").await.unwrap();
+        assert_eq!(results.len(), 1, "Only active folder chunks should be returned");
+        assert_eq!(results[0].file_name, "policy.md");
+        assert!(results[0].content.contains("20 days"));
     }
 }
