@@ -505,6 +505,7 @@ pub struct ChatContext {
     pub employee_summaries: Vec<EmployeeSummary>,   // Brief roster (for List queries)
     pub employee_ids_used: Vec<String>,
     pub memory_summaries: Vec<String>,
+    pub document_chunks: Vec<crate::documents::RetrievedChunk>,  // V3.0: Document context
     pub metrics: RetrievalMetrics,                  // V2.2.2: retrieval observability
 }
 
@@ -2529,6 +2530,7 @@ pub fn build_system_prompt(
     company: Option<&CompanyContext>,
     aggregates: Option<&OrgAggregates>,
     employee_context: &str,
+    document_context: &str,
     memory_summaries: &[String],
     user_name: Option<&str>,
     persona_id: Option<&str>,
@@ -2574,6 +2576,13 @@ pub fn build_system_prompt(
         format!("\nRELEVANT EMPLOYEES:\n{}", employee_context)
     };
 
+    // V3.0: Build document section
+    let document_section = if document_context.is_empty() {
+        String::new()
+    } else {
+        format!("\nRELEVANT DOCUMENTS:\n{}", document_context)
+    };
+
     format!(
 r#"{preamble}
 
@@ -2591,6 +2600,8 @@ CONTEXT AWARENESS:
 - Reference specific employees by name when their data is relevant
 - Build on previous conversations when you remember relevant context
 - Use the ORGANIZATION DATA above to answer aggregate questions accurately
+- When answering from company documents, cite the source naturally (e.g., "According to your Employee Handbook...")
+- If document content conflicts with general knowledge, prefer the company's documented policy
 
 BOUNDARIES:
 - This is guidance, not legal advice—the user acknowledged this during setup
@@ -2598,6 +2609,7 @@ BOUNDARIES:
 - You don't have access to confidential investigation details
 - Compensation data is not available (V1)
 {employee_section}
+{document_section}
 
 RELEVANT PAST CONVERSATIONS:
 {memories}
@@ -2610,6 +2622,7 @@ Answer questions as {persona_name} would—{persona_style}."#,
         company_info = company_info,
         org_data = org_data,
         employee_section = employee_section,
+        document_section = document_section,
         memories = memories,
         persona_name = persona.name,
         persona_style = persona.style.to_lowercase(),
@@ -2796,6 +2809,16 @@ pub async fn build_chat_context(
         retrieval_time_ms,
     };
 
+    // V3.0: Find relevant document chunks (resilient — don't fail if lookup errors)
+    let document_chunks: Vec<crate::documents::RetrievedChunk> =
+        match crate::documents::search_documents(pool, user_message).await {
+            Ok(chunks) => chunks,
+            Err(e) => {
+                eprintln!("Warning: Failed to search documents: {}", e);
+                Vec::new()
+            }
+        };
+
     Ok(ChatContext {
         company,
         aggregates,
@@ -2804,6 +2827,7 @@ pub async fn build_chat_context(
         employee_summaries,
         employee_ids_used,
         memory_summaries,
+        document_chunks,
         metrics,
     })
 }
@@ -2843,10 +2867,14 @@ pub async fn get_system_prompt_for_message(
         String::new() // Aggregate queries don't need employee details
     };
 
+    // V3.0: Build document context
+    let document_context = crate::documents::format_document_context(&context.document_chunks);
+
     let system_prompt = build_system_prompt(
         context.company.as_ref(),
         context.aggregates.as_ref(),
         &employee_context,
+        &document_context,
         &context.memory_summaries,
         user_name.as_deref(),
         persona_id.as_deref(),

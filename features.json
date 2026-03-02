@@ -2,12 +2,12 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-03-01",
+    "lastUpdated": "2026-03-02",
     "project": "HR Command Center",
-    "totalFeatures": 54,
+    "totalFeatures": 55,
     "passing": 52,
     "failing": 0,
-    "inProgress": 0
+    "inProgress": 1
   },
   "phase-0": {
     "pre-flight-validation": {
@@ -201,6 +201,12 @@
     "multi-provider-ui": {
       "status": "pass",
       "notes": "Phase E complete: Frontend provider picker, multi-provider ApiKeyInput, two-phase onboarding, SettingsPanel AI Provider section. E.4 upgrade wizard: UpgradePrompt is now a 4-step flow (purchase → license → provider → complete) so users never leave the modal. Supports Anthropic, OpenAI, Gemini. 354 tests passing."
+    }
+  },
+  "phase-v3": {
+    "document-ingestion": {
+      "status": "in-progress",
+      "notes": "V3.0 Tasks 1-13 of 15 complete: 007_documents.sql migration (3 tables + FTS5), documents.rs (~600 LOC, 13 tests), context.rs integration (RELEVANT DOCUMENTS section + citations), 5 Tauri commands, TypeScript wrappers, DocumentFolderConfig.tsx, FSEvents watcher, dialog plugin. 367 Rust tests passing. Remaining: Task 14 (formal integration verification) + Task 15 (tracking files)."
     }
   },
   "verification": {

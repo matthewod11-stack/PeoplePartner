@@ -607,3 +607,18 @@ export interface DuplicateResolution {
   /** Resolution action */
   action: 'keep_new' | 'keep_existing' | 'skip';
 }
+
+// ============================================================================
+// Document Ingestion (V3.0)
+// ============================================================================
+
+/** Stats for the configured document folder */
+export interface DocumentFolderStats {
+  path: string;
+  label: string | null;
+  file_count: number;
+  chunk_count: number;
+  pii_file_count: number;
+  error_file_count: number;
+  last_scanned_at: string | null;
+}

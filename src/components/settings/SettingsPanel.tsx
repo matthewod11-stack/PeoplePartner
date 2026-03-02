@@ -16,6 +16,7 @@ import { PersonaSelector } from './PersonaSelector';
 import { SignalsDisclaimerModal } from './SignalsDisclaimerModal';
 import { FairnessDisclaimerModal } from './FairnessDisclaimerModal';
 import { LicenseKeyInput } from './LicenseKeyInput';
+import { DocumentFolderConfig } from './DocumentFolderConfig';
 import {
   getDataPath, getSetting, setSetting,
   getActiveProvider, setActiveProvider, hasProviderApiKey,
@@ -308,6 +309,14 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               Company Profile
             </h3>
             <CompanySetup compact />
+          </section>
+
+          {/* Documents Section (V3.0) */}
+          <section>
+            <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">
+              Documents
+            </h3>
+            <DocumentFolderConfig compact />
           </section>
 
           {/* AI Assistant Style Section (V2.1.3) */}

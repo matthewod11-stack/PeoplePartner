@@ -20,6 +20,55 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-03-02 (V3.0 Document Ingestion — Implementation Tasks 1-13)
+
+**Phase:** V3.0 Feature Implementation
+**Focus:** Implement document ingestion feature from 15-task plan (Tasks 1-13 completed)
+
+### Completed
+- [x] **Task 1:** Created `007_documents.sql` migration — 3 tables (document_folders, documents, document_chunks), FTS5 virtual table, 3 sync triggers, 3 indexes. Registered in `db.rs`.
+- [x] **Task 2:** Added Rust dependencies — `pdf-extract = "0.7"`, `docx-rs = "0.4"`, `notify = "7"` (macos_fsevent), `tauri-plugin-dialog = "2"`, `tempfile = "3"` (dev)
+- [x] **Tasks 3-7 (consolidated):** Created `documents.rs` (~600 LOC) — types, folder CRUD, file discovery, SHA-256 hash_file, text parsers (md/txt/csv), binary parsers (pdf/docx/xlsx), section-aware chunking, indexing pipeline with PII redaction, FTS retrieval + context formatter, FSEvents watcher, 13 unit tests
+- [x] **Task 8:** Context builder integration — added `document_chunks` to `ChatContext`, document retrieval in `build_chat_context` (resilient/catch errors), `RELEVANT DOCUMENTS` section in system prompt, citation instructions
+- [x] **Task 9:** 5 Tauri commands in `lib.rs` — set_document_folder, remove_document_folder, get_document_folder, rescan_documents, get_document_stats
+- [x] **Task 10:** TypeScript types (`DocumentFolderStats`) + 5 command wrappers in `tauri-commands.ts`
+- [x] **Task 11:** `DocumentFolderConfig.tsx` component — 3 states (empty/scanning/configured), PII/error warnings, rescan/remove actions. Wired into SettingsPanel.
+- [x] **Task 12:** FSEvents watcher auto-start in `lib.rs` setup
+- [x] **Task 13:** Dialog plugin — npm + Rust + builder registration + capability permissions
+
+### Bugs Fixed During Implementation
+- `test_split_oversized_chunks`: Test used `"A ".repeat(...)` with no `\n\n` breaks — `parse_plaintext` couldn't split. Fixed with paragraph-based test content.
+- TypeScript strict mode: Unused `compact` param in `DocumentFolderConfig` — fixed with `{ compact: _compact = false }` destructuring.
+
+### Verification
+- [x] `npx tsc --noEmit` — clean
+- [x] `npm run build` — successful
+- [x] `cargo test` — 367 passed, 0 failed, 1 ignored (354 baseline + 13 new)
+
+### Files Modified/Created
+| File | Change |
+|------|--------|
+| `src-tauri/migrations/007_documents.sql` | **NEW** — 3 tables + FTS5 + triggers |
+| `src-tauri/Cargo.toml` | +5 dependencies |
+| `src-tauri/src/db.rs` | Registered migration 007 |
+| `src-tauri/src/documents.rs` | **NEW** — ~600 LOC, 13 tests |
+| `src-tauri/src/lib.rs` | mod documents, 5 commands, dialog plugin, watcher |
+| `src-tauri/src/context.rs` | ChatContext field, doc retrieval, system prompt |
+| `src-tauri/capabilities/default.json` | +dialog:default |
+| `src/lib/types.ts` | +DocumentFolderStats |
+| `src/lib/tauri-commands.ts` | +5 command wrappers |
+| `src/components/settings/DocumentFolderConfig.tsx` | **NEW** — ~200 LOC |
+| `src/components/settings/SettingsPanel.tsx` | +Documents section |
+
+### Next Session Should
+1. Run `cargo tauri dev` for manual E2E testing of document ingestion flow
+2. Test: choose folder → scan → verify stats → rescan → remove → re-add
+3. Test: chat references to indexed documents (citation format)
+4. Consider Task 14 (formal integration verification) and Task 15 (tracking) as complete
+5. Remaining from plan: no code tasks left, just verification
+
+---
+
 ## Session: 2026-03-02 (V3.0 Design — Document Ingestion + Phase E.4 Upgrade Wizard)
 
 **Phase:** V3.0 Feature Design + Launch Prep E.4
@@ -360,41 +409,6 @@ Most recent session should be first.
 2. If proxy chat fails, debug CORS / CSP / origin issues between Tauri and the Worker
 3. Consider a test purchase + immediate refund to verify live Stripe webhook flow end-to-end
 4. After E2E passes, commit final changes and prep for first release build
-
----
-
-## Session: 2026-02-26 (Launch Hardening Execution — Steps 1-6)
-
-**Phase:** 5.3-5.4 (Launch Hardening)
-**Focus:** Execute corrected launch hardening plan across both website and desktop repos
-
-### Completed
-- [x] **Website Step 1:** Removed unused `trial_devices` table, `TrialDeviceRecord`, `getOrCreateTrialDevice()`, trial code paths from `evaluateEntitlement()`, `EntitlementMode`, `EntitlementCheckRequest/Response`
-- [x] **Website Step 2:** Extended `validate-license` endpoint to accept `device_id`, register device activations via `upsertLicenseActivation()`, enforce 2-device seat limit. Added `isValidDeviceIdentifier()` accepting both SHA-256 hash and UUID v4.
-- [x] **Website Step 3:** Deleted `/api/entitlement/check` endpoint and directory. Replaced complex `evaluateEntitlement()` state machine with clean `validateLicense()` function (~30 lines, 5 exit points).
-- [x] **Desktop Step 4:** Added `LicenseValidationResult` enum (`Valid | Invalid | SeatLimitExceeded`). `validate_license_key_remote()` now sends `device_id` and parses `reason`/`message` from response. `store_license_key()` fetches device_id via `trial::get_device_id()` and returns seat-limit-specific errors.
-- [x] **Desktop Step 5:** Strict format validation: `HRC-` prefix + 6 groups of 4 hex digits = 33 chars. Updated placeholder and hint text to show correct 6-group format. Seat-limit errors detected via regex and shown as friendly "Contact support" message.
-- [x] **Step 6:** Committed both repos (desktop: `bc53b60`, website: `994c437`)
-- [x] Parallel agent execution: 3 agents launched (website, desktop Rust, desktop frontend). Desktop agents hit sandbox restrictions but provided exact changes; applied manually.
-
-### Verification
-- [x] `cargo check` — passes (47 pre-existing warnings, 0 new)
-- [x] `cargo test` — 317 passed, 0 failed, 1 ignored
-- [x] `npx tsc --noEmit` — TypeScript clean
-- [x] Website `npm run lint` — clean
-- [x] Website `npm run build` — clean, `/api/entitlement/check` gone from route table
-- [x] Zero dangling references to removed code in website repo
-
-### Notes
-- Website repo sandbox restrictions prevented agent edits — applied directly from main context
-- The `evaluateEntitlement()` → `validateLicense()` simplification removed ~120 lines of trial/entitlement state machine code
-- `unwrap_or_default()` for device_id fallback means empty string still lets validation proceed
-
-### Next Session Should
-1. Execute Step 7: Manual E2E verification (trial flow → purchase → license → seat limits → offline)
-2. Step 7 is blocked on: Vercel Postgres provisioning, Stripe CLI for webhook replay
-3. Remaining pre-launch: 5.5.5 Switch Stripe to live mode (5 tasks)
-4. Update `tauri.conf.json` placeholders (updater pubkey, GitHub endpoint)
 
 ---
 

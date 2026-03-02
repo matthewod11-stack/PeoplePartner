@@ -14,6 +14,7 @@ mod conversations;
 mod data_quality;
 mod db;
 mod dei;
+mod documents;
 mod device_id;
 mod employees;
 mod enps;
@@ -1609,6 +1610,60 @@ async fn check_employee_limit(
 }
 
 // ============================================================================
+// Document Ingestion Commands (V3.0)
+// ============================================================================
+
+#[tauri::command]
+async fn set_document_folder(
+    state: tauri::State<'_, Database>,
+    path: String,
+) -> Result<documents::DocumentFolderStats, String> {
+    let pool = &state.pool;
+    documents::set_document_folder(pool, &path)
+        .await
+        .map_err(|e| e.to_string())?;
+    documents::scan_folder(pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn remove_document_folder(
+    state: tauri::State<'_, Database>,
+) -> Result<(), String> {
+    documents::remove_document_folder(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_document_folder(
+    state: tauri::State<'_, Database>,
+) -> Result<Option<documents::DocumentFolderStats>, String> {
+    documents::get_folder_stats(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn rescan_documents(
+    state: tauri::State<'_, Database>,
+) -> Result<documents::DocumentFolderStats, String> {
+    documents::scan_folder(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_document_stats(
+    state: tauri::State<'_, Database>,
+) -> Result<Option<documents::DocumentFolderStats>, String> {
+    documents::get_folder_stats(&state.pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ============================================================================
 // Backup & Restore Commands
 // ============================================================================
 
@@ -1732,6 +1787,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             greet,
             check_db,
@@ -1896,7 +1952,13 @@ pub fn run() {
             apply_hris_preset,
             // Trial mode
             get_trial_status,
-            check_employee_limit
+            check_employee_limit,
+            // Document ingestion (V3.0)
+            set_document_folder,
+            remove_document_folder,
+            get_document_folder,
+            rescan_documents,
+            get_document_stats,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases
@@ -1909,6 +1971,9 @@ pub fn run() {
             tauri::async_runtime::block_on(async move {
                 match db::init_db(&handle).await {
                     Ok(pool) => {
+                        // Start document folder watcher (V3.0)
+                        documents::start_watcher(pool.clone());
+
                         // Store database pool in app state
                         handle.manage(Database::new(pool));
                         println!("Database initialized successfully");

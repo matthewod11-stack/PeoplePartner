@@ -24,6 +24,8 @@ import type {
   BatchExtractionResult,
   // Phase E - Provider Management
   ProviderInfo,
+  // V3.0 - Document Ingestion
+  DocumentFolderStats,
 } from './types';
 
 /**
@@ -2035,4 +2037,33 @@ export async function getTrialStatus(): Promise<TrialStatus> {
  */
 export async function checkEmployeeLimit(): Promise<EmployeeLimitCheck> {
   return invoke('check_employee_limit');
+}
+
+// =============================================================================
+// Document Ingestion (V3.0)
+// =============================================================================
+
+/** Set the document folder path and trigger initial scan */
+export async function setDocumentFolder(path: string): Promise<DocumentFolderStats> {
+  return invoke('set_document_folder', { path });
+}
+
+/** Remove the document folder and all indexed data */
+export async function removeDocumentFolder(): Promise<void> {
+  return invoke('remove_document_folder');
+}
+
+/** Get the current document folder stats (null if none configured) */
+export async function getDocumentFolder(): Promise<DocumentFolderStats | null> {
+  return invoke('get_document_folder');
+}
+
+/** Trigger a manual re-scan of the document folder */
+export async function rescanDocuments(): Promise<DocumentFolderStats> {
+  return invoke('rescan_documents');
+}
+
+/** Get document indexing stats */
+export async function getDocumentStats(): Promise<DocumentFolderStats | null> {
+  return invoke('get_document_stats');
 }
