@@ -22,6 +22,8 @@ import type {
   ReviewHighlight,
   EmployeeSummary,
   BatchExtractionResult,
+  // Phase E - Provider Management
+  ProviderInfo,
 } from './types';
 
 /**
@@ -91,6 +93,56 @@ export async function deleteLicenseKey(): Promise<void> {
  */
 export async function validateLicenseKeyFormat(licenseKey: string): Promise<boolean> {
   return invoke('validate_license_key_format', { licenseKey });
+}
+
+// =============================================================================
+// Phase E - Provider Management
+// =============================================================================
+
+/** Get the active AI provider ID (defaults to 'anthropic') */
+export async function getActiveProvider(): Promise<string> {
+  return invoke('get_active_provider');
+}
+
+/** Set the active AI provider */
+export async function setActiveProvider(providerId: string): Promise<void> {
+  return invoke('set_active_provider', { providerId });
+}
+
+/** List all available AI providers */
+export async function listProviders(): Promise<ProviderInfo[]> {
+  return invoke('list_providers');
+}
+
+/** Validate an API key format for a specific provider */
+export async function validateProviderApiKeyFormat(
+  providerId: string,
+  apiKey: string
+): Promise<boolean> {
+  return invoke('validate_provider_api_key_format', { providerId, apiKey });
+}
+
+/** Store an API key for a specific provider in Keychain */
+export async function storeProviderApiKey(
+  providerId: string,
+  apiKey: string
+): Promise<void> {
+  return invoke('store_provider_api_key', { providerId, apiKey });
+}
+
+/** Check if an API key exists for a specific provider */
+export async function hasProviderApiKey(providerId: string): Promise<boolean> {
+  return invoke('has_provider_api_key', { providerId });
+}
+
+/** Delete the API key for a specific provider */
+export async function deleteProviderApiKey(providerId: string): Promise<void> {
+  return invoke('delete_provider_api_key', { providerId });
+}
+
+/** Check if ANY provider has an API key stored (for onboarding completion) */
+export async function hasAnyProviderApiKey(): Promise<boolean> {
+  return invoke('has_any_provider_api_key');
 }
 
 // =============================================================================

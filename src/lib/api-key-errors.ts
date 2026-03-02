@@ -11,28 +11,55 @@ export type ApiKeyErrorType =
 /**
  * Returns a user-friendly hint based on the API key format.
  * Returns null if the key appears valid or is empty.
+ *
+ * When providerId is set, gives provider-specific guidance.
+ * When undefined, uses legacy Anthropic-only behavior.
  */
-export function getApiKeyErrorHint(key: string): string | null {
+export function getApiKeyErrorHint(key: string, providerId?: string): string | null {
   if (!key) {
     return null;
   }
 
-  // Check for common OpenAI key format (starts with sk- but not sk-ant-)
+  if (providerId === 'openai') {
+    if (key.startsWith('sk-ant-')) {
+      return "This looks like an Anthropic key (starts with 'sk-ant-'). You need an OpenAI key — it starts with 'sk-'";
+    }
+    if (key.startsWith('AIzaSy')) {
+      return "This looks like a Google Gemini key. You need an OpenAI key — it starts with 'sk-'";
+    }
+    if (!key.startsWith('sk-')) {
+      return "Make sure you copied the full key — OpenAI keys start with 'sk-'";
+    }
+    return null;
+  }
+
+  if (providerId === 'gemini') {
+    if (key.startsWith('sk-')) {
+      return "This looks like an OpenAI or Anthropic key. You need a Google Gemini key — it starts with 'AIzaSy'";
+    }
+    if (!key.startsWith('AIzaSy')) {
+      return "Make sure you copied the full key — Gemini keys start with 'AIzaSy'";
+    }
+    return null;
+  }
+
+  // Anthropic (default / legacy)
   if (key.startsWith('sk-') && !key.startsWith('sk-ant-')) {
     return "This looks like an OpenAI key (starts with 'sk-'). You need an Anthropic key — it starts with 'sk-ant-'";
   }
 
-  // Check for missing Anthropic prefix
+  if (key.startsWith('AIzaSy')) {
+    return "This looks like a Google Gemini key. You need an Anthropic key — it starts with 'sk-ant-'";
+  }
+
   if (!key.startsWith('sk-ant-')) {
     return "Make sure you copied the full key — it should start with 'sk-ant-'";
   }
 
-  // Check for incomplete key (too short)
   if (key.length < 40) {
     return 'This key seems incomplete. Anthropic keys are usually longer. Did you copy the whole thing?';
   }
 
-  // Key appears valid
   return null;
 }
 

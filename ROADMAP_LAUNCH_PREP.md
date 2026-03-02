@@ -98,30 +98,30 @@
 **Goal:** Users can choose their provider and set up API keys through a polished flow.
 
 ### E.1 Provider Picker Component
-- [ ] E.1.1 Create `ProviderPicker.tsx` — card-style selector (Claude / OpenAI / Gemini)
-- [ ] E.1.2 Add provider logos/icons and "what you need" one-liners
-- [ ] E.1.3 Wire selection to settings (store active_provider)
+- [x] E.1.1 Create `ProviderPicker.tsx` — card-style selector (Claude / OpenAI / Gemini)
+- [x] E.1.2 Add provider brand colors and description one-liners (via `provider-config.ts`)
+- [x] E.1.3 Wire selection to settings (store active_provider)
 
 ### E.2 Updated API Key Setup
-- [ ] E.2.1 Refactor `ApiKeyStep.tsx` → `ProviderSetupStep.tsx` (provider picker → key input)
-- [ ] E.2.2 Update `ApiKeyInput.tsx` to validate per selected provider
-- [ ] E.2.3 Create per-provider setup guides (collapsible sections with console URLs, steps)
+- [x] E.2.1 Refactor `ApiKeyStep.tsx` — two-phase flow (provider picker → key input)
+- [x] E.2.2 Update `ApiKeyInput.tsx` to validate per selected provider (`providerId` prop)
+- [x] E.2.3 Create per-provider setup guides (collapsible sections with console URLs, steps)
 
 ### E.3 Settings Panel
-- [ ] E.3.1 Add provider section to SettingsPanel (current provider, switch, manage keys)
-- [ ] E.3.2 Show which providers have keys stored
+- [x] E.3.1 Add provider section to SettingsPanel (ProviderPicker compact + ApiKeyInput)
+- [x] E.3.2 Show which providers have keys stored (key-status badges)
 
 ### E.4 Upgrade Flow
 - [ ] E.4.1 Update UpgradePrompt → after license entry, route to ProviderPicker
 - [ ] E.4.2 Trial → upgrade → provider pick → key setup → full access
 
 ### E.5 Verification
-- [ ] E.5.1 `npx tsc --noEmit` and `npm run build` pass
+- [x] E.5.1 `npx tsc --noEmit` and `npm run build` pass
 - [ ] E.5.2 Walk through: fresh install → trial → upgrade → pick provider → enter key → chat
 
 ### Pause Point E ─ Verify
-- [ ] Full onboarding flow works for all three providers
-- [ ] Settings provider switching works
+- [ ] Full onboarding flow works for all three providers (needs manual E2E)
+- [ ] Settings provider switching works (needs manual E2E)
 - [ ] Trial → upgrade path is smooth
 
 ---

@@ -1,6 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
-import { storeApiKey, hasApiKey, deleteApiKey, validateApiKeyFormat } from '../../lib/tauri-commands';
+import {
+  storeApiKey, hasApiKey, deleteApiKey, validateApiKeyFormat,
+  storeProviderApiKey, hasProviderApiKey, deleteProviderApiKey, validateProviderApiKeyFormat,
+} from '../../lib/tauri-commands';
 import { getApiKeyErrorHint, getStorageErrorMessage } from '../../lib/api-key-errors';
+import { PROVIDER_META } from '../../lib/provider-config';
 
 type ApiKeyStatus = 'idle' | 'validating' | 'saving' | 'saved' | 'error';
 
@@ -11,12 +15,15 @@ interface ApiKeyInputProps {
   onDelete?: () => void;
   /** Show compact version (for settings panel) */
   compact?: boolean;
+  /** Provider ID for multi-provider mode. When undefined, uses legacy Anthropic-only behavior. */
+  providerId?: string;
 }
 
 export function ApiKeyInput({
   onSave,
   onDelete,
   compact = false,
+  providerId,
 }: ApiKeyInputProps) {
   const [apiKey, setApiKey] = useState('');
   const [status, setStatus] = useState<ApiKeyStatus>('idle');
@@ -24,12 +31,20 @@ export function ApiKeyInput({
   const [errorMessage, setErrorMessage] = useState('');
   const [isValid, setIsValid] = useState(false);
 
-  // Check if key already exists on mount
+  const meta = providerId ? PROVIDER_META[providerId] : undefined;
+
+  // Check if key already exists on mount (and when providerId changes)
   useEffect(() => {
-    hasApiKey()
+    const check = providerId ? hasProviderApiKey(providerId) : hasApiKey();
+    check
       .then(setHasExistingKey)
       .catch(() => setHasExistingKey(false));
-  }, []);
+    // Reset input state when provider changes
+    setApiKey('');
+    setStatus('idle');
+    setErrorMessage('');
+    setIsValid(false);
+  }, [providerId]);
 
   // Validate format as user types
   useEffect(() => {
@@ -40,7 +55,9 @@ export function ApiKeyInput({
 
     const timer = setTimeout(async () => {
       try {
-        const valid = await validateApiKeyFormat(apiKey);
+        const valid = providerId
+          ? await validateProviderApiKeyFormat(providerId, apiKey)
+          : await validateApiKeyFormat(apiKey);
         setIsValid(valid);
       } catch {
         setIsValid(false);
@@ -48,7 +65,7 @@ export function ApiKeyInput({
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [apiKey]);
+  }, [apiKey, providerId]);
 
   const handleSave = useCallback(async () => {
     if (!apiKey || !isValid) return;
@@ -57,7 +74,11 @@ export function ApiKeyInput({
     setErrorMessage('');
 
     try {
-      await storeApiKey(apiKey);
+      if (providerId) {
+        await storeProviderApiKey(providerId, apiKey);
+      } else {
+        await storeApiKey(apiKey);
+      }
       setStatus('saved');
       setHasExistingKey(true);
       setApiKey('');
@@ -70,24 +91,33 @@ export function ApiKeyInput({
       const errorStr = err instanceof Error ? err.message : String(err);
       setErrorMessage(getStorageErrorMessage(errorStr));
     }
-  }, [apiKey, isValid, onSave]);
+  }, [apiKey, isValid, onSave, providerId]);
 
   const handleDelete = useCallback(async () => {
     try {
-      await deleteApiKey();
+      if (providerId) {
+        await deleteProviderApiKey(providerId);
+      } else {
+        await deleteApiKey();
+      }
       setHasExistingKey(false);
       setStatus('idle');
       onDelete?.();
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Failed to delete API key');
     }
-  }, [onDelete]);
+  }, [onDelete, providerId]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && isValid && status === 'idle') {
       handleSave();
     }
   };
+
+  // Dynamic label and placeholder
+  const displayName = meta?.displayName ?? 'Anthropic';
+  const placeholder = meta?.keyPrefixHint ?? 'sk-ant-...';
+  const keysUrl = meta?.keysUrl ?? 'https://console.anthropic.com/settings/keys';
 
   // Determine visual feedback
   const getBorderColor = () => {
@@ -108,7 +138,7 @@ export function ApiKeyInput({
               </svg>
             </div>
             <div>
-              <p className="text-sm font-medium text-green-800">API Key Configured</p>
+              <p className="text-sm font-medium text-green-800">{displayName} API Key Configured</p>
               <p className="text-xs text-green-600">Stored securely in your system keychain</p>
             </div>
           </div>
@@ -129,16 +159,16 @@ export function ApiKeyInput({
       {/* Header */}
       {!compact && (
         <div className="mb-3">
-          <h3 className="text-sm font-medium text-stone-700">Anthropic API Key</h3>
+          <h3 className="text-sm font-medium text-stone-700">{displayName} API Key</h3>
           <p className="text-xs text-stone-500 mt-0.5">
             Get your key from{' '}
             <a
-              href="https://console.anthropic.com/settings/keys"
+              href={keysUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="text-primary-600 hover:text-primary-700 underline"
             >
-              console.anthropic.com
+              {new URL(keysUrl).hostname}
             </a>
           </p>
         </div>
@@ -173,9 +203,9 @@ export function ApiKeyInput({
             setStatus('idle');
           }}
           onKeyDown={handleKeyDown}
-          placeholder="sk-ant-..."
+          placeholder={placeholder}
           disabled={status === 'saving'}
-          aria-label="Anthropic API key"
+          aria-label={`${displayName} API key`}
           className={`
             flex-1
             bg-transparent
@@ -250,8 +280,8 @@ export function ApiKeyInput({
       {/* Format hint with contextual guidance */}
       {apiKey && !isValid && !errorMessage && (
         <p className="mt-2 text-xs text-amber-600">
-          {getApiKeyErrorHint(apiKey) || (
-            <>API key should start with <code className="bg-stone-100 px-1 rounded">sk-ant-</code></>
+          {getApiKeyErrorHint(apiKey, providerId) || (
+            <>API key should start with <code className="bg-stone-100 px-1 rounded">{placeholder}</code></>
           )}
         </p>
       )}

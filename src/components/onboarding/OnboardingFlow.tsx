@@ -105,7 +105,7 @@ export function OnboardingFlow({ onComplete, initialPrompt }: OnboardingFlowProp
       case 2:
         return (
           <StepContainer
-            title="Connect to Claude"
+            title="Choose your AI provider"
             subtitle="Your API key is stored securely in macOS Keychain"
           >
             <ApiKeyStep

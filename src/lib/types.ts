@@ -337,6 +337,17 @@ export function getEnpsCategory(score: number): EnpsCategory {
 }
 
 // =============================================================================
+// AI Provider (Phase E)
+// =============================================================================
+
+/** AI provider info returned from the backend */
+export interface ProviderInfo {
+  id: string;
+  display_name: string;
+  key_prefix_hint: string;
+}
+
+// =============================================================================
 // Application State
 // =============================================================================
 

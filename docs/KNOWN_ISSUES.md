@@ -58,6 +58,14 @@ These decisions were made during planning and should NOT be revisited during imp
 
 ## Open Issues
 
+### [REBRAND] Rename "HR Command Center" → "People Partner"
+**Status:** Deferred
+**Severity:** Medium
+**Discovered:** 2026-03-01
+**Description:** Rebranding to "People Partner" (domain: peoplepartner.io secured). 180 occurrences across 116 files. Includes migration-sensitive areas: Keychain service name (7 refs in keyring.rs — existing users lose stored keys without migration), Tauri bundle ID/app name (tauri.conf.json), HRC- license prefix (tied to Stripe), proxy CORS/domain refs.
+**Workaround:** Continue using "HR Command Center" internally until website establishes final branding.
+**Resolution:** Dedicated rebrand session after peoplepartner.io website is live. Website work first to inform: final product name casing, logo, domain config, Stripe product rename. Then do app rebrand as single coordinated pass including Keychain migration logic.
+
 ### [PHASE-5.2] Trial mode never exits when API key is present
 **Status:** Resolved  
 **Severity:** High  

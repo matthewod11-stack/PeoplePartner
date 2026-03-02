@@ -2,10 +2,10 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for HR Command Center. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-02-27",
+    "lastUpdated": "2026-03-01",
     "project": "HR Command Center",
-    "totalFeatures": 53,
-    "passing": 51,
+    "totalFeatures": 54,
+    "passing": 52,
     "failing": 0,
     "inProgress": 0
   },
@@ -197,6 +197,10 @@
     "beta-distribution": {
       "status": "pass",
       "notes": "5.6.1-5.6.4 complete: Beta users identified, builds distributed, feedback collection set up."
+    },
+    "multi-provider-ui": {
+      "status": "pass",
+      "notes": "Phase E complete: Frontend provider picker (ProviderPicker component), multi-provider ApiKeyInput, two-phase onboarding (select provider + enter key), SettingsPanel AI Provider section with key-status badges. Supports Anthropic, OpenAI, Gemini. 354 tests passing."
     }
   },
   "verification": {

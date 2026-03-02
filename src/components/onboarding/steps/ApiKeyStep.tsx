@@ -1,9 +1,12 @@
-// HR Command Center - API Key Step (Step 2)
-// Enhanced with beginner-friendly guide for non-technical HR users
+// HR Command Center - AI Provider Setup Step (Step 2)
+// Two-phase flow: 1) Pick provider, 2) Enter API key with provider-specific guide
 
 import { useEffect, useState } from 'react';
 import { ApiKeyInput } from '../../settings/ApiKeyInput';
-import { hasApiKey } from '../../../lib/tauri-commands';
+import { ProviderPicker } from '../../settings/ProviderPicker';
+import { getActiveProvider, setActiveProvider, hasAnyProviderApiKey } from '../../../lib/tauri-commands';
+import { PROVIDER_META } from '../../../lib/provider-config';
+import { useTrial } from '../../../contexts/TrialContext';
 
 interface ApiKeyStepProps {
   onComplete: () => void;
@@ -81,17 +84,27 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
 }
 
 export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
+  const { isTrialMode } = useTrial();
+  const [phase, setPhase] = useState<'select' | 'configure'>('select');
+  const [selectedProvider, setSelectedProvider] = useState('anthropic');
   const [hasKey, setHasKey] = useState(false);
   const [showWhatIs, setShowWhatIs] = useState(false);
-  const [showSteps, setShowSteps] = useState(true); // Open by default for new users
+  const [showSteps, setShowSteps] = useState(true);
   const [showTroubleshooting, setShowTroubleshooting] = useState(false);
 
-  // Check if key already exists on mount
+  const meta = PROVIDER_META[selectedProvider];
+
+  // Load active provider and check if key exists on mount
   useEffect(() => {
-    hasApiKey().then((exists) => {
+    getActiveProvider().then((id) => {
+      setSelectedProvider(id);
+    }).catch(() => {
+      // Default to anthropic
+    });
+
+    hasAnyProviderApiKey().then((exists) => {
       setHasKey(exists);
       onValidChange(exists);
-      // If user already has a key, collapse the steps guide
       if (exists) {
         setShowSteps(false);
       }
@@ -100,15 +113,71 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
     });
   }, [onValidChange]);
 
+  const handleProviderSelect = (id: string) => {
+    setSelectedProvider(id);
+  };
+
+  const handleContinueToConfig = async () => {
+    // Persist the provider choice
+    try {
+      await setActiveProvider(selectedProvider);
+    } catch {
+      // Non-fatal — provider will default to anthropic
+    }
+    setPhase('configure');
+  };
+
   const handleSave = () => {
     setHasKey(true);
     onValidChange(true);
-    // Auto-advance to next step
     onComplete();
   };
 
+  // Phase 1: Provider selection
+  if (phase === 'select') {
+    return (
+      <div className="w-full overflow-y-auto max-h-[calc(100vh-320px)]">
+        {isTrialMode && (
+          <div className="mb-4 p-3 bg-stone-50 rounded-lg border border-stone-200">
+            <p className="text-xs text-stone-600">
+              Trial uses Claude (Anthropic). Choose your preferred provider for when you upgrade to paid mode.
+            </p>
+          </div>
+        )}
+
+        <ProviderPicker
+          selectedId={selectedProvider}
+          onSelect={handleProviderSelect}
+        />
+
+        <div className="mt-6 flex justify-center">
+          <button
+            type="button"
+            onClick={handleContinueToConfig}
+            className="px-6 py-3 bg-primary-500 hover:bg-primary-600 text-white font-medium rounded-xl transition-all duration-200 shadow-sm hover:shadow-md"
+          >
+            Continue
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Phase 2: API key entry with provider-specific guide
   return (
     <div className="w-full overflow-y-auto max-h-[calc(100vh-320px)]">
+      {/* Change provider link */}
+      <button
+        type="button"
+        onClick={() => setPhase('select')}
+        className="mb-4 flex items-center gap-1 text-sm text-primary-600 hover:text-primary-700 transition-colors"
+      >
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+        Change provider
+      </button>
+
       {/* What is an API key? - Collapsible explainer */}
       <CollapsibleSection
         title="What is an API key?"
@@ -118,21 +187,21 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
         <div className="bg-stone-50 rounded-xl p-4 text-sm text-stone-600 leading-relaxed">
           <p className="mb-3">
             An API key is like a <strong className="text-stone-800">password</strong> that lets
-            HR Command Center talk to Claude, the AI assistant.
+            HR Command Center talk to {meta?.displayName ?? 'your AI provider'}.
           </p>
           <p className="mb-3">
             Think of it like a library card — it identifies you and lets you access the service.
           </p>
           <p>
             Your key is stored <strong className="text-stone-800">securely on your Mac</strong> and
-            is only sent to Anthropic (Claude's creator) when you ask questions.
+            is only sent to {meta?.displayName ?? 'the provider'} when you ask questions.
           </p>
         </div>
       </CollapsibleSection>
 
-      {/* Step-by-step guide - Open by default for new users */}
+      {/* Step-by-step guide */}
       <CollapsibleSection
-        title="Setting up your API key"
+        title={`Setting up your ${meta?.displayName ?? ''} API key`}
         isOpen={showSteps}
         onToggle={() => setShowSteps(!showSteps)}
       >
@@ -143,18 +212,17 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
                 1
               </span>
               <div>
-                <p className="font-medium text-stone-800">Create an Anthropic account</p>
+                <p className="font-medium text-stone-800">Create an account</p>
                 <p className="mt-1">
-                  Visit{' '}
+                  {meta?.setupSteps.signup}{' '}
                   <a
-                    href="https://console.anthropic.com"
+                    href={meta?.consoleUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary-600 hover:text-primary-700 underline"
                   >
-                    console.anthropic.com
+                    Open {meta?.displayName} Console
                   </a>
-                  {' '}and sign up (or sign in if you have an account).
                 </p>
               </div>
             </li>
@@ -163,12 +231,9 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
                 2
               </span>
               <div>
-                <p className="font-medium text-stone-800">Add billing information</p>
+                <p className="font-medium text-stone-800">Set up billing</p>
                 <p className="mt-1">
-                  Go to <strong>Settings → Billing</strong> and add a payment method.
-                  <span className="block mt-1 text-stone-500">
-                    Don't worry — you only pay for what you use.
-                  </span>
+                  {meta?.setupSteps.billing}
                 </p>
               </div>
             </li>
@@ -179,16 +244,15 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
               <div>
                 <p className="font-medium text-stone-800">Create your API key</p>
                 <p className="mt-1">
-                  Go to{' '}
+                  {meta?.setupSteps.createKey}{' '}
                   <a
-                    href="https://console.anthropic.com/settings/keys"
+                    href={meta?.keysUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary-600 hover:text-primary-700 underline"
                   >
-                    Settings → API Keys
+                    Go to API Keys
                   </a>
-                  , click <strong>"Create Key"</strong>, and give it a name like "HR Command Center".
                 </p>
                 <p className="mt-1 text-amber-600 font-medium">
                   Copy the key immediately — it won't be shown again!
@@ -213,12 +277,13 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
       {/* API Key Input */}
       <div className="my-6">
         <ApiKeyInput
+          providerId={selectedProvider}
           onSave={handleSave}
           compact={false}
         />
       </div>
 
-      {/* Cost information - Reassuring, not alarming */}
+      {/* Cost information */}
       <div className="mb-6 p-3 bg-stone-50 rounded-lg border border-stone-100">
         <div className="flex items-start gap-2">
           <svg className="w-4 h-4 mt-0.5 text-stone-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -247,20 +312,20 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
       >
         <div className="bg-stone-50 rounded-xl p-4">
           <FAQItem
-            question="My key doesn't start with sk-ant-"
-            answer="Anthropic API keys always start with 'sk-ant-'. If yours starts with just 'sk-', that's an OpenAI key — you need one from Anthropic instead."
+            question={`My key doesn't start with ${meta?.keyPrefixHint ?? 'the expected prefix'}`}
+            answer={`${meta?.displayName ?? 'This provider'}'s API keys start with "${meta?.keyPrefixHint ?? ''}". If yours starts with a different prefix, make sure you're copying a key from the right provider.`}
           />
           <FAQItem
             question="I copied the key but it says invalid"
-            answer="API keys are only shown once when created. If you didn't copy the full key, you'll need to create a new one in the Anthropic console. Make sure to copy it completely!"
+            answer="API keys are only shown once when created. If you didn't copy the full key, you'll need to create a new one. Make sure to copy it completely!"
           />
           <FAQItem
             question="I need to add billing first"
-            answer="Before creating an API key, you need to add a payment method. Go to Settings → Billing in the Anthropic console and add a credit card. You won't be charged until you actually use the service."
+            answer="Before creating an API key, you may need to add a payment method. Check the provider's billing settings and add a credit card if required."
           />
           <FAQItem
             question="The key saved but chat doesn't work"
-            answer="First, check your internet connection. If that's fine, verify that your Anthropic account has billing set up and isn't over any spending limits. You can also try removing and re-adding the key."
+            answer="First, check your internet connection. If that's fine, verify that your account has billing set up and isn't over any spending limits. You can also try removing and re-adding the key."
           />
         </div>
       </CollapsibleSection>

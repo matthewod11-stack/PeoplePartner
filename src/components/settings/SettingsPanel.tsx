@@ -9,15 +9,20 @@ import { useState, useEffect, useCallback } from 'react';
 import { Modal } from '../shared/Modal';
 import { Button } from '../ui/Button';
 import { ApiKeyInput } from './ApiKeyInput';
+import { ProviderPicker } from './ProviderPicker';
 import { CompanySetup } from '../company/CompanySetup';
 import { BackupRestore } from './BackupRestore';
 import { PersonaSelector } from './PersonaSelector';
 import { SignalsDisclaimerModal } from './SignalsDisclaimerModal';
 import { FairnessDisclaimerModal } from './FairnessDisclaimerModal';
 import { LicenseKeyInput } from './LicenseKeyInput';
-import { getDataPath, getSetting, setSetting } from '../../lib/tauri-commands';
+import {
+  getDataPath, getSetting, setSetting,
+  getActiveProvider, setActiveProvider, hasProviderApiKey,
+} from '../../lib/tauri-commands';
 import { useTrial } from '../../contexts/TrialContext';
 import { UPGRADE_URL } from '../../lib/constants';
+import { PROVIDER_ORDER } from '../../lib/provider-config';
 
 interface SettingsPanelProps {
   /** Whether the panel is open */
@@ -42,6 +47,10 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [fairnessLensEnabled, setFairnessLensEnabled] = useState(false);
   const [fairnessLensAcknowledged, setFairnessLensAcknowledged] = useState(false);
   const [showFairnessDisclaimer, setShowFairnessDisclaimer] = useState(false);
+
+  // Phase E: AI Provider state
+  const [activeProviderState, setActiveProviderState] = useState('anthropic');
+  const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, boolean>>({});
 
   // Load settings on mount
   useEffect(() => {
@@ -71,8 +80,37 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
       getSetting('fairness_lens_acknowledged')
         .then((value) => setFairnessLensAcknowledged(value === 'true'))
         .catch(() => setFairnessLensAcknowledged(false));
+
+      // Phase E: Load active provider and key status
+      getActiveProvider()
+        .then(setActiveProviderState)
+        .catch(() => setActiveProviderState('anthropic'));
+
+      loadProviderKeyStatus();
     }
   }, [isOpen]);
+
+  const loadProviderKeyStatus = useCallback(async () => {
+    const status: Record<string, boolean> = {};
+    for (const id of PROVIDER_ORDER) {
+      try {
+        status[id] = await hasProviderApiKey(id);
+      } catch {
+        status[id] = false;
+      }
+    }
+    setProviderKeyStatus(status);
+  }, []);
+
+  const handleProviderChange = useCallback(async (providerId: string) => {
+    const previousId = activeProviderState;
+    setActiveProviderState(providerId);
+    try {
+      await setActiveProvider(providerId);
+    } catch {
+      setActiveProviderState(previousId);
+    }
+  }, [activeProviderState]);
 
   const handleCopyPath = useCallback(async () => {
     try {
@@ -234,7 +272,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
                       <p className="text-sm font-medium text-amber-800">License Active, API Key Needed</p>
                       <p className="text-xs text-amber-700 mt-0.5">
-                        Add your Anthropic API key below to start using paid mode.
+                        Choose an AI provider and add your API key below to start using paid mode.
                       </p>
                     </div>
                   )}
@@ -243,12 +281,25 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             </div>
           </section>
 
-          {/* API Connection Section */}
+          {/* AI Provider Section */}
           <section>
             <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">
-              API Connection
+              AI Provider
             </h3>
-            <ApiKeyInput compact onSave={refreshTrialStatus} onDelete={refreshTrialStatus} />
+            <div className="space-y-3">
+              <ProviderPicker
+                selectedId={activeProviderState}
+                onSelect={handleProviderChange}
+                keyStatus={providerKeyStatus}
+                compact
+              />
+              <ApiKeyInput
+                providerId={activeProviderState}
+                compact
+                onSave={() => { refreshTrialStatus(); loadProviderKeyStatus(); }}
+                onDelete={() => { refreshTrialStatus(); loadProviderKeyStatus(); }}
+              />
+            </div>
           </section>
 
           {/* Company Profile Section */}

@@ -12,7 +12,7 @@ import {
 import {
   getSetting,
   setSetting,
-  hasApiKey,
+  hasAnyProviderApiKey,
   hasCompany,
 } from '../../lib/tauri-commands';
 
@@ -33,7 +33,7 @@ export interface StepInfo {
 /** All onboarding steps with metadata */
 export const ONBOARDING_STEPS: StepInfo[] = [
   { number: 1, name: 'Welcome', required: false },
-  { number: 2, name: 'API Key', required: true },
+  { number: 2, name: 'AI Provider', required: true },
   { number: 3, name: 'Company', required: true },
   { number: 4, name: 'Employees', required: false },
   { number: 5, name: 'Disclaimer', required: true },
@@ -124,8 +124,8 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
         // Verify required steps that may have been completed externally
         const completed_steps = new Set<OnboardingStep>();
 
-        // Step 2: API Key - check if already configured
-        const hasKey = await hasApiKey();
+        // Step 2: AI Provider - check if any provider has a key configured
+        const hasKey = await hasAnyProviderApiKey();
         if (hasKey) {
           completed_steps.add(2);
         }

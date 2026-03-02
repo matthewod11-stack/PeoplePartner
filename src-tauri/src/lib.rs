@@ -133,6 +133,30 @@ fn store_provider_api_key(
         .map_err(|e| e.to_string())
 }
 
+/// Check if an API key exists for a specific provider
+#[tauri::command]
+fn has_provider_api_key(provider_id: String) -> Result<bool, String> {
+    providers::get_provider(&provider_id)
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?;
+    Ok(keyring::has_provider_api_key(&provider_id))
+}
+
+/// Delete the API key for a specific provider from Keychain
+#[tauri::command]
+fn delete_provider_api_key(provider_id: String) -> Result<(), String> {
+    providers::get_provider(&provider_id)
+        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?;
+    keyring::delete_provider_api_key(&provider_id).map_err(|e| e.to_string())
+}
+
+/// Check if ANY provider has an API key stored (for onboarding completion)
+#[tauri::command]
+fn has_any_provider_api_key() -> bool {
+    ["anthropic", "openai", "gemini"]
+        .iter()
+        .any(|id| keyring::has_provider_api_key(id))
+}
+
 /// Result of remote license key validation.
 #[derive(Debug)]
 enum LicenseValidationResult {
@@ -1721,6 +1745,9 @@ pub fn run() {
             list_providers,
             validate_provider_api_key_format,
             store_provider_api_key,
+            has_provider_api_key,
+            delete_provider_api_key,
+            has_any_provider_api_key,
             store_license_key,
             has_license_key,
             delete_license_key,
