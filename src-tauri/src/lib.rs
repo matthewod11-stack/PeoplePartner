@@ -1616,24 +1616,32 @@ async fn check_employee_limit(
 #[tauri::command]
 async fn set_document_folder(
     state: tauri::State<'_, Database>,
+    watcher: tauri::State<'_, documents::WatcherState>,
     path: String,
 ) -> Result<documents::DocumentFolderStats, String> {
     let pool = &state.pool;
     documents::set_document_folder(pool, &path)
         .await
         .map_err(|e| e.to_string())?;
-    documents::scan_folder(pool)
+    let stats = documents::scan_folder(pool)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // Restart watcher for the new folder
+    watcher.start(pool.clone());
+    Ok(stats)
 }
 
 #[tauri::command]
 async fn remove_document_folder(
     state: tauri::State<'_, Database>,
+    watcher: tauri::State<'_, documents::WatcherState>,
 ) -> Result<(), String> {
     documents::remove_document_folder(&state.pool)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    // Stop watcher — no folder to watch
+    watcher.stop();
+    Ok(())
 }
 
 #[tauri::command]
@@ -1972,7 +1980,8 @@ pub fn run() {
                 match db::init_db(&handle).await {
                     Ok(pool) => {
                         // Start document folder watcher (V3.0)
-                        documents::start_watcher(pool.clone());
+                        let watcher_state = documents::start_watcher(pool.clone());
+                        handle.manage(watcher_state);
 
                         // Store database pool in app state
                         handle.manage(Database::new(pool));

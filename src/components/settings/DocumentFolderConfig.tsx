@@ -8,11 +8,7 @@ import {
 } from '../../lib/tauri-commands';
 import type { DocumentFolderStats } from '../../lib/types';
 
-interface DocumentFolderConfigProps {
-  compact?: boolean;
-}
-
-export function DocumentFolderConfig({ compact: _compact = false }: DocumentFolderConfigProps) {
+export function DocumentFolderConfig() {
   const [stats, setStats] = useState<DocumentFolderStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);

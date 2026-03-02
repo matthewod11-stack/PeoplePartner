@@ -23,7 +23,7 @@ serde_json = "1"
 
 # Database
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
 # Utilities
 uuid = { version = "1", features = ["v4", "serde"] }

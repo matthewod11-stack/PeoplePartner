@@ -20,6 +20,47 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-03-02 (V3.0 Document Ingestion — Assessment Remediation)
+
+**Phase:** V3.0 Bug Fixes
+**Focus:** Remediate 2 critical and 6 medium findings from code review of V3.0 Document Ingestion (Tasks 1-13)
+
+### Completed
+- [x] **Task 1:** Migration 008 — UNIQUE constraint on `document_chunks(document_id, chunk_index)` to prevent concurrent scan corruption
+- [x] **Task 2 (CRITICAL 1):** Inactive folder data cleanup — `set_document_folder()` now DELETEs old folders (CASCADE removes docs+chunks); `remove_document_folder()` cleans orphans; `search_documents()` JOINs on `active=1` as defense-in-depth
+- [x] **Task 3 (CRITICAL 2):** Scan mutex (`OnceLock<TokioMutex>`) serializes watcher + manual scan; `index_file()` wraps chunk writes in SQLx transaction; sticky error fix (hash-match now checks `error IS NULL AND chunk_count > 0`)
+- [x] **Task 4 (MEDIUM 1):** WatcherState lifecycle — `AtomicBool` stop signal, `start()`/`stop()` methods, managed in Tauri state, wired into set/remove folder commands
+- [x] **Task 5 (MEDIUM 2+3):** Chunking hardening — `hard_split_chunk()` for oversized single paragraphs (sentence → newline → space → hard char boundaries); token budget `break` → `continue` + header overhead in size estimate
+- [x] **Task 6 (MEDIUM 6):** File-system edge handling — `walk_dir()` catches per-entry errors gracefully, skips symlinks, skips files >50MB, catches unreadable directories
+- [x] **Task 7:** Nit cleanups — removed dead `DocumentStats` struct, removed unused `compact` prop from `DocumentFolderConfig` + `SettingsPanel`
+- [x] **Task 8:** 4 new unit tests — `hard_split_chunk_at_sentence`, `hard_split_chunk_no_boundaries`, `walk_dir_skips_symlinks`, `split_oversized_single_paragraph`
+
+### Verification
+- [x] `npx tsc --noEmit` — clean
+- [x] `npm run build` — successful
+- [x] `cargo test` — 371 passed, 0 failed, 1 ignored (367 baseline + 4 new)
+- [x] `cargo test documents` — 17 passed (13 existing + 4 new)
+
+### Files Modified/Created
+| File | Change |
+|------|--------|
+| `src-tauri/migrations/008_document_chunks_unique.sql` | **NEW** — UNIQUE index |
+| `src-tauri/src/db.rs` | Registered migration 008 |
+| `src-tauri/src/documents.rs` | All 8 findings + 4 new tests |
+| `src-tauri/src/lib.rs` | WatcherState in Tauri state, command signatures |
+| `src-tauri/Cargo.toml` | `sync` added to tokio features |
+| `src/components/settings/DocumentFolderConfig.tsx` | Removed `compact` prop |
+| `src/components/settings/SettingsPanel.tsx` | Removed `compact` usage |
+
+### Next Session Should
+1. Run `cargo tauri dev` for manual E2E testing of document ingestion flow
+2. Test folder switching: choose folder A → scan → switch to folder B → verify A's data is gone from search
+3. Test concurrent scan: trigger rescan while watcher is running (modify a file during manual scan)
+4. Test error recovery: corrupt a file → scan → fix the file → rescan → verify it re-indexes
+5. Consider remaining out-of-scope items: integration tests with temp SQLite, watcher progress events
+
+---
+
 ## Session: 2026-03-02 (V3.0 Document Ingestion — Implementation Tasks 1-13)
 
 **Phase:** V3.0 Feature Implementation
@@ -367,48 +408,6 @@ Most recent session should be first.
 2. If proxy chat works, test the full upgrade flow: purchase → license email → license entry → paid mode
 3. Consider a test purchase + immediate refund to verify live Stripe webhook
 4. After E2E passes, prep first release build
-
----
-
-## Session: 2026-02-26 (Pre-Launch Deployment Checklist — Tasks 1-6)
-
-**Phase:** 5.5 (Pre-Launch Deployment)
-**Focus:** Provision infrastructure, configure secrets, deploy proxy — all pre-launch config tasks before E2E verification
-
-### Completed
-- [x] **Task 1:** Provisioned Vercel Postgres for website entitlement tables
-- [x] **Task 2:** Ran `001_entitlements.sql` migration — `licenses`, `license_activations`, `stripe_webhook_events` tables live
-- [x] **Task 3:** Switched Stripe to live mode — new product/price, live API keys, live webhook endpoint, Vercel env vars updated, redeployed
-- [x] **Task 4:** Deployed Cloudflare Workers proxy — KV namespace created, `CLAUDE_API_KEY` secret set, deployed to `https://hrcommand-proxy.hrcommand.workers.dev`
-- [x] **Task 5:** Configured auto-updater — signing keypair generated, pubkey + GitHub releases endpoint in `tauri.conf.json`, private key stored as GitHub Actions secret
-- [x] **Task 6:** Wired `TRIAL_SIGNING_SECRET` — generated shared HMAC secret, set on Cloudflare Worker and as GitHub Actions secret, added `option_env!` build-time lookup in `trial.rs`
-- [x] Fixed default proxy URL: `hrcommand-proxy.workers.dev` → `hrcommand-proxy.hrcommand.workers.dev`
-- [x] Added proxy URL to CSP `connect-src` in `tauri.conf.json`
-- [x] Linked website repo to Vercel CLI (`vercel link`)
-
-### Code Changes (Desktop Repo)
-- `src-tauri/src/trial.rs` — Updated `DEFAULT_PROXY_URL` to actual deployed URL, added `option_env!("HRCOMMAND_PROXY_SIGNING_SECRET")` build-time lookup
-- `src-tauri/tauri.conf.json` — Set updater pubkey, GitHub releases endpoint, added proxy to CSP `connect-src`
-- `proxy/wrangler.toml` — Set real KV namespace IDs
-
-### Verification
-- [x] `cargo test` — 317 passed, 0 failed, 1 ignored
-- [x] `cargo check` — clean (47 pre-existing warnings)
-- [x] TypeScript — 3 pre-existing type errors (missing runtime-only declarations)
-
-### Infrastructure Provisioned
-| Service | Detail |
-|---------|--------|
-| Vercel Postgres | `hrcommand-entitlements` DB with 3 tables |
-| Stripe (live) | Product, price, webhook, 4 env vars on Vercel |
-| Cloudflare Worker | `hrcommand-proxy.hrcommand.workers.dev` with KV + 2 secrets |
-| GitHub Secrets | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, `HRCOMMAND_PROXY_SIGNING_SECRET` |
-
-### Next Session Should
-1. Execute Task 7: E2E verification — `cargo tauri dev`, test trial proxy chat, upgrade flow, license activation, seat limits, offline mode
-2. If proxy chat fails, debug CORS / CSP / origin issues between Tauri and the Worker
-3. Consider a test purchase + immediate refund to verify live Stripe webhook flow end-to-end
-4. After E2E passes, commit final changes and prep for first release build
 
 ---
 

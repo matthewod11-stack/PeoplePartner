@@ -316,7 +316,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
             <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">
               Documents
             </h3>
-            <DocumentFolderConfig compact />
+            <DocumentFolderConfig />
           </section>
 
           {/* AI Assistant Style Section (V2.1.3) */}

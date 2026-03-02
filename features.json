@@ -206,7 +206,7 @@
   "phase-v3": {
     "document-ingestion": {
       "status": "in-progress",
-      "notes": "V3.0 Tasks 1-13 of 15 complete: 007_documents.sql migration (3 tables + FTS5), documents.rs (~600 LOC, 13 tests), context.rs integration (RELEVANT DOCUMENTS section + citations), 5 Tauri commands, TypeScript wrappers, DocumentFolderConfig.tsx, FSEvents watcher, dialog plugin. 367 Rust tests passing. Remaining: Task 14 (formal integration verification) + Task 15 (tracking files)."
+      "notes": "V3.0 Tasks 1-13 complete + assessment remediation done: 2 critical fixes (stale folder data, concurrent scan corruption), 6 medium fixes (watcher lifecycle, chunking hardening, token budget, sticky errors, FS edge handling, dead code). Migration 008 (UNIQUE constraint), scan mutex, transaction safety, WatcherState lifecycle. 371 Rust tests passing (17 document tests). Remaining: E2E manual testing."
     }
   },
   "verification": {

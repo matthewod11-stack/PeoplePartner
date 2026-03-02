@@ -7,10 +7,18 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::FromRow;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use thiserror::Error;
+use tokio::sync::Mutex as TokioMutex;
 
 use crate::db::DbPool;
 use crate::pii;
+
+/// Global scan mutex — prevents concurrent watcher + manual scan from corrupting the chunk index
+fn scan_lock() -> &'static TokioMutex<()> {
+    static LOCK: OnceLock<TokioMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| TokioMutex::new(()))
+}
 
 // ============================================================================
 // Constants
@@ -33,6 +41,9 @@ const MAX_DOCUMENT_CONTEXT_CHARS: usize = MAX_DOCUMENT_CONTEXT_TOKENS * CHARS_PE
 
 /// Maximum chunks to include in context
 const MAX_CHUNKS_IN_CONTEXT: usize = 5;
+
+/// Maximum file size to index (50 MB)
+const MAX_FILE_SIZE: u64 = 50 * 1024 * 1024;
 
 // ============================================================================
 // Errors
@@ -109,16 +120,6 @@ pub struct DocumentFolderStats {
     pub last_scanned_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DocumentStats {
-    pub total_files: u32,
-    pub total_chunks: u32,
-    pub files_with_pii: u32,
-    pub files_with_errors: u32,
-    pub files_by_type: std::collections::HashMap<String, u32>,
-    pub last_scanned_at: Option<String>,
-}
-
 /// A parsed chunk before indexing (pre-PII-redaction)
 #[derive(Debug, Clone)]
 pub struct RawChunk {
@@ -140,8 +141,9 @@ pub async fn set_document_folder(pool: &DbPool, path: &str) -> Result<DocumentFo
 
     let path_str = path.to_string_lossy().to_string();
 
-    // Upsert: deactivate all existing folders, insert/activate this one
-    sqlx::query("UPDATE document_folders SET active = 0")
+    // Delete all other folders (CASCADE removes their docs + chunks from FTS)
+    sqlx::query("DELETE FROM document_folders WHERE path != ?1")
+        .bind(&path_str)
         .execute(pool)
         .await?;
 
@@ -172,6 +174,10 @@ pub async fn get_document_folder(pool: &DbPool) -> Result<Option<DocumentFolder>
 pub async fn remove_document_folder(pool: &DbPool) -> Result<(), DocumentError> {
     // CASCADE deletes handle documents and chunks
     sqlx::query("DELETE FROM document_folders WHERE active = 1")
+        .execute(pool)
+        .await?;
+    // Clean up any orphan inactive folders
+    sqlx::query("DELETE FROM document_folders WHERE active = 0")
         .execute(pool)
         .await?;
     Ok(())
@@ -229,16 +235,47 @@ fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), DocumentError> {
     if !dir.is_dir() {
         return Ok(());
     }
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("[Documents] Cannot read directory {}: {}", dir.display(), e);
+            return Ok(()); // Skip inaccessible directories gracefully
+        }
+    };
+    for entry_result in entries {
+        let entry = match entry_result {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("[Documents] Skipping unreadable entry in {}: {}", dir.display(), e);
+                continue;
+            }
+        };
         let path = entry.path();
-        if path.is_dir() {
+        let metadata = match entry.metadata() {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("[Documents] Cannot read metadata for {}: {}", path.display(), e);
+                continue;
+            }
+        };
+
+        // Skip symlinks
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+
+        if metadata.is_dir() {
             // Skip hidden directories
             if path.file_name().map_or(false, |n| n.to_string_lossy().starts_with('.')) {
                 continue;
             }
             walk_dir(&path, files)?;
         } else if is_supported_file(&path) {
+            // Skip oversized files
+            if metadata.len() > MAX_FILE_SIZE {
+                eprintln!("[Documents] Skipping oversized file ({} bytes): {}", metadata.len(), path.display());
+                continue;
+            }
             files.push(path);
         }
     }
@@ -369,7 +406,37 @@ pub fn parse_csv(content: &str) -> Vec<RawChunk> {
     chunks
 }
 
-/// Split any chunk larger than MAX_CHUNK_CHARS at paragraph boundaries
+/// Hard-split a single chunk of text that has no paragraph breaks.
+/// Tries sentence boundaries (". ") → newlines → spaces → hard char limit.
+fn hard_split_chunk(content: &str) -> Vec<String> {
+    let mut pieces = Vec::new();
+    let mut remaining = content;
+
+    while remaining.len() > MAX_CHUNK_CHARS {
+        let window = &remaining[..MAX_CHUNK_CHARS];
+
+        // Try sentence boundary (". ")
+        let split_pos = window.rfind(". ").map(|p| p + 2)
+            // Try newline
+            .or_else(|| window.rfind('\n').map(|p| p + 1))
+            // Try space
+            .or_else(|| window.rfind(' ').map(|p| p + 1))
+            // Hard split at limit
+            .unwrap_or(MAX_CHUNK_CHARS);
+
+        pieces.push(remaining[..split_pos].trim().to_string());
+        remaining = &remaining[split_pos..];
+    }
+
+    if !remaining.trim().is_empty() {
+        pieces.push(remaining.trim().to_string());
+    }
+
+    pieces
+}
+
+/// Split any chunk larger than MAX_CHUNK_CHARS at paragraph boundaries,
+/// falling back to hard_split_chunk for single-paragraph content.
 fn split_oversized_chunks(chunks: Vec<RawChunk>) -> Vec<RawChunk> {
     let mut result = Vec::new();
     for chunk in chunks {
@@ -378,13 +445,32 @@ fn split_oversized_chunks(chunks: Vec<RawChunk>) -> Vec<RawChunk> {
         } else {
             // Split at paragraph boundaries within the oversized chunk
             let sub_chunks = parse_plaintext(&chunk.content);
-            for (i, mut sub) in sub_chunks.into_iter().enumerate() {
-                if i == 0 {
-                    sub.section_title = chunk.section_title.clone();
-                } else {
-                    sub.section_title = chunk.section_title.as_ref().map(|t| format!("{} (cont.)", t));
+
+            // If paragraph splitting didn't help (single paragraph), use hard split
+            let needs_hard_split = sub_chunks.iter().any(|c| c.content.len() > MAX_CHUNK_CHARS);
+
+            if needs_hard_split {
+                let pieces = hard_split_chunk(&chunk.content);
+                for (i, piece) in pieces.into_iter().enumerate() {
+                    let title = if i == 0 {
+                        chunk.section_title.clone()
+                    } else {
+                        chunk.section_title.as_ref().map(|t| format!("{} (cont.)", t))
+                    };
+                    result.push(RawChunk {
+                        section_title: title,
+                        content: piece,
+                    });
                 }
-                result.push(sub);
+            } else {
+                for (i, mut sub) in sub_chunks.into_iter().enumerate() {
+                    if i == 0 {
+                        sub.section_title = chunk.section_title.clone();
+                    } else {
+                        sub.section_title = chunk.section_title.as_ref().map(|t| format!("{} (cont.)", t));
+                    }
+                    result.push(sub);
+                }
             }
         }
     }
@@ -588,15 +674,13 @@ async fn index_file(
     .await?;
 
     if let Some(ref doc) = existing {
-        if doc.content_hash.as_deref() == Some(&content_hash) {
-            // File unchanged, skip re-indexing
+        // Skip ONLY when hash matches AND no prior error AND has chunks
+        if doc.content_hash.as_deref() == Some(&content_hash)
+            && doc.error.is_none()
+            && doc.chunk_count > 0
+        {
             return Ok(doc.clone());
         }
-        // File changed — delete old chunks (triggers handle FTS cleanup)
-        sqlx::query("DELETE FROM document_chunks WHERE document_id = ?1")
-            .bind(doc.id)
-            .execute(pool)
-            .await?;
     }
 
     // Parse the file
@@ -612,15 +696,23 @@ async fn index_file(
         }
     };
 
-    // PII scan + redact each chunk, then insert
+    // PII scan + redact each chunk, then insert — wrapped in a transaction
     let mut pii_detected = false;
     let mut chunk_count = 0;
 
-    // Get or create the document record first
+    // Get or create the document record first (outside transaction for the ID)
     let doc = upsert_document(
         pool, folder_id, &file_path_str, &file_name, &ext,
         file_size, &content_hash, 0, false, None,
     ).await?;
+
+    // Transaction: delete old chunks + insert new ones + update doc atomically
+    let mut tx = pool.begin().await?;
+
+    sqlx::query("DELETE FROM document_chunks WHERE document_id = ?1")
+        .bind(doc.id)
+        .execute(&mut *tx)
+        .await?;
 
     for (i, chunk) in chunks.iter().enumerate() {
         if chunk.content.trim().is_empty() {
@@ -637,7 +729,7 @@ async fn index_file(
         let char_count = redacted_content.len() as i64;
 
         sqlx::query(
-            "INSERT INTO document_chunks (document_id, chunk_index, section_title, content, char_count)
+            "INSERT OR REPLACE INTO document_chunks (document_id, chunk_index, section_title, content, char_count)
              VALUES (?1, ?2, ?3, ?4, ?5)"
         )
         .bind(doc.id)
@@ -645,7 +737,7 @@ async fn index_file(
         .bind(&chunk.section_title)
         .bind(&redacted_content)
         .bind(char_count)
-        .execute(pool)
+        .execute(&mut *tx)
         .await?;
 
         chunk_count += 1;
@@ -658,8 +750,10 @@ async fn index_file(
     .bind(chunk_count)
     .bind(pii_detected)
     .bind(doc.id)
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     // Return updated record
     let updated: Document = sqlx::query_as("SELECT * FROM documents WHERE id = ?1")
@@ -709,6 +803,8 @@ async fn upsert_document(
 
 /// Scan the active folder: discover files, index new/changed, remove deleted
 pub async fn scan_folder(pool: &DbPool) -> Result<DocumentFolderStats, DocumentError> {
+    let _guard = scan_lock().lock().await;
+
     let folder = get_document_folder(pool).await?.ok_or(DocumentError::NoFolder)?;
     let folder_path = PathBuf::from(&folder.path);
 
@@ -796,6 +892,7 @@ pub async fn search_documents(
          FROM document_chunks_fts fts
          JOIN document_chunks dc ON dc.id = fts.rowid
          JOIN documents d ON d.id = dc.document_id
+         JOIN document_folders df ON df.id = d.folder_id AND df.active = 1
          WHERE document_chunks_fts MATCH ?1
          ORDER BY rank
          LIMIT 10"
@@ -809,13 +906,16 @@ pub async fn search_documents(
     let mut total_chars = 0;
 
     for (file_name, section_title, content, rank) in rows {
-        if total_chars + content.len() > MAX_DOCUMENT_CONTEXT_CHARS {
-            break;
-        }
         if result.len() >= MAX_CHUNKS_IN_CONTEXT {
             break;
         }
-        total_chars += content.len();
+        // Account for header overhead: "[From: file_name — section_title]\n"
+        let section_len = section_title.as_ref().map_or(0, |s| s.len());
+        let chunk_size = content.len() + file_name.len() + section_len + 15;
+        if total_chars + chunk_size > MAX_DOCUMENT_CONTEXT_CHARS {
+            continue; // Skip this chunk, try smaller ones
+        }
+        total_chars += chunk_size;
         result.push(RetrievedChunk {
             file_name,
             section_title,
@@ -853,12 +953,50 @@ pub fn format_document_context(chunks: &[RetrievedChunk]) -> String {
 // ============================================================================
 
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
-/// Start watching the active document folder for changes.
-/// Runs in a background thread. Debounces events by 2 seconds.
-pub fn start_watcher(pool: DbPool) -> Option<std::thread::JoinHandle<()>> {
+/// Manages the lifecycle of the file-system watcher thread.
+/// Allows stopping/restarting when the watched folder changes.
+pub struct WatcherState {
+    handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+    stop_signal: Arc<AtomicBool>,
+}
+
+impl WatcherState {
+    pub fn new() -> Self {
+        Self {
+            handle: std::sync::Mutex::new(None),
+            stop_signal: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Stop the current watcher thread (if running)
+    pub fn stop(&self) {
+        self.stop_signal.store(true, Ordering::SeqCst);
+        if let Ok(mut guard) = self.handle.lock() {
+            if let Some(h) = guard.take() {
+                let _ = h.join();
+            }
+        }
+    }
+
+    /// Stop any existing watcher, then start a new one for the active folder
+    pub fn start(&self, pool: DbPool) {
+        self.stop();
+        // Reset stop signal for the new thread
+        self.stop_signal.store(false, Ordering::SeqCst);
+
+        if let Ok(mut guard) = self.handle.lock() {
+            let stop = self.stop_signal.clone();
+            *guard = start_watcher_inner(pool, stop);
+        }
+    }
+}
+
+/// Internal watcher loop that respects a stop signal
+fn start_watcher_inner(pool: DbPool, stop_signal: Arc<AtomicBool>) -> Option<std::thread::JoinHandle<()>> {
     // We need a tokio runtime handle for async DB operations
     let rt = match tokio::runtime::Handle::try_current() {
         Ok(h) => h,
@@ -894,10 +1032,22 @@ pub fn start_watcher(pool: DbPool) -> Option<std::thread::JoinHandle<()>> {
 
         // Debounce: wait for 2 seconds of quiet before scanning
         loop {
+            if stop_signal.load(Ordering::SeqCst) {
+                println!("[Documents] Watcher stop signal received");
+                break;
+            }
+
             match rx.recv_timeout(Duration::from_secs(2)) {
                 Ok(Ok(_event)) => {
                     // Got an event — keep draining for 2 seconds
-                    while rx.recv_timeout(Duration::from_secs(2)).is_ok() {}
+                    while rx.recv_timeout(Duration::from_secs(2)).is_ok() {
+                        if stop_signal.load(Ordering::SeqCst) {
+                            return;
+                        }
+                    }
+                    if stop_signal.load(Ordering::SeqCst) {
+                        break;
+                    }
                     // Debounce period passed — scan
                     println!("[Documents] Changes detected, re-scanning...");
                     let pool_clone = pool.clone();
@@ -922,6 +1072,14 @@ pub fn start_watcher(pool: DbPool) -> Option<std::thread::JoinHandle<()>> {
     });
 
     Some(handle)
+}
+
+/// Start watching the active document folder for changes.
+/// Returns a WatcherState that can be used to stop/restart the watcher.
+pub fn start_watcher(pool: DbPool) -> WatcherState {
+    let state = WatcherState::new();
+    state.start(pool);
+    state
 }
 
 // ============================================================================
@@ -1096,5 +1254,76 @@ mod tests {
     fn test_format_document_context_empty() {
         let formatted = format_document_context(&[]);
         assert!(formatted.is_empty());
+    }
+
+    #[test]
+    fn test_hard_split_chunk_at_sentence() {
+        // Build a long string with sentence boundaries
+        let sentence = "This is a test sentence with enough words to fill some space. ";
+        let repeat_count = (MAX_CHUNK_CHARS / sentence.len()) + 5;
+        let big = sentence.repeat(repeat_count);
+        assert!(big.len() > MAX_CHUNK_CHARS);
+
+        let pieces = hard_split_chunk(&big);
+        assert!(pieces.len() > 1, "Should split into multiple pieces");
+        for piece in &pieces {
+            assert!(piece.len() <= MAX_CHUNK_CHARS, "Each piece should fit within limit");
+        }
+        // Verify content is preserved (no data loss)
+        let rejoined: String = pieces.join(" ");
+        // The original sentences should all be present
+        assert!(rejoined.contains("This is a test sentence"));
+    }
+
+    #[test]
+    fn test_hard_split_chunk_no_boundaries() {
+        // A long string with no sentence boundaries, newlines, or spaces
+        let big = "x".repeat(MAX_CHUNK_CHARS * 2 + 100);
+        let pieces = hard_split_chunk(&big);
+        assert!(pieces.len() >= 2, "Should still split via hard char limit");
+        for piece in &pieces {
+            assert!(piece.len() <= MAX_CHUNK_CHARS, "Each piece must be within limit");
+        }
+    }
+
+    #[test]
+    fn test_walk_dir_skips_symlinks() {
+        let dir = TempDir::new().unwrap();
+        fs::write(dir.path().join("real.md"), "# Real file").unwrap();
+
+        // Create a symlink to a file
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                dir.path().join("real.md"),
+                dir.path().join("link.md"),
+            ).unwrap();
+        }
+
+        let files = discover_files(dir.path()).unwrap();
+        // Should only find real.md, not the symlink
+        assert_eq!(files.len(), 1);
+        assert!(files[0].file_name().unwrap().to_str().unwrap() == "real.md");
+    }
+
+    #[test]
+    fn test_split_oversized_single_paragraph() {
+        // A single oversized "paragraph" with no blank lines — only sentence boundaries
+        let sentence = "This is a sentence in a very long document without paragraph breaks. ";
+        let repeat_count = (MAX_CHUNK_CHARS / sentence.len()) + 5;
+        let big_content = sentence.repeat(repeat_count);
+        assert!(big_content.len() > MAX_CHUNK_CHARS);
+        assert!(!big_content.contains("\n\n")); // No paragraph breaks
+
+        let chunks = vec![RawChunk {
+            section_title: Some("Monolith".to_string()),
+            content: big_content,
+        }];
+        let result = split_oversized_chunks(chunks);
+        assert!(result.len() > 1, "Single paragraph should be hard-split");
+        assert_eq!(result[0].section_title.as_deref(), Some("Monolith"));
+        for chunk in &result {
+            assert!(chunk.content.len() <= MAX_CHUNK_CHARS, "All chunks must fit within limit");
+        }
     }
 }
