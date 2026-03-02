@@ -11,6 +11,7 @@
 > - [archive/PROGRESS_V2.4.5-V2.5.md](./archive/PROGRESS_V2.4.5-V2.5.md) (V2.3.2 - V2.4.2 / Jan 30-31 2026)
 > - [archive/PROGRESS_V2.5-PreLaunch.md](./archive/PROGRESS_V2.5-PreLaunch.md) (V2.5 / Pre-Launch / Feb 1-6 2026)
 > - [archive/PROGRESS_Phase5.1-V2.5.1.md](./archive/PROGRESS_Phase5.1-V2.5.1.md) (Phase 5.1 - V2.5.1 / Feb 6-7 2026)
+> - [archive/PROGRESS_LaunchHardening.md](./archive/PROGRESS_LaunchHardening.md) (Launch Hardening / Feb 25-26 2026)
 
 ---
 
@@ -18,6 +19,44 @@
 === ADD NEW SESSIONS AT THE TOP ===
 Most recent session should be first.
 -->
+
+## Session: 2026-03-02 (V3.0 Design — Document Ingestion + Phase E.4 Upgrade Wizard)
+
+**Phase:** V3.0 Feature Design + Launch Prep E.4
+**Focus:** Brainstorm and design document ingestion feature; finish upgrade flow wizard
+
+### Completed
+- [x] **Phase E.4 — Upgrade Flow Wizard:** Rewrote `UpgradePrompt.tsx` as 4-step wizard (purchase → license → provider → complete)
+- [x] **TrialContext fix:** Hard prompt dismissal after upgrade completes
+- [x] **V3.0 Brainstorming:** Full collaborative design session for document ingestion feature
+- [x] **Design decisions:** FTS5 retrieval, section-aware chunking, PII scan-and-redact, all file types (.md/.txt/.csv/.pdf/.docx/.xlsx), FSEvents auto-watch, settings-only UI, inline citations
+- [x] **Design doc:** Wrote and committed `docs/plans/2026-03-02-document-ingestion-design.md`
+- [x] **Implementation plan:** Wrote and committed `docs/plans/2026-03-02-document-ingestion-plan.md` (15 tasks)
+- [x] **Windmill research:** Analyzed gowindmill.com Slack integration approach for performance management inspiration
+
+### Verification
+- [x] `npx tsc --noEmit` — clean
+- [x] `npm run build` — successful
+- [x] `cargo test` — 354 passed, 0 failed, 1 ignored
+
+### Files Modified/Created
+| File | Change |
+|------|--------|
+| `src/components/trial/UpgradePrompt.tsx` | Full rewrite — 4-step upgrade wizard |
+| `src/contexts/TrialContext.tsx` | Hard prompt dismiss after upgrade |
+| `ROADMAP_LAUNCH_PREP.md` | Checked off E.4.1, E.4.2 |
+| `features.json` | Updated multi-provider-ui notes |
+| `docs/plans/2026-03-02-document-ingestion-design.md` | **NEW** — approved design doc |
+| `docs/plans/2026-03-02-document-ingestion-plan.md` | **NEW** — 15-task implementation plan |
+
+### Next Session Should
+1. Start implementing document ingestion using `docs/plans/2026-03-02-document-ingestion-plan.md`
+2. Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` skill to work through the 15 tasks
+3. Begin with Task 1 (DB migration) and Task 2 (Rust dependencies) — low complexity warm-up
+4. The plan has complete code for every task — follow it step by step
+5. Phase E remaining items (E.5.2 manual E2E, Phase F) can wait until after V3.0 doc ingestion ships
+
+---
 
 ## Session: 2026-03-02 (Launch Prep Phase E.4 — Upgrade Flow Wizard)
 
@@ -356,39 +395,6 @@ Most recent session should be first.
 2. Step 7 is blocked on: Vercel Postgres provisioning, Stripe CLI for webhook replay
 3. Remaining pre-launch: 5.5.5 Switch Stripe to live mode (5 tasks)
 4. Update `tauri.conf.json` placeholders (updater pubkey, GitHub endpoint)
-
----
-
-## Session: 2026-02-25 (Launch Hardening Audit & Corrected Plan)
-
-**Phase:** Pre-Launch
-**Focus:** Audit failed launch hardening plan execution, produce corrected plan
-
-### Completed
-- [x] Discovered original 9-step launch hardening plan used wrong desktop repo path (stale iCloud copy at `~/Library/Mobile Documents/.../HRCommand` instead of `~/Desktop/HRCommand`)
-- [x] Confirmed Steps 1-5, 8 (website) landed correctly in `/Users/mattod/Desktop/Misc/Archive/HR-Tools/hr-command-center`
-- [x] Confirmed Steps 6-7 (desktop entitlement) landed in stale iCloud repo — all uncommitted, architecturally incompatible with Phase 5 codebase
-- [x] Full file-by-file audit of Step 6-7 code vs current repo: 5 new files and 6 modified files analyzed
-- [x] Compatibility audit of website entitlement API (Steps 1-5) vs desktop proxy architecture — found 5 major misalignments
-- [x] Locked design decisions with user: message-count trials (keep), UUID v4 identity (keep), validate-once (keep), seat limits (enforce via validate-license)
-- [x] Wrote corrected 7-step launch hardening plan → `/Users/mattod/Desktop/LAUNCH-HARDENING-CORRECTED-PLAN.md`
-- [x] Cleaned up iCloud repo — discarded all uncommitted Step 6-7 changes (`git checkout .` + `git clean -fd`)
-
-### Key Findings
-- Website built time-based trial system (14 days, Postgres) — incompatible with desktop's message-count trials (50 msgs, proxy KV)
-- Website's `POST /api/entitlement/check` requires 64-char SHA-256 device hash — desktop sends 36-char UUID v4 — endpoint is unusable
-- Website's seat limit enforcement only goes through entitlement endpoint — validate-license skips device activation
-- License revocation (refund/dispute) happens server-side but desktop never re-validates — revoked licenses work forever
-- Proxy is completely disconnected from website's entitlement system
-
-### Issues Encountered
-- Pre-existing TS type errors (3): missing type declarations for `rehype-sanitize`, `@tauri-apps/plugin-updater`, `@tauri-apps/plugin-process`
-
-### Next Session Should
-1. Execute corrected plan from `~/Desktop/LAUNCH-HARDENING-CORRECTED-PLAN.md` — start with Step 1 (website: remove unused trial_devices infrastructure)
-2. Steps 1-3 are website-only; Steps 4-5 are desktop-only; Step 6 commits both
-3. Website repo has uncommitted Steps 1-5, 8 work — modify in place, do not redo
-4. Pre-existing TS type errors are not from this session — address separately or ignore
 
 ---
 
