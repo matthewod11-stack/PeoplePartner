@@ -200,7 +200,7 @@
     },
     "multi-provider-ui": {
       "status": "pass",
-      "notes": "Phase E complete: Frontend provider picker (ProviderPicker component), multi-provider ApiKeyInput, two-phase onboarding (select provider + enter key), SettingsPanel AI Provider section with key-status badges. Supports Anthropic, OpenAI, Gemini. 354 tests passing."
+      "notes": "Phase E complete: Frontend provider picker, multi-provider ApiKeyInput, two-phase onboarding, SettingsPanel AI Provider section. E.4 upgrade wizard: UpgradePrompt is now a 4-step flow (purchase → license → provider → complete) so users never leave the modal. Supports Anthropic, OpenAI, Gemini. 354 tests passing."
     }
   },
   "verification": {

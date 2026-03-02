@@ -116,12 +116,13 @@ export function TrialProvider({ children }: TrialProviderProps) {
   }, [refreshTrialStatus]);
 
   const dismissUpgradePrompt = useCallback(() => {
-    if (promptSeverity === 'soft') {
+    if (promptSeverity === 'soft' || !isTrialMode) {
+      // Soft prompts can always be dismissed.
+      // Hard prompts can be dismissed once the user has left trial mode (completed upgrade).
       setShowUpgradePrompt(false);
       sessionStorage.setItem(SOFT_PROMPT_DISMISSED_KEY, 'true');
     }
-    // Hard prompts cannot be dismissed
-  }, [promptSeverity]);
+  }, [promptSeverity, isTrialMode]);
 
   const triggerUpgradePrompt = useCallback((severity: UpgradePromptSeverity) => {
     setPromptSeverity(severity);

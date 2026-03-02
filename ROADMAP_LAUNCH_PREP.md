@@ -112,8 +112,8 @@
 - [x] E.3.2 Show which providers have keys stored (key-status badges)
 
 ### E.4 Upgrade Flow
-- [ ] E.4.1 Update UpgradePrompt → after license entry, route to ProviderPicker
-- [ ] E.4.2 Trial → upgrade → provider pick → key setup → full access
+- [x] E.4.1 Update UpgradePrompt → after license entry, route to ProviderPicker
+- [x] E.4.2 Trial → upgrade → provider pick → key setup → full access
 
 ### E.5 Verification
 - [x] E.5.1 `npx tsc --noEmit` and `npm run build` pass

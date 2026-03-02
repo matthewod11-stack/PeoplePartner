@@ -19,6 +19,40 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-03-02 (Launch Prep Phase E.4 — Upgrade Flow Wizard)
+
+**Phase:** Launch Prep Phase E.4
+**Focus:** Transform UpgradePrompt from simple external link into multi-step upgrade wizard
+
+### Completed
+- [x] **UpgradePrompt rewrite:** Converted single-view modal into 4-step wizard (purchase → license → provider → complete)
+- [x] **Step 1 (Purchase):** Kept existing pricing card + "Upgrade Now" button, added "I already have a license key" link
+- [x] **Step 2 (License):** Embedded `LicenseKeyInput` inline, auto-advances to provider step on save
+- [x] **Step 3 (Provider):** `ProviderPicker` + `ApiKeyInput` inline with step progress indicator
+- [x] **Step 4 (Complete):** Success confirmation with "Start Using HR Command Center" CTA
+- [x] **TrialContext fix:** Updated `dismissUpgradePrompt` to allow hard prompt dismissal once user leaves trial mode (completed upgrade)
+- [x] **Roadmap:** Checked off E.4.1 and E.4.2 in ROADMAP_LAUNCH_PREP.md
+
+### Verification
+- [x] `npx tsc --noEmit` — clean
+- [x] `npm run build` — successful
+- [x] `cargo test` — 354 passed, 0 failed, 1 ignored
+
+### Files Modified
+| File | Change |
+|------|--------|
+| `src/components/trial/UpgradePrompt.tsx` | Full rewrite — 4-step upgrade wizard |
+| `src/contexts/TrialContext.tsx` | Hard prompt dismiss when no longer in trial |
+| `ROADMAP_LAUNCH_PREP.md` | Checked off E.4.1, E.4.2 |
+
+### Next Session Should
+- Run `cargo tauri dev` for manual E2E testing of the full upgrade wizard flow
+- Test E.5.2: fresh install → trial → upgrade prompt → "I have a key" → license → provider → key → chat
+- Test hard prompt scenario (0 messages remaining → wizard is the only path forward)
+- Consider moving to Phase F (final integration + launch ready) if E2E looks good
+
+---
+
 ## Session: 2026-03-01 (Launch Prep Phase E — Frontend Provider Picker)
 
 **Phase:** Launch Prep Phase E
