@@ -20,6 +20,47 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-03-03 (Rebrand: HR Command Center → People Partner)
+
+**Phase:** Pre-Launch / Rebrand
+**Focus:** Full in-app rebrand from "HR Command Center" to "People Partner"
+
+### Completed
+- [x] **Config files** — tauri.conf.json (productName, identifier, title, CSP), Entitlements.plist, Cargo.toml (package + lib name), main.rs, package.json, capabilities/default.json
+- [x] **Rust backend (migration-sensitive)** — keyring.rs (Keychain service → com.peoplepartner.app, 5 fallback paths), lib.rs (license prefix HRC- → PP-, length 33→32, offset [4..]→[3..], validation URL → peoplepartner.io), trial.rs header
+- [x] **Frontend URLs & license UI** — constants.ts (3 URLs), LicenseKeyInput.tsx (placeholder, email, hints), UpgradePrompt.tsx
+- [x] **Frontend UI strings** — 8 onboarding/settings components updated
+- [x] **Code comments** — 73 module header comments across all .rs, .tsx, .ts files
+- [x] **Other code refs** — backup.rs (filename + extension), scripts (paths, messages), release.yml, provider-config.ts, run-extraction.ts
+- [x] **Documentation** — README, CLAUDE.md, ROADMAP, PROJECT_STATE, KNOWN_ISSUES (marked resolved), features.json, PROGRESS, SESSION_PROTOCOL
+- [x] **Generated files** — capabilities.json schema
+
+### Scope
+- 94 files changed, 140 insertions, 140 deletions
+- 4 parallel agents used (config-rust, frontend, comments, docs-other)
+- All migration-sensitive edits verified (license math: PP-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX = 32 chars)
+
+### Intentionally Unchanged
+- Proxy URL and env vars (redeployed separately)
+- Project directory name (filesystem rename is separate)
+- GitHub repo URL in updater config
+- Archive/historical docs
+- `.claude/` memory files
+
+### Verification
+- [x] `npx tsc --noEmit` — clean
+- [x] `cargo test` — 382 passed, 0 failed, 1 ignored
+- [x] `npm run build` — successful
+- [x] grep sweeps — no stale HRC-/hrcommandcenter/HR Command Center in active code
+
+### Next Session Should
+- Launch the rebranded app and do a visual walkthrough (title bar, onboarding, settings, license input)
+- Run `npm install` to regenerate package-lock.json with new name
+- Consider renaming project directory HRCommand → PeoplePartner if desired
+- Continue with Phase 5 launch tasks from ROADMAP.md
+
+---
+
 ## Session: 2026-03-03 (Demo Video Script + Streaming Markdown Fix)
 
 **Phase:** Pre-Launch / Marketing
