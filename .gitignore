@@ -50,3 +50,4 @@ coverage/
 
 # Generated test data (regenerate with npm run generate-test-data)
 scripts/generated/
+demo-frames/

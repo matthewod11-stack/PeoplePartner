@@ -195,11 +195,6 @@ export function MessageList({
                 role={message.role}
                 timestamp={message.timestamp}
                 verification={message.verification}
-                renderAsPlainText={
-                  isLoading &&
-                  index === messages.length - 1 &&
-                  message.role === 'assistant'
-                }
               />
             )}
           </div>

@@ -20,6 +20,39 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-03-03 (Demo Video Script + Streaming Markdown Fix)
+
+**Phase:** Pre-Launch / Marketing
+**Focus:** Demo video preparation and a streaming UI regression fix
+
+### Completed
+- [x] **Demo video script v1** — Full 75-second script with 6 scenes, voiceover text, screen-by-screen directions, and production notes (`demo-video-script.md`)
+- [x] **Streaming markdown fix** — Removed `renderAsPlainText` flag from streaming assistant messages in `MessageList.tsx:198-202`. Previously, the last assistant message rendered as plain text during streaming (showing raw `**bold**`, `- lists`), then snapped to formatted markdown when streaming completed. Now renders through ReactMarkdown from the first chunk.
+- [x] **Video frame extraction** — Extracted 152 frames (1 every 2s) from a 5:04 screen recording using ffmpeg into `demo-frames/`
+- [x] **Full video analysis** — Reviewed all key frames to catalog the complete recording timeline
+- [x] **Demo video script v2** — Revised script built from actual footage with exact source timestamps, clip sheet, social media cut suggestions (`demo-video-script-v2.md`)
+
+### Code Changes
+- `src/components/chat/MessageList.tsx` — Removed `renderAsPlainText` prop pass during streaming (lines 198-202 → simplified to just pass content/role/timestamp/verification)
+
+### Verification
+- [x] `npx tsc --noEmit` — clean
+- [x] `cargo test` — 373 passed, 0 failed, 1 ignored
+
+### Files Added
+- `demo-video-script.md` — Original scripted demo (ideal version with onboarding)
+- `demo-video-script-v2.md` — Footage-based script with exact timestamps and clip sheet
+- `demo-frames/` — 152 extracted video frames (gitignore candidate)
+
+### Next Session Should
+- Record final demo video cuts using the v2 script clip sheet
+- Consider re-recording "top performers" question as a clean single take (title bar still says "HR Command Center" — needs rebrand before final)
+- The `demo-frames/` directory is 19MB — add to `.gitignore` or delete after editing is complete
+- PII redaction scene was not captured in the recording — record separately if needed for the video
+- Cross-conversation memory scene was also not captured — record separately
+
+---
+
 ## Session: 2026-03-02 (V3.0 Document Ingestion — Medium/Low/Nit Follow-up)
 
 **Phase:** V3.0 Bug Fixes
