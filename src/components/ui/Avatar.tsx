@@ -2,7 +2,7 @@
  * Avatar Component
  *
  * Displays user initials in a circular container with size and color variants.
- * Follows the HR Command Center "Warm Editorial" design aesthetic.
+ * Follows the People Partner "Warm Editorial" design aesthetic.
  */
 
 import { getInitials } from './utils';

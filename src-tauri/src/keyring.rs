@@ -1,4 +1,4 @@
-// HR Command Center - Secure API Key Storage
+// People Partner - Secure API Key Storage
 // Stores API keys in the macOS Keychain (with legacy file migration)
 
 use std::fs;
@@ -12,7 +12,7 @@ use security_framework::passwords::{
 #[cfg(target_os = "macos")]
 use security_framework_sys::base::errSecItemNotFound;
 
-const KEYCHAIN_SERVICE: &str = "com.hrcommandcenter.app";
+const KEYCHAIN_SERVICE: &str = "com.peoplepartner.app";
 #[allow(dead_code)]
 const KEYCHAIN_ACCOUNT: &str = "anthropic_api_key";
 
@@ -48,7 +48,7 @@ fn get_legacy_key_path() -> Result<PathBuf, KeyringError> {
     let app_dir = PathBuf::from(home)
         .join("Library")
         .join("Application Support")
-        .join("com.hrcommandcenter.app");
+        .join("com.peoplepartner.app");
 
     // Ensure directory exists
     fs::create_dir_all(&app_dir)?;
@@ -90,7 +90,7 @@ pub fn store_provider_api_key(provider_id: &str, api_key: &str) -> Result<(), Ke
         let app_dir = PathBuf::from(home)
             .join("Library")
             .join("Application Support")
-            .join("com.hrcommandcenter.app");
+            .join("com.peoplepartner.app");
         fs::create_dir_all(&app_dir)?;
         let path = app_dir.join(format!(".{}", account));
         fs::write(&path, api_key)?;
@@ -139,7 +139,7 @@ pub fn get_provider_api_key(provider_id: &str) -> Result<String, KeyringError> {
         let path = PathBuf::from(home)
             .join("Library")
             .join("Application Support")
-            .join("com.hrcommandcenter.app")
+            .join("com.peoplepartner.app")
             .join(format!(".{}", account));
         let key = fs::read_to_string(&path)?;
         Ok(key.trim().to_string())
@@ -172,7 +172,7 @@ pub fn delete_provider_api_key(provider_id: &str) -> Result<(), KeyringError> {
         let path = PathBuf::from(home)
             .join("Library")
             .join("Application Support")
-            .join("com.hrcommandcenter.app")
+            .join("com.peoplepartner.app")
             .join(format!(".{}", account));
         if path.exists() {
             fs::remove_file(path)?;
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn test_storage_path() {
         let path = get_legacy_key_path().unwrap();
-        assert!(path.to_string_lossy().contains("com.hrcommandcenter.app"));
+        assert!(path.to_string_lossy().contains("com.peoplepartner.app"));
     }
 
     #[test]

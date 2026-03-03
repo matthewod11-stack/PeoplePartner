@@ -1,12 +1,12 @@
 [package]
-name = "hr-command-center"
+name = "people-partner"
 version = "0.1.0"
 description = "Your company's HR brain—private, always in context, always ready to help."
-authors = ["HR Command Center"]
+authors = ["People Partner"]
 edition = "2021"
 
 [lib]
-name = "hr_command_center_lib"
+name = "people_partner_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

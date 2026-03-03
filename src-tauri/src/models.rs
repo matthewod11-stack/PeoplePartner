@@ -1,4 +1,4 @@
-// HR Command Center - Model Catalog
+// People Partner - Model Catalog
 // Hardcoded catalog of available models per provider
 //
 // Key responsibilities:

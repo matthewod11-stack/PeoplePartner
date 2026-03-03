@@ -1,4 +1,4 @@
-// HR Command Center - Welcome Step (Step 1)
+// People Partner - Welcome Step (Step 1)
 // First impression: logo, value props, and get started CTA
 
 interface WelcomeStepProps {
@@ -18,7 +18,7 @@ export function WelcomeStep({ onContinue }: WelcomeStepProps) {
 
       {/* Headline */}
       <h1 className="text-2xl font-display font-semibold text-stone-800 mb-2">
-        Welcome to HR Command Center
+        Welcome to People Partner
       </h1>
       <p className="text-stone-500 mb-8">
         Your company's HR brain.

@@ -1,4 +1,4 @@
-// HR Command Center - Onboarding Step Indicator
+// People Partner - Onboarding Step Indicator
 // Visual progress dots showing wizard position
 
 import { useOnboarding, ONBOARDING_STEPS } from './OnboardingContext';

@@ -1,4 +1,4 @@
-// HR Command Center - Database Module
+// People Partner - Database Module
 // SQLite connection management and migrations
 
 use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};

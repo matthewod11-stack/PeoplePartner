@@ -1,4 +1,4 @@
-// HR Command Center - Audit Logging Module
+// People Partner - Audit Logging Module
 // Records all Claude API interactions for compliance tracking
 //
 // Key responsibilities:

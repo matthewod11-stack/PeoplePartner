@@ -1,4 +1,4 @@
-// HR Command Center - Trial Mode Context
+// People Partner - Trial Mode Context
 // Manages trial status, upgrade prompts, and limit tracking
 
 import {

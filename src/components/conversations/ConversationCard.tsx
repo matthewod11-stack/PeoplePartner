@@ -1,4 +1,4 @@
-// HR Command Center - Conversation Card Component
+// People Partner - Conversation Card Component
 // Displays a conversation in the sidebar list
 
 import type { ConversationListItem } from '../../lib/tauri-commands';

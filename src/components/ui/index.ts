@@ -1,7 +1,7 @@
 /**
  * UI Primitives
  *
- * Shared, reusable components following the HR Command Center design system.
+ * Shared, reusable components following the People Partner design system.
  * Import from '@/components/ui' or '../ui' for consistent styling.
  */
 

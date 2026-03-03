@@ -3,7 +3,7 @@
 /**
  * Test Data Generator - CLI Entry Point
  *
- * Generates realistic Acme Corp test data for HR Command Center.
+ * Generates realistic Acme Corp test data for People Partner.
  *
  * Usage:
  *   npx ts-node scripts/generate-test-data.ts --employees    # Session 1
@@ -260,7 +260,7 @@ function main(): void {
 
   // Default: show help
   console.log(`
-HR Command Center - Test Data Generator
+People Partner - Test Data Generator
 
 Usage:
   npx ts-node scripts/generate-test-data.ts [options]

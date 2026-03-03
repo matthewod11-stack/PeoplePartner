@@ -1,4 +1,4 @@
-// HR Command Center - Conversation Summary Hook
+// People Partner - Conversation Summary Hook
 // Generates and saves summaries for cross-conversation memory
 
 import { useState, useCallback, useRef } from 'react';

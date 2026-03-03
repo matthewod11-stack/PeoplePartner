@@ -1,4 +1,4 @@
-// HR Command Center - Provider Trait
+// People Partner - Provider Trait
 // Abstracts AI provider communication (Anthropic, OpenAI, Gemini)
 
 use serde::Serialize;

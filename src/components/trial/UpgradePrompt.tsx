@@ -164,7 +164,7 @@ export function UpgradePrompt() {
                 {hardReason === 'message' ? (
                   <p>
                     You&apos;ve used all {trialStatus.messages_limit} trial messages.
-                    Upgrade to continue using HR Command Center with unlimited messages.
+                    Upgrade to continue using People Partner with unlimited messages.
                   </p>
                 ) : (
                   <p>
@@ -341,7 +341,7 @@ export function UpgradePrompt() {
               fullWidth
               onClick={handleComplete}
             >
-              Start Using HR Command Center
+              Start Using People Partner
             </Button>
           </>
         )}

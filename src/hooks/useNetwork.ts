@@ -1,4 +1,4 @@
-// HR Command Center - Network Status Hook
+// People Partner - Network Status Hook
 // Provides reactive network status with instant browser event detection
 // and periodic API reachability verification
 

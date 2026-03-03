@@ -116,7 +116,7 @@ export function BackupRestore({ onImportComplete }: BackupRestoreProps) {
       if (message.includes('password') || message.includes('InvalidPassword')) {
         setError('Incorrect password. Please try again.');
       } else if (message.includes('invalid') || message.includes('InvalidBackup')) {
-        setError('This backup file appears to be damaged or is not a valid HR Command Center backup.');
+        setError('This backup file appears to be damaged or is not a valid People Partner backup.');
       } else {
         setError(message);
       }

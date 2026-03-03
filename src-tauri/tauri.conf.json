@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "HR Command Center",
-  "identifier": "com.hrcommandcenter.app",
+  "productName": "People Partner",
+  "identifier": "com.peoplepartner.app",
   "version": "0.1.0",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "HR Command Center",
+        "title": "People Partner",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.anthropic.com https://hrcommandcenter.com https://hrcommand-proxy.hrcommand.workers.dev http://localhost:1420 ws://localhost:1420; img-src 'self' data: blob:"
+      "csp": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.anthropic.com https://peoplepartner.io https://hrcommand-proxy.hrcommand.workers.dev http://localhost:1420 ws://localhost:1420; img-src 'self' data: blob:"
     }
   },
   "bundle": {

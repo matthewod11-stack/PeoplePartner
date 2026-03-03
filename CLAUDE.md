@@ -1,4 +1,4 @@
-# HR Command Center — Claude Code Instructions
+# People Partner — Claude Code Instructions
 
 > **Vision:** Your company's HR brain—private, always in context, always ready to help.
 > **Stack:** Tauri + React + Vite + SQLite + Claude API

@@ -1,4 +1,4 @@
-// HR Command Center - Conversation Components
+// People Partner - Conversation Components
 // Barrel export for conversation-related components
 
 export { TabSwitcher } from './TabSwitcher';

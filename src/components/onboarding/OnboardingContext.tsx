@@ -1,4 +1,4 @@
-// HR Command Center - Onboarding Context
+// People Partner - Onboarding Context
 // Manages onboarding wizard state and persistence across sessions
 
 import {

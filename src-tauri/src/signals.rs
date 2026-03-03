@@ -1,4 +1,4 @@
-// HR Command Center - Signals Module
+// People Partner - Signals Module
 // Team-level attrition risk and sentiment analysis (V2.4.1)
 //
 // Key guardrails:

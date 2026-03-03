@@ -102,7 +102,7 @@ export function AppShell({ children, contextPanel, onSettingsClick }: AppShellPr
 
           {/* App title */}
           <h1 className="font-display text-lg font-semibold text-stone-800 tracking-tight">
-            HR Command Center
+            People Partner
           </h1>
         </div>
 

@@ -1,4 +1,4 @@
-// HR Command Center - OpenAI Provider
+// People Partner - OpenAI Provider
 // Implements the Provider trait for the OpenAI Chat Completions API
 
 use reqwest::Client;

@@ -1,4 +1,4 @@
-// HR Command Center - Document Ingestion Module
+// People Partner - Document Ingestion Module
 // Indexes user's HR document folder for contextual retrieval via FTS5
 //
 // Pipeline: Discover → Parse → Chunk → PII Redact → FTS Index → Retrieve

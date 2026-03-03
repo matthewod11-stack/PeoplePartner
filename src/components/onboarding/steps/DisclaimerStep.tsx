@@ -1,4 +1,4 @@
-// HR Command Center - Disclaimer Step (Step 5)
+// People Partner - Disclaimer Step (Step 5)
 // Legal acknowledgment: AI is informational, not legal advice
 
 import { useState, useCallback } from 'react';
@@ -39,7 +39,7 @@ export function DisclaimerStep({ onAccept, onValidChange }: DisclaimerStepProps)
         <h4 className="font-semibold text-stone-800 mb-3">Good to know</h4>
 
         <p className="mb-3">
-          HR Command Center uses Claude AI to provide HR guidance and assistance. While designed to be helpful,
+          People Partner uses AI to provide HR guidance and assistance. While designed to be helpful,
           <strong className="text-stone-800"> this tool does not provide legal, tax, or professional advice</strong>.
         </p>
 
@@ -90,7 +90,7 @@ export function DisclaimerStep({ onAccept, onValidChange }: DisclaimerStepProps)
           className="mt-0.5 w-5 h-5 text-primary-500 border-stone-300 rounded focus:ring-primary-500 cursor-pointer"
         />
         <span className="text-sm text-stone-700 group-hover:text-stone-900">
-          I understand that HR Command Center provides <strong>informational guidance only</strong> and
+          I understand that People Partner provides <strong>informational guidance only</strong> and
           is not a substitute for professional legal or HR advice.
         </span>
       </label>

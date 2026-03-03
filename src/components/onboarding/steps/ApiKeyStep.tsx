@@ -1,4 +1,4 @@
-// HR Command Center - AI Provider Setup Step (Step 2)
+// People Partner - AI Provider Setup Step (Step 2)
 // Two-phase flow: 1) Pick provider, 2) Enter API key with provider-specific guide
 
 import { useEffect, useState } from 'react';
@@ -187,7 +187,7 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
         <div className="bg-stone-50 rounded-xl p-4 text-sm text-stone-600 leading-relaxed">
           <p className="mb-3">
             An API key is like a <strong className="text-stone-800">password</strong> that lets
-            HR Command Center talk to {meta?.displayName ?? 'your AI provider'}.
+            People Partner talk to {meta?.displayName ?? 'your AI provider'}.
           </p>
           <p className="mb-3">
             Think of it like a library card — it identifies you and lets you access the service.

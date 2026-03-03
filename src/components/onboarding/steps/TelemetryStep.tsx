@@ -1,4 +1,4 @@
-// HR Command Center - Telemetry Step (Step 6)
+// People Partner - Telemetry Step (Step 6)
 // Optional: anonymous crash reports to help improve the product
 
 import { useState, useCallback } from 'react';

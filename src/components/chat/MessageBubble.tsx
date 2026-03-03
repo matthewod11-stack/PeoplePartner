@@ -2,7 +2,7 @@
  * MessageBubble Component
  *
  * Displays a single chat message with appropriate styling for user or assistant messages.
- * Follows the HR Command Center "Warm Editorial" design aesthetic.
+ * Follows the People Partner "Warm Editorial" design aesthetic.
  *
  * Assistant messages are rendered as Markdown (supporting bold, lists, code, etc.)
  * User messages are rendered as plain text to preserve what they typed.

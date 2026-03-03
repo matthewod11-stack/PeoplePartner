@@ -1,4 +1,4 @@
-// HR Command Center - Onboarding Components
+// People Partner - Onboarding Components
 // Export all onboarding-related components
 
 export { OnboardingProvider, useOnboarding, ONBOARDING_STEPS, SETTINGS_KEYS } from './OnboardingContext';

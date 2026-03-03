@@ -1,4 +1,4 @@
-// HR Command Center - Model Selector Component
+// People Partner - Model Selector Component
 // Lets users choose which AI model to use for the active provider
 
 import { useState, useEffect, useCallback } from 'react';

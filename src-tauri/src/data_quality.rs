@@ -1,4 +1,4 @@
-// HR Command Center - Data Quality Module (V2.5.1)
+// People Partner - Data Quality Module (V2.5.1)
 // Pre-import validation, deduplication detection, column mapping, and HRIS presets.
 // All operations are in-memory on parsed data before import — no DB schema changes needed.
 

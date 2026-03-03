@@ -1,4 +1,4 @@
-// HR Command Center - Test Data Importer
+// People Partner - Test Data Importer
 // Development utility for loading generated test data
 
 import { useState } from 'react';

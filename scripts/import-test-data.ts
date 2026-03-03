@@ -1,4 +1,4 @@
-// HR Command Center - Test Data Import Script
+// People Partner - Test Data Import Script
 // Imports generated test data directly into SQLite
 // Run with: npx tsx scripts/import-test-data.ts
 
@@ -13,7 +13,7 @@ const currentDir = dirname(fileURLToPath(import.meta.url));
 // Database path (macOS app support)
 const DB_PATH = join(
   homedir(),
-  'Library/Application Support/com.hrcommandcenter.app/hr_command_center.db'
+  'Library/Application Support/com.peoplepartner.app/people_partner.db'
 );
 
 // Generated data paths
@@ -84,7 +84,7 @@ function loadJson<T>(filename: string): T {
 }
 
 async function main() {
-  console.log('HR Command Center - Test Data Import\n');
+  console.log('People Partner - Test Data Import\n');
   console.log('Database: ' + DB_PATH);
   console.log('Generated data: ' + GENERATED_DIR + '\n');
 

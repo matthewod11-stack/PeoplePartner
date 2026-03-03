@@ -1,4 +1,4 @@
-// HR Command Center - Chat Module
+// People Partner - Chat Module
 // Provider-agnostic orchestration for AI chat (streaming, trimming, trial proxy)
 
 use futures::StreamExt;

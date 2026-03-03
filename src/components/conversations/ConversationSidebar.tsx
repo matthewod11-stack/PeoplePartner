@@ -1,4 +1,4 @@
-// HR Command Center - Conversation Sidebar Component
+// People Partner - Conversation Sidebar Component
 // Main sidebar showing conversation list with search and new conversation button
 
 import { useState, useCallback } from 'react';

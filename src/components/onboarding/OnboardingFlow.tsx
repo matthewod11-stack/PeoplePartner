@@ -1,4 +1,4 @@
-// HR Command Center - Onboarding Flow
+// People Partner - Onboarding Flow
 // Main wizard container that renders steps and handles navigation
 
 import { useCallback, type ReactNode } from 'react';
@@ -156,7 +156,7 @@ export function OnboardingFlow({ onComplete, initialPrompt }: OnboardingFlowProp
       case 6:
         return (
           <StepContainer
-            title="Help improve HR Command Center"
+            title="Help improve People Partner"
             subtitle="Anonymous crash reports help us fix bugs faster"
           >
             <TelemetryStep

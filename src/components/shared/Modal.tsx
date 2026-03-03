@@ -2,7 +2,7 @@
  * Modal Component
  *
  * A reusable, accessible modal dialog that renders via portal.
- * Follows the HR Command Center "Warm Editorial" design aesthetic.
+ * Follows the People Partner "Warm Editorial" design aesthetic.
  */
 
 import { useEffect, useCallback, useId, useRef, type ReactNode } from 'react';

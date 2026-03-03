@@ -1,4 +1,4 @@
-// HR Command Center - Provider Display Metadata
+// People Partner - Provider Display Metadata
 // UI-only constants for provider branding, setup guides, and console URLs
 
 export interface ProviderMeta {
@@ -36,7 +36,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     setupSteps: {
       signup: 'Visit console.anthropic.com and create an account (or sign in).',
       billing: 'Go to Settings \u2192 Billing and add a payment method. You only pay for what you use.',
-      createKey: 'Go to Settings \u2192 API Keys, click "Create Key", and name it "HR Command Center".',
+      createKey: 'Go to Settings \u2192 API Keys, click "Create Key", and name it "People Partner".',
     },
   },
   openai: {
@@ -54,7 +54,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     setupSteps: {
       signup: 'Visit platform.openai.com and create an account (or sign in).',
       billing: 'Go to Settings \u2192 Billing and add a payment method. You only pay for what you use.',
-      createKey: 'Go to API Keys, click "Create new secret key", and name it "HR Command Center".',
+      createKey: 'Go to API Keys, click "Create new secret key", and name it "People Partner".',
     },
   },
   gemini: {

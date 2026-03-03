@@ -1,4 +1,4 @@
-// HR Command Center - DEI & Fairness Lens Module
+// People Partner - DEI & Fairness Lens Module
 // Demographic representation analysis with privacy guardrails (V2.4.2)
 //
 // Key guardrails:

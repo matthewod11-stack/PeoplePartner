@@ -1,4 +1,4 @@
-// HR Command Center - First Prompt Step (Step 7)
+// People Partner - First Prompt Step (Step 7)
 // Celebration + contextual prompt suggestions to get started
 
 import { PromptSuggestions, type PromptSuggestion } from '../../chat/PromptSuggestions';
@@ -64,7 +64,7 @@ export function FirstPromptStep({ onStart }: FirstPromptStepProps) {
         You're all set!
       </h1>
       <p className="text-stone-500 mb-8">
-        HR Command Center is ready to help. Try asking about your team.
+        People Partner is ready to help. Try asking about your team.
       </p>
 
       {/* Prompt Suggestions */}

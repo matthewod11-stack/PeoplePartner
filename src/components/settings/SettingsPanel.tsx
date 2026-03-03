@@ -562,7 +562,7 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                     Anonymous Crash Reports
                   </p>
                   <p className="text-xs text-stone-500">
-                    Help improve HR Command Center by sending anonymous error data
+                    Help improve People Partner by sending anonymous error data
                   </p>
                 </div>
               </div>

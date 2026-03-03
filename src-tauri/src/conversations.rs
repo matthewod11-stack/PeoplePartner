@@ -1,4 +1,4 @@
-// HR Command Center - Conversation Management Module
+// People Partner - Conversation Management Module
 // CRUD operations for conversation persistence and browsing
 //
 // Key responsibilities:

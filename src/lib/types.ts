@@ -1,4 +1,4 @@
-// HR Command Center - Type Definitions
+// People Partner - Type Definitions
 // These types mirror the SQLite schema and API responses
 
 // =============================================================================

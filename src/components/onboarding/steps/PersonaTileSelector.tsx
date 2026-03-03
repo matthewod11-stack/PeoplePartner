@@ -1,4 +1,4 @@
-// HR Command Center - Persona Tile Selector (Onboarding)
+// People Partner - Persona Tile Selector (Onboarding)
 // Visual tile-based persona selector for the onboarding company step
 
 import { useState, useEffect, useCallback } from 'react';

@@ -1,4 +1,4 @@
-// HR Command Center - eNPS Module
+// People Partner - eNPS Module
 // CRUD operations for Employee Net Promoter Score tracking
 
 use serde::{Deserialize, Serialize};

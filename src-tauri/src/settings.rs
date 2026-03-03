@@ -1,4 +1,4 @@
-// HR Command Center - Settings Module
+// People Partner - Settings Module
 // Generic key-value store for application settings
 //
 // Uses the existing `settings` table from 001_initial.sql:

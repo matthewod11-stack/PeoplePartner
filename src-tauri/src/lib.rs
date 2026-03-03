@@ -1,4 +1,4 @@
-// HR Command Center - Rust Backend
+// People Partner - Rust Backend
 // This file contains the core library code for Tauri commands
 
 use std::collections::HashSet;
@@ -39,7 +39,7 @@ use db::Database;
 /// Greet command for testing - will be replaced with actual commands
 #[tauri::command]
 fn greet(name: &str) -> String {
-    format!("Hello, {}! Welcome to HR Command Center.", name)
+    format!("Hello, {}! Welcome to People Partner.", name)
 }
 
 /// Check if database is initialized
@@ -219,7 +219,7 @@ async fn validate_license_key_remote(
         .map_err(|e| e.to_string())?;
 
     let resp = client
-        .post("https://hrcommandcenter.com/api/validate-license")
+        .post("https://peoplepartner.io/api/validate-license")
         .json(&serde_json::json!({
             "license_key": license_key,
             "device_id": device_id,
@@ -259,7 +259,7 @@ async fn store_license_key(
     let normalized = license_key.trim().to_string();
     if !validate_license_key_format(normalized.clone()) {
         return Err(
-            "Invalid license key format. Expected format: HRC-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX".to_string(),
+            "Invalid license key format. Expected format: PP-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX".to_string(),
         );
     }
 
@@ -309,18 +309,18 @@ async fn has_license_key(state: tauri::State<'_, Database>) -> Result<bool, Stri
 }
 
 /// Validate license key format without storing it.
-/// Expected format: HRC-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX where X is hex (0-9, A-F).
+/// Expected format: PP-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX where X is hex (0-9, A-F).
 #[tauri::command]
 fn validate_license_key_format(license_key: String) -> bool {
     let trimmed = license_key.trim();
-    // Expected: "HRC-" + 6 groups of 4 hex chars separated by dashes = 33 chars
-    if trimmed.len() != 33 {
+    // Expected: "PP-" + 6 groups of 4 hex chars separated by dashes = 32 chars
+    if trimmed.len() != 32 {
         return false;
     }
-    if !trimmed.starts_with("HRC-") {
+    if !trimmed.starts_with("PP-") {
         return false;
     }
-    let groups: Vec<&str> = trimmed[4..].split('-').collect();
+    let groups: Vec<&str> = trimmed[3..].split('-').collect();
     if groups.len() != 6 {
         return false;
     }

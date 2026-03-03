@@ -1,4 +1,4 @@
-// HR Command Center - Company Module
+// People Partner - Company Module
 // CRUD operations for company profile (single-row table)
 // Company state = HQ/incorporation state (legal jurisdiction)
 // Employee work states are tracked separately per employee

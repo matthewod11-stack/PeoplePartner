@@ -1,4 +1,4 @@
-// HR Command Center - Performance Ratings Module
+// People Partner - Performance Ratings Module
 // CRUD operations for numeric performance ratings (1.0-5.0 scale)
 
 use serde::{Deserialize, Serialize};

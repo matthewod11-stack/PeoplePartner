@@ -1,4 +1,4 @@
-// HR Command Center - Context Builder Module
+// People Partner - Context Builder Module
 // Builds contextual system prompts for Claude with company and employee data
 //
 // Key responsibilities:

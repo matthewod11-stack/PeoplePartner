@@ -1,4 +1,4 @@
-// HR Command Center - Network Detection Module
+// People Partner - Network Detection Module
 // Provides network connectivity checking for the Tauri backend
 
 use reqwest::Client;

@@ -1,4 +1,4 @@
-// HR Command Center - Company Step (Step 3)
+// People Partner - Company Step (Step 3)
 // Wraps existing CompanySetup component for onboarding flow
 // Includes persona tile selector for AI advisor style
 

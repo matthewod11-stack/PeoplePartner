@@ -1,4 +1,4 @@
-# HR Command Center — Session Progress Log
+# People Partner — Session Progress Log
 
 > **Purpose:** Track progress across multiple Claude Code sessions. Each session adds an entry.
 > **How to Use:** Add a new "## Session YYYY-MM-DD" section at the TOP of this file after each work session.

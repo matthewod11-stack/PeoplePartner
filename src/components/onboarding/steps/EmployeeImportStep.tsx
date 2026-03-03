@@ -1,4 +1,4 @@
-// HR Command Center - Employee Import Step (Step 4)
+// People Partner - Employee Import Step (Step 4)
 // Auto-loads sample data on first launch; offers option to import custom data
 
 import { useState, useEffect, useCallback } from 'react';

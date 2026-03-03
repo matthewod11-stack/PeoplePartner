@@ -1,4 +1,4 @@
-// HR Command Center - Tauri Command Wrappers
+// People Partner - Tauri Command Wrappers
 // All Tauri invoke calls go through here for type safety
 
 import { invoke } from '@tauri-apps/api/core';

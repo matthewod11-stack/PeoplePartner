@@ -1,4 +1,4 @@
-// HR Command Center - Bulk Import Module
+// People Partner - Bulk Import Module
 // Direct database inserts for test data with predefined IDs
 
 use std::collections::HashSet;

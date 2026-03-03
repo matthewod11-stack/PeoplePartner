@@ -1,4 +1,4 @@
-// HR Command Center - Conversation Context
+// People Partner - Conversation Context
 // Manages chat state, conversation history, and auto-persistence
 
 import {

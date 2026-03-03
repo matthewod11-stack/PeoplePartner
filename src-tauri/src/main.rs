@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    hr_command_center_lib::run()
+    people_partner_lib::run()
 }

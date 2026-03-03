@@ -1,4 +1,4 @@
-// HR Command Center - Signals Types (V2.4.1)
+// People Partner - Signals Types (V2.4.1)
 // Team-level attention signals for attrition and sentiment analysis
 
 /**

@@ -1,4 +1,4 @@
-// HR Command Center - Provider Registry
+// People Partner - Provider Registry
 // Creates and lists available AI providers
 
 pub mod anthropic;

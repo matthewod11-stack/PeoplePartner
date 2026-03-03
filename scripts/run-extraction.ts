@@ -9,8 +9,8 @@ import { homedir } from 'os';
 import { join } from 'path';
 import Database from 'better-sqlite3';
 
-const APP_DATA_DIR = join(homedir(), 'Library/Application Support/com.hrcommandcenter.app');
-const DB_PATH = join(APP_DATA_DIR, 'hr_command_center.db');
+const APP_DATA_DIR = join(homedir(), 'Library/Application Support/com.peoplepartner.app');
+const DB_PATH = join(APP_DATA_DIR, 'people_partner.db');
 const API_KEY_PATH = join(APP_DATA_DIR, '.api_key');
 
 // Valid themes (must match Rust validation)
@@ -109,7 +109,7 @@ Return ONLY the JSON, no markdown fences or explanation.`;
 }
 
 async function main() {
-  console.log('=== HR Command Center - Manual Extraction ===\n');
+  console.log('=== People Partner - Manual Extraction ===\n');
 
   // Load API key
   let apiKey: string;

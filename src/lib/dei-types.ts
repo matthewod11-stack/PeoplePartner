@@ -1,4 +1,4 @@
-// HR Command Center - DEI & Fairness Lens Types (V2.4.2)
+// People Partner - DEI & Fairness Lens Types (V2.4.2)
 // Demographic representation analysis with privacy guardrails
 
 /**

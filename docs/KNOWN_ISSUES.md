@@ -1,4 +1,4 @@
-# HR Command Center — Known Issues & Parking Lot
+# People Partner — Known Issues & Parking Lot
 
 > **Purpose:** Track issues, blockers, and deferred decisions.
 > **Related Docs:** [ROADMAP.md](./ROADMAP.md) | [PROGRESS.md](./PROGRESS.md)
@@ -59,12 +59,12 @@ These decisions were made during planning and should NOT be revisited during imp
 ## Open Issues
 
 ### [REBRAND] Rename "HR Command Center" → "People Partner"
-**Status:** Deferred
+**Status:** Resolved
 **Severity:** Medium
 **Discovered:** 2026-03-01
+**Resolved:** 2026-03-03
 **Description:** Rebranding to "People Partner" (domain: peoplepartner.io secured). 180 occurrences across 116 files. Includes migration-sensitive areas: Keychain service name (7 refs in keyring.rs — existing users lose stored keys without migration), Tauri bundle ID/app name (tauri.conf.json), HRC- license prefix (tied to Stripe), proxy CORS/domain refs.
-**Workaround:** Continue using "HR Command Center" internally until website establishes final branding.
-**Resolution:** Dedicated rebrand session after peoplepartner.io website is live. Website work first to inform: final product name casing, logo, domain config, Stripe product rename. Then do app rebrand as single coordinated pass including Keychain migration logic.
+**Resolution:** Full rebrand completed in coordinated multi-agent session. Updated: tauri.conf.json (bundle ID, app name), all Rust module headers, all frontend UI strings, documentation (CLAUDE.md, README.md, ROADMAP.md, KNOWN_ISSUES.md, PROJECT_STATE.md, SESSION_PROTOCOL.md, features.json), release workflow, backup filenames, test data scripts. Keychain service name updated with migration logic for existing users.
 
 ### [PHASE-5.2] Trial mode never exits when API key is present
 **Status:** Resolved  

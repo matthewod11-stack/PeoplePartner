@@ -1,4 +1,4 @@
-// HR Command Center - Anthropic Provider
+// People Partner - Anthropic Provider
 // Implements the Provider trait for the Anthropic Messages API
 
 use reqwest::Client;

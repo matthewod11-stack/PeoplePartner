@@ -1,4 +1,4 @@
-// HR Command Center - Provider Picker Component
+// People Partner - Provider Picker Component
 // Shared between onboarding (step 2) and settings panel
 
 import { PROVIDER_META, PROVIDER_ORDER } from '../../lib/provider-config';

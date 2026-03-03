@@ -1,4 +1,4 @@
-# HR Command Center
+# People Partner
 
 > Your company's HR brain—private, always in context, always ready to help.
 

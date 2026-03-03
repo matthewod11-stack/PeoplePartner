@@ -1,4 +1,4 @@
-// HR Command Center - Tab Switcher Component
+// People Partner - Tab Switcher Component
 // Allows switching between Conversations and Employees views in sidebar
 
 import type { SidebarTab } from '../../contexts/LayoutContext';

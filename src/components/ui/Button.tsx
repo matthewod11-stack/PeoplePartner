@@ -2,7 +2,7 @@
  * Button Component
  *
  * Multi-variant button with consistent hover states and accessibility.
- * Follows the HR Command Center "Warm Editorial" design aesthetic.
+ * Follows the People Partner "Warm Editorial" design aesthetic.
  */
 
 import { forwardRef } from 'react';

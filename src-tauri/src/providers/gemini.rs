@@ -1,4 +1,4 @@
-// HR Command Center - Gemini Provider
+// People Partner - Gemini Provider
 // Implements the Provider trait for Google's Gemini Generative Language API
 
 use reqwest::Client;

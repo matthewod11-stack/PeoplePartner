@@ -1,4 +1,4 @@
-// HR Command Center - Cross-Conversation Memory Module
+// People Partner - Cross-Conversation Memory Module
 // Generates summaries and retrieves relevant past conversations
 //
 // Key responsibilities:

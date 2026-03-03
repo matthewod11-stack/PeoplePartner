@@ -1,4 +1,4 @@
-// HR Command Center - PII Scanner Module
+// People Partner - PII Scanner Module
 // Detects and redacts sensitive financial information before sending to Claude API
 //
 // Scope:

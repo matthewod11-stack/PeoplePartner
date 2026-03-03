@@ -1,4 +1,4 @@
-// HR Command Center - Unified File Parser
+// People Partner - Unified File Parser
 // Supports CSV, TSV, XLSX, and XLS file formats
 // Returns a consistent structure regardless of input format
 

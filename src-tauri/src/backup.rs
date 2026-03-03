@@ -1,4 +1,4 @@
-//! Encrypted backup and restore functionality for HR Command Center.
+//! Encrypted backup and restore functionality for People Partner.
 //!
 //! This module provides secure export/import of all database tables using:
 //! - AES-256-GCM for authenticated encryption
@@ -925,7 +925,7 @@ pub async fn export_backup(pool: &SqlitePool, password: &str) -> Result<ExportRe
 
     // Generate filename
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
-    let filename = format!("hrcommand_backup_{}.hrbackup", timestamp);
+    let filename = format!("peoplepartner_backup_{}.ppbackup", timestamp);
 
     Ok(ExportResult {
         encrypted_data: encrypted,

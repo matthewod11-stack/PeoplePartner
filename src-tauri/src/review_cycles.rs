@@ -1,4 +1,4 @@
-// HR Command Center - Review Cycles Module
+// People Partner - Review Cycles Module
 // CRUD operations for performance review cycles
 
 use serde::{Deserialize, Serialize};

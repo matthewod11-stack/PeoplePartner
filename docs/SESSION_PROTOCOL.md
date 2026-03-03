@@ -1,4 +1,4 @@
-# HR Command Center — Session Protocol
+# People Partner — Session Protocol
 
 > **Purpose:** Ensure continuity across multiple Claude Code sessions.
 > **Based on:** [Anthropic: Effective Harnesses for Long-Running Agents](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
@@ -68,7 +68,7 @@ We use **structured artifacts** to maintain continuity:
 ### Session Start Prompt
 
 ```
-I'm continuing work on HR Command Center.
+I'm continuing work on People Partner.
 
 This is a multi-session implementation. Please follow the session protocol:
 
@@ -126,7 +126,7 @@ with current state, then we can continue.
 Use when resuming after days/weeks away:
 
 ```
-Resuming HR Command Center after a break. Full context reload:
+Resuming People Partner after a break. Full context reload:
 
 1. Run ./scripts/dev-init.sh
 2. Read docs/SESSION_PROTOCOL.md (workflow rules)
@@ -220,4 +220,4 @@ Session: 2025-12-13
 ---
 
 *Protocol Version: 1.0*
-*Project: HR Command Center*
+*Project: People Partner*

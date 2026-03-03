@@ -1,4 +1,4 @@
-// HR Command Center - Performance Reviews Module
+// People Partner - Performance Reviews Module
 // CRUD operations for review narratives with FTS search support
 
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,4 @@
-// HR Command Center - Trial Mode Module
+// People Partner - Trial Mode Module
 // Manages trial vs paid mode detection, message limits, and employee limits.
 // Trial status is derived from license presence.
 // Unlicensed installs are trial-mode; licensed installs are paid-mode (BYOK required).

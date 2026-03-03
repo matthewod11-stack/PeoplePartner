@@ -1,4 +1,4 @@
-// HR Command Center - Device ID Module
+// People Partner - Device ID Module
 // Generates and persists a stable UUID v4 per installation for trial quota tracking.
 
 use crate::db::DbPool;

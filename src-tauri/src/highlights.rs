@@ -1,4 +1,4 @@
-// HR Command Center - Highlights Module
+// People Partner - Highlights Module
 // Extracted structured data from performance reviews
 // Session 1: Types and CRUD operations
 // Session 2: Extraction pipeline with Claude API

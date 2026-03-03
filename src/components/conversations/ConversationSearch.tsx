@@ -1,4 +1,4 @@
-// HR Command Center - Conversation Search Component
+// People Partner - Conversation Search Component
 // Search input for finding conversations
 
 interface ConversationSearchProps {

@@ -1,4 +1,4 @@
-// HR Command Center - Employees Module
+// People Partner - Employees Module
 // CRUD operations for employee data including demographics and termination tracking
 
 use serde::{Deserialize, Serialize};

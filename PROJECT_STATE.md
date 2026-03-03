@@ -1,4 +1,4 @@
-# HR Command Center — Project State
+# People Partner — Project State
 
 > Cross-surface context document. Shared across Claude Chat, Claude Code, and Cowork sessions.
 > **Last regenerated:** 2026-02-26 | **Generated from:** codebase scan
@@ -7,7 +7,7 @@
 
 ## Project Overview
 
-HR Command Center is a macOS desktop app that gives HR professionals (solo practitioners, accidental HR people, founders without HR) a private, AI-powered assistant that understands their specific company context. It runs as a Tauri app with a React frontend and Rust backend, stores all employee data locally in SQLite, connects to Claude API for AI chat, and auto-redacts PII before anything leaves the machine. The app is feature-complete through Phase V2 (intelligence layer, analytics, data quality) and Phase 5 (launch infrastructure: distribution, trial, license + seat limits, payment, landing page). Remaining before public launch: switch Stripe to live mode and E2E verification.
+People Partner is a macOS desktop app that gives HR professionals (solo practitioners, accidental HR people, founders without HR) a private, AI-powered assistant that understands their specific company context. It runs as a Tauri app with a React frontend and Rust backend, stores all employee data locally in SQLite, connects to Claude API for AI chat, and auto-redacts PII before anything leaves the machine. The app is feature-complete through Phase V2 (intelligence layer, analytics, data quality) and Phase 5 (launch infrastructure: distribution, trial, license + seat limits, payment, landing page). Remaining before public launch: switch Stripe to live mode and E2E verification.
 
 ---
 
