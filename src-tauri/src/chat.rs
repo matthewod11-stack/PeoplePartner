@@ -117,9 +117,11 @@ fn to_provider_messages(messages: Vec<ChatMessage>) -> Vec<ProviderMessage> {
         .collect()
 }
 
-/// Resolve a provider by ID, falling back to the default if unknown.
-fn resolve_provider(provider_id: &str) -> Box<dyn Provider> {
-    providers::get_provider(provider_id).unwrap_or_else(|| providers::get_default_provider())
+/// Resolve a provider by ID (with optional model override),
+/// falling back to the default if unknown.
+fn resolve_provider(provider_id: &str, model_id: Option<&str>) -> Box<dyn Provider> {
+    providers::get_provider(provider_id, model_id)
+        .unwrap_or_else(|| providers::get_default_provider())
 }
 
 /// Get the API key for a provider. Uses the legacy-migration-aware path for
@@ -197,8 +199,9 @@ pub async fn send_message(
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
     provider_id: &str,
+    model_id: Option<&str>,
 ) -> Result<ChatResponse, ChatError> {
-    let provider = resolve_provider(provider_id);
+    let provider = resolve_provider(provider_id, model_id);
     let api_key = get_api_key_for_provider(provider_id)?;
 
     // Trim conversation to fit within token budget (silently drops oldest messages)
@@ -342,8 +345,9 @@ pub async fn send_message_streaming(
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
     provider_id: &str,
+    model_id: Option<&str>,
 ) -> Result<(), ChatError> {
-    let provider = resolve_provider(provider_id);
+    let provider = resolve_provider(provider_id, model_id);
     let api_key = get_api_key_for_provider(provider_id)?;
 
     // Trim and convert messages

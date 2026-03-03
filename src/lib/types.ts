@@ -347,6 +347,19 @@ export interface ProviderInfo {
   key_prefix_hint: string;
 }
 
+/** Model tier for display in UI */
+export type ModelTier = 'Recommended' | 'Premium' | 'Fast';
+
+/** Model info returned from the backend catalog */
+export interface ModelInfo {
+  id: string;
+  display_name: string;
+  context_window: number;
+  max_output_tokens: number;
+  tier: ModelTier;
+  is_default: boolean;
+}
+
 // =============================================================================
 // Application State
 // =============================================================================

@@ -2514,6 +2514,15 @@ pub fn get_max_conversation_tokens() -> usize {
     MAX_CONVERSATION_TOKENS
 }
 
+/// Compute a conversation token budget adapted to a model's context window.
+///
+/// Allocates 75% of the context window to conversation history, matching
+/// the ratio used by the default constants (150K / 200K).
+pub fn compute_conversation_budget(context_window: usize) -> usize {
+    // Same ratio as default: 75% of context window for conversation
+    (context_window * 3) / 4
+}
+
 /// Get the maximum system prompt token budget
 #[allow(dead_code)]
 pub fn get_max_system_prompt_tokens() -> usize {

@@ -16,6 +16,7 @@ import { PersonaSelector } from './PersonaSelector';
 import { SignalsDisclaimerModal } from './SignalsDisclaimerModal';
 import { FairnessDisclaimerModal } from './FairnessDisclaimerModal';
 import { LicenseKeyInput } from './LicenseKeyInput';
+import { ModelSelector } from './ModelSelector';
 import { DocumentFolderConfig } from './DocumentFolderConfig';
 import {
   getDataPath, getSetting, setSetting,
@@ -293,6 +294,10 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                 onSelect={handleProviderChange}
                 keyStatus={providerKeyStatus}
                 compact
+              />
+              <ModelSelector
+                providerId={activeProviderState}
+                disabled={isTrialMode}
               />
               <ApiKeyInput
                 providerId={activeProviderState}

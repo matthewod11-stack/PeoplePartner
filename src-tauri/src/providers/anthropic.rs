@@ -12,8 +12,8 @@ use crate::provider::{Provider, ProviderConfig, ProviderMessage, ProviderRespons
 
 const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
-const MODEL: &str = "claude-sonnet-4-20250514";
-const MAX_TOKENS: u32 = 4096;
+const MODEL: &str = "claude-sonnet-4-6";
+const MAX_TOKENS: u32 = 8192;
 
 // ============================================================================
 // Anthropic Wire Types (Request/Response)
@@ -173,6 +173,16 @@ impl AnthropicProvider {
         }
     }
 
+    pub fn new_with_model(model_id: &str, max_tokens: u32) -> Self {
+        Self {
+            config: ProviderConfig {
+                model: model_id.to_string(),
+                max_tokens,
+                api_url: ANTHROPIC_API_URL.to_string(),
+            },
+        }
+    }
+
     /// Build a serializable MessageRequest body.
     /// Public because the trial proxy path needs to serialize and forward it.
     pub fn build_message_request(
@@ -319,8 +329,8 @@ mod tests {
     fn test_anthropic_provider_config() {
         let provider = AnthropicProvider::new();
         let config = provider.config();
-        assert_eq!(config.model, "claude-sonnet-4-20250514");
-        assert_eq!(config.max_tokens, 4096);
+        assert_eq!(config.model, "claude-sonnet-4-6");
+        assert_eq!(config.max_tokens, 8192);
         assert_eq!(config.api_url, "https://api.anthropic.com/v1/messages");
     }
 
@@ -346,7 +356,7 @@ mod tests {
         let json = r#"{
             "id": "msg_123",
             "content": [{"type": "text", "text": "Hello, how can I help?"}],
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-sonnet-4-6",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 8}
         }"#;
@@ -430,8 +440,8 @@ mod tests {
         let system = Some("You are helpful.".to_string());
 
         let req = provider.build_message_request(&messages, &system, true);
-        assert_eq!(req.model, "claude-sonnet-4-20250514");
-        assert_eq!(req.max_tokens, 4096);
+        assert_eq!(req.model, "claude-sonnet-4-6");
+        assert_eq!(req.max_tokens, 8192);
         assert_eq!(req.messages.len(), 1);
         assert_eq!(req.messages[0].role, "user");
         assert_eq!(req.messages[0].content, "Hello");
@@ -463,7 +473,7 @@ mod tests {
                 {"type": "text", "text": "Part one. "},
                 {"type": "text", "text": "Part two."}
             ],
-            "model": "claude-sonnet-4-20250514",
+            "model": "claude-sonnet-4-6",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 5, "output_tokens": 12}
         }"#;

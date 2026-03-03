@@ -24,6 +24,7 @@ import type {
   BatchExtractionResult,
   // Phase E - Provider Management
   ProviderInfo,
+  ModelInfo,
   // V3.0 - Document Ingestion
   DocumentFolderStats,
   DocumentStats,
@@ -146,6 +147,25 @@ export async function deleteProviderApiKey(providerId: string): Promise<void> {
 /** Check if ANY provider has an API key stored (for onboarding completion) */
 export async function hasAnyProviderApiKey(): Promise<boolean> {
   return invoke('has_any_provider_api_key');
+}
+
+// =============================================================================
+// Model Selection
+// =============================================================================
+
+/** Get available models for a provider */
+export async function getModelsForProvider(providerId: string): Promise<ModelInfo[]> {
+  return invoke('get_models_for_provider', { providerId });
+}
+
+/** Get the active model for a provider (null = using default) */
+export async function getActiveModel(providerId: string): Promise<string | null> {
+  return invoke('get_active_model', { providerId });
+}
+
+/** Set the active model for a provider */
+export async function setActiveModel(providerId: string, modelId: string): Promise<void> {
+  return invoke('set_active_model', { providerId, modelId });
 }
 
 // =============================================================================

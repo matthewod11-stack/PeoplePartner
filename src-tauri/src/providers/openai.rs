@@ -133,6 +133,16 @@ impl OpenAIProvider {
         }
     }
 
+    pub fn new_with_model(model_id: &str, max_tokens: u32) -> Self {
+        Self {
+            config: ProviderConfig {
+                model: model_id.to_string(),
+                max_tokens,
+                api_url: OPENAI_API_URL.to_string(),
+            },
+        }
+    }
+
     /// Build a ChatCompletionRequest body.
     /// System prompt is prepended as messages[0] with role "system".
     fn build_chat_request(

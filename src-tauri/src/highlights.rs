@@ -271,9 +271,6 @@ pub fn validate_sentiment(sentiment: &str) -> bool {
 // Extraction Constants
 // ============================================================================
 
-/// Model to use for extraction (using faster model for batch processing)
-const EXTRACTION_MODEL: &str = "claude-sonnet-4-20250514";
-
 /// System prompt for extracting structured data from a performance review
 const EXTRACTION_SYSTEM_PROMPT: &str = r#"You are an HR data extraction system. Extract structured information from performance review text.
 
@@ -349,12 +346,17 @@ pub async fn extract_highlights_for_review(
         content: user_prompt,
     }];
 
-    let response = chat::send_message(messages, Some(EXTRACTION_SYSTEM_PROMPT.to_string()), "anthropic")
+    let response = chat::send_message(messages, Some(EXTRACTION_SYSTEM_PROMPT.to_string()), "anthropic", None)
         .await
         .map_err(HighlightsError::from)?;
 
     // Parse the JSON response
     let extracted = parse_extraction_response(&response.content)?;
+
+    // Record which model was actually used (catalog default)
+    let model_used = crate::models::default_model_for_provider("anthropic")
+        .unwrap_or("unknown")
+        .to_string();
 
     // Create and save the highlight
     let input = CreateHighlight {
@@ -366,7 +368,7 @@ pub async fn extract_highlights_for_review(
         themes: extracted.themes.unwrap_or_default(),
         quotes: extracted.quotes.unwrap_or_default(),
         overall_sentiment: extracted.overall_sentiment.unwrap_or_else(|| "neutral".to_string()),
-        extraction_model: Some(EXTRACTION_MODEL.to_string()),
+        extraction_model: Some(model_used),
         token_count: Some(response.input_tokens as i32 + response.output_tokens as i32),
     };
 
@@ -514,7 +516,7 @@ pub async fn generate_employee_summary(
         content: user_prompt,
     }];
 
-    let response = chat::send_message(messages, Some(SUMMARY_SYSTEM_PROMPT.to_string()), "anthropic")
+    let response = chat::send_message(messages, Some(SUMMARY_SYSTEM_PROMPT.to_string()), "anthropic", None)
         .await
         .map_err(HighlightsError::from)?;
 
@@ -526,6 +528,11 @@ pub async fn generate_employee_summary(
         .first()
         .and_then(|h| Some(h.created_at.clone()));
 
+    // Record which model was actually used (catalog default)
+    let model_used = crate::models::default_model_for_provider("anthropic")
+        .unwrap_or("unknown")
+        .to_string();
+
     // Save the summary
     let input = CreateSummary {
         employee_id: employee_id.to_string(),
@@ -535,7 +542,7 @@ pub async fn generate_employee_summary(
         notable_accomplishments: summary_data.notable_accomplishments.unwrap_or_default(),
         reviews_analyzed: highlights.len() as i32,
         last_review_date,
-        generation_model: Some(EXTRACTION_MODEL.to_string()),
+        generation_model: Some(model_used),
     };
 
     save_summary(pool, input).await

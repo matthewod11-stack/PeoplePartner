@@ -347,7 +347,7 @@ pub async fn generate_title(first_message: &str) -> Result<String, ConversationE
         content: format!("Generate a title for: {}", first_message),
     }];
 
-    let response = send_message(messages, Some(TITLE_SYSTEM_PROMPT.to_string()), "anthropic")
+    let response = send_message(messages, Some(TITLE_SYSTEM_PROMPT.to_string()), "anthropic", None)
         .await
         .map_err(|e| ConversationError::Database(format!("Title generation failed: {}", e)))?;
 

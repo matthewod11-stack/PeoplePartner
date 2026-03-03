@@ -12,7 +12,7 @@ use crate::provider::{Provider, ProviderConfig, ProviderMessage, ProviderRespons
 
 const GEMINI_API_BASE: &str = "https://generativelanguage.googleapis.com/v1beta";
 const MODEL: &str = "gemini-2.5-flash";
-const MAX_TOKENS: u32 = 4096;
+const MAX_TOKENS: u32 = 8192;
 
 // ============================================================================
 // Gemini Wire Types (Request)
@@ -115,6 +115,16 @@ impl GeminiProvider {
             config: ProviderConfig {
                 model: MODEL.to_string(),
                 max_tokens: MAX_TOKENS,
+                api_url: GEMINI_API_BASE.to_string(),
+            },
+        }
+    }
+
+    pub fn new_with_model(model_id: &str, max_tokens: u32) -> Self {
+        Self {
+            config: ProviderConfig {
+                model: model_id.to_string(),
+                max_tokens,
                 api_url: GEMINI_API_BASE.to_string(),
             },
         }
@@ -327,7 +337,7 @@ mod tests {
         let provider = GeminiProvider::new();
         let config = provider.config();
         assert_eq!(config.model, "gemini-2.5-flash");
-        assert_eq!(config.max_tokens, 4096);
+        assert_eq!(config.max_tokens, 8192);
         assert_eq!(
             config.api_url,
             "https://generativelanguage.googleapis.com/v1beta"
