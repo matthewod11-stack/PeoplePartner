@@ -49,5 +49,5 @@ coverage/
 .LSOverride
 
 # Generated test data (regenerate with npm run generate-test-data)
-scripts/generated/
+# scripts/generated/ — now committed for CI builds
 demo-frames/
