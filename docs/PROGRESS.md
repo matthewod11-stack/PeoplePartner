@@ -21,6 +21,46 @@
 Most recent session should be first.
 -->
 
+## Session: 2026-03-04 (E2E Launch Infrastructure Verification)
+
+**Phase:** Pre-Launch / Infrastructure
+**Focus:** Verify and activate the full purchase → download → license flow for real end-to-end testing
+
+### Completed
+- [x] **Tauri signing keys** — Generated new keypair, updated `tauri.conf.json` pubkey, secrets added to GitHub Actions
+- [x] **Cloudflare proxy deployed** — `hrcommand-proxy.hrcommand.workers.dev` live with KV quota tracking, API key + signing secret set
+- [x] **Proxy signing secret synced** — Generated new HMAC secret, set in both GitHub Actions (`HRCOMMAND_PROXY_SIGNING_SECRET`) and Cloudflare Workers (`TRIAL_SIGNING_SECRET`)
+- [x] **Release workflow updated** — Added `HRCOMMAND_PROXY_SIGNING_SECRET` env var so `option_env!` bakes it into release builds
+- [x] **Website purchase flow verified** — `/api/checkout` returns live Stripe session URL, `/api/validate-license` correctly validates/rejects keys
+- [x] **Stripe price ID fixed** — Corrected `STRIPE_PRICE_ID` in Vercel env (was pointing to nonexistent test-mode price)
+- [x] **Download URL fixed** — Updated website `/download` page to point to GitHub releases page (arch-agnostic)
+- [x] **GitHub Actions secrets** — 5 of 8 release secrets set (TAURI_SIGNING_PRIVATE_KEY, PASSWORD, HRCOMMAND_PROXY_SIGNING_SECRET, APPLE_ID, APPLE_PASSWORD)
+
+### In Progress
+- [ ] **Apple Developer enrollment** — Signed up, waiting 24-48h for Apple approval
+- [ ] **3 remaining GitHub secrets** — `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_TEAM_ID` (blocked on Apple approval)
+
+### Issues Encountered
+- Vercel redeploys from MCP-created account didn't pick up env vars — must deploy via GitHub push from `matthewod11-stack`
+- `STRIPE_PRICE_ID` was from a different Stripe mode/account — corrected to live price `price_1SZyjRGPDQEWcIRHhB6H9L1G`
+- Previous Tauri signing keys in GitHub were blank placeholders
+
+### Files Modified
+| Repo | File | Change |
+|------|------|--------|
+| HRCommand | `src-tauri/tauri.conf.json` | Updated updater pubkey to new signing keypair |
+| HRCommand | `.github/workflows/release.yml` | Added `HRCOMMAND_PROXY_SIGNING_SECRET` env var |
+| hr-command-center | `app/download/page.tsx` | Updated download URL + button text |
+
+### Next Session Should
+1. **Complete Apple signing** — Once developer account approved: create Developer ID certificate, export .p12, add remaining 4 GitHub secrets
+2. **Cut first release** — Tag `v0.1.0`, push to trigger GitHub Actions build, verify .dmg artifacts
+3. **Full E2E test** — Visit peoplepartner.io → buy → receive license email → download .dmg → install → enter license → verify trial lifts
+4. **Verify webhook** — Confirm Stripe webhook fires and license key email arrives via Resend
+5. **Check Stripe webhook registration** — Ensure `peoplepartner.io/api/webhook` is registered in Stripe dashboard for `checkout.session.completed` events
+
+---
+
 ## Session: 2026-03-03 (Logo + Brand Color Rebrand)
 
 **Phase:** Pre-Launch / Visual Rebrand

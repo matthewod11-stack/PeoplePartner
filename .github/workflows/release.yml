@@ -52,6 +52,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          HRCOMMAND_PROXY_SIGNING_SECRET: ${{ secrets.HRCOMMAND_PROXY_SIGNING_SECRET }}
         with:
           tagName: v__VERSION__
           releaseName: 'People Partner v__VERSION__'
