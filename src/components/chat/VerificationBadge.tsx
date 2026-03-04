@@ -38,7 +38,7 @@ export function VerificationBadge({ verification }: VerificationBadgeProps) {
 
   // Badge colors following existing patterns
   const badgeClasses = isVerified
-    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+    ? 'bg-primary-50 text-primary-700 hover:bg-primary-100'
     : isPartialMatch
     ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
     : 'bg-stone-100 text-stone-500 hover:bg-stone-200';
@@ -104,7 +104,7 @@ export function VerificationBadge({ verification }: VerificationBadgeProps) {
                 <li key={i} className="flex items-start gap-2">
                   <span
                     className={`flex-shrink-0 mt-0.5 ${
-                      claim.is_match ? 'text-emerald-600' : 'text-amber-600'
+                      claim.is_match ? 'text-primary-600' : 'text-amber-600'
                     }`}
                   >
                     {claim.is_match ? '✓' : '⚠'}

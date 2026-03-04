@@ -90,7 +90,7 @@ export function getRatingVariant(rating: number): BadgeVariant {
  * Get Tailwind classes for rating display (legacy, for gradual migration).
  */
 export function getRatingColor(rating: number): string {
-  if (rating >= 4.5) return 'text-emerald-600 bg-emerald-50';
+  if (rating >= 4.5) return 'text-green-600 bg-green-50';
   if (rating >= 3.5) return 'text-blue-600 bg-blue-50';
   if (rating >= 2.5) return 'text-amber-600 bg-amber-50';
   return 'text-red-600 bg-red-50';
@@ -112,7 +112,7 @@ export function getEnpsVariant(score: number): BadgeVariant {
  * Get Tailwind classes for eNPS display (legacy, for gradual migration).
  */
 export function getEnpsColor(score: number): string {
-  if (score >= 9) return 'text-emerald-600 bg-emerald-50';
+  if (score >= 9) return 'text-green-600 bg-green-50';
   if (score >= 7) return 'text-amber-600 bg-amber-50';
   return 'text-red-600 bg-red-50';
 }
@@ -146,7 +146,7 @@ export function getStatusBadge(status: string): {
     case 'active':
       return {
         label: 'Active',
-        className: 'bg-emerald-100 text-emerald-700',
+        className: 'bg-primary-100 text-primary-700',
         variant: 'success'
       };
     case 'terminated':
@@ -179,7 +179,7 @@ export function getStatusIndicator(status: string): {
 } {
   switch (status) {
     case 'active':
-      return { color: 'bg-emerald-500', label: 'Active' };
+      return { color: 'bg-primary-500', label: 'Active' };
     case 'terminated':
       return { color: 'bg-stone-400', label: 'Terminated' };
     case 'leave':

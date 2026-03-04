@@ -408,9 +408,9 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               {/* V2.4.2: Fairness Lens Toggle */}
               <div className="flex items-center justify-between gap-4 p-4 bg-stone-50 border border-stone-200 rounded-xl">
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-teal-100">
+                  <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-primary-100">
                     <svg
-                      className="w-4 h-4 text-teal-600"
+                      className="w-4 h-4 text-primary-600"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -442,8 +442,8 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
                   className={`
                     relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full
                     border-2 border-transparent transition-colors duration-200 ease-in-out
-                    focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2
-                    ${fairnessLensEnabled ? 'bg-teal-500' : 'bg-stone-300'}
+                    focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+                    ${fairnessLensEnabled ? 'bg-primary-500' : 'bg-stone-300'}
                   `}
                 >
                   <span
@@ -459,12 +459,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
 
               {/* Fairness Lens disclaimer banner when enabled */}
               {fairnessLensEnabled && (
-                <div className="p-3 bg-teal-50 border border-teal-200 rounded-lg">
+                <div className="p-3 bg-primary-50 border border-primary-200 rounded-lg">
                   <div className="flex gap-2">
-                    <svg className="w-4 h-4 text-teal-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                    <svg className="w-4 h-4 text-primary-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <p className="text-xs text-teal-800">
+                    <p className="text-xs text-primary-800">
                       This analysis reflects historical data patterns and may reveal systemic biases.
                       Groups with fewer than 5 members are suppressed to protect privacy.
                     </p>

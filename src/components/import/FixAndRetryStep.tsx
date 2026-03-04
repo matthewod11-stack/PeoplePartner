@@ -291,7 +291,7 @@ function EditableCell({
           issueMessage
             ? 'bg-red-50 border border-red-200 text-red-800'
             : isModified
-              ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+              ? 'bg-primary-50 border border-primary-200 text-primary-800'
               : 'border border-transparent hover:border-stone-300 text-stone-700'
         }
       `}
@@ -319,7 +319,7 @@ function EditableCell({
 
       {isModified && !issueMessage && (
         <svg
-          className="w-3 h-3 text-emerald-500 flex-shrink-0"
+          className="w-3 h-3 text-primary-500 flex-shrink-0"
           fill="currentColor"
           viewBox="0 0 20 20"
           aria-hidden="true"

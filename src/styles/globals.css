@@ -41,7 +41,7 @@ body {
   textarea:focus-visible,
   select:focus-visible,
   [tabindex]:focus-visible:not([tabindex="-1"]) {
-    outline: 2px solid #0D9488; /* primary-500 */
+    outline: 2px solid #2D9199; /* primary-500 */
     outline-offset: 2px;
     border-radius: 4px;
   }

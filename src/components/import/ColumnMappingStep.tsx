@@ -551,7 +551,7 @@ function NormalizationPreview({
                 <span
                   className={`text-xs font-medium ${
                     norm.confidence > 0.7
-                      ? 'text-emerald-600'
+                      ? 'text-primary-600'
                       : norm.confidence > 0.4
                         ? 'text-amber-600'
                         : 'text-stone-400'

@@ -127,8 +127,8 @@ function DataTypeCard({ title, description, icon, isSelected, onClick }: DataTyp
 function SuccessScreen({ result, onDone }: { result: ImportResultCommon; onDone: () => void }) {
   return (
     <div className="text-center py-8" role="status" aria-live="polite">
-      <div className="w-16 h-16 mx-auto mb-4 bg-emerald-100 rounded-full flex items-center justify-center">
-        <svg className="w-8 h-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <div className="w-16 h-16 mx-auto mb-4 bg-primary-100 rounded-full flex items-center justify-center">
+        <svg className="w-8 h-8 text-primary-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
         </svg>
       </div>

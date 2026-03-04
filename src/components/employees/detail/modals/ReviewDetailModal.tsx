@@ -94,7 +94,7 @@ export function ReviewDetailModal({
               <h4 className="text-sm font-medium text-stone-700 mb-2">
                 Strengths
               </h4>
-              <p className="text-stone-600 text-sm whitespace-pre-wrap bg-emerald-50 rounded-lg p-3 border border-emerald-100">
+              <p className="text-stone-600 text-sm whitespace-pre-wrap bg-primary-50 rounded-lg p-3 border border-primary-100">
                 {selectedReview.strengths}
               </p>
             </div>

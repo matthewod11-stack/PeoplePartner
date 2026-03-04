@@ -9,16 +9,16 @@ export default {
       colors: {
         // Primary accent (10% of UI) — Complete teal scale
         primary: {
-          50: '#F0FDFA',   // Lightest tint (backgrounds, hover states)
-          100: '#CCFBF1',  // Highlights, selected states
-          200: '#99F6E4',  // Light accent backgrounds
-          300: '#5EEAD4',  // Soft highlights, badges
-          400: '#2DD4BF',  // Mid-tone accent
-          500: '#0D9488',  // Primary actions, links (anchor)
-          600: '#0F766E',  // Hover states
-          700: '#115E59',  // Active/pressed states
-          800: '#134E4A',  // Dark accent text on light backgrounds
-          900: '#042F2E',  // Darkest tint (rare, high contrast)
+          50: '#F4F8F8',   // Lightest tint (backgrounds, hover states)
+          100: '#E5EFF0',  // Highlights, selected states
+          200: '#CAE1E2',  // Light accent backgrounds
+          300: '#9CCFD3',  // Soft highlights, badges
+          400: '#5BBBC3',  // Mid-tone accent
+          500: '#2D9199',  // Primary actions, links (anchor — logo teal)
+          600: '#237076',  // Hover states
+          700: '#1F5256',  // Active/pressed states
+          800: '#1A3A3D',  // Dark accent text on light backgrounds
+          900: '#102123',  // Darkest tint (rare, high contrast)
         },
         // Warm neutrals (90% of UI)
         stone: {

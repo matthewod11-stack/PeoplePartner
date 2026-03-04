@@ -151,7 +151,7 @@ function ValidationSummaryBar({
       >
         {cleanPct > 0 && (
           <div
-            className="bg-emerald-400 transition-all"
+            className="bg-primary-400 transition-all"
             style={{ width: `${cleanPct}%` }}
           />
         )}
@@ -172,7 +172,7 @@ function ValidationSummaryBar({
       {/* Legend */}
       <div className="mt-2 flex items-center gap-4 text-xs text-stone-600">
         <span className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-emerald-400" aria-hidden="true" />
+          <span className="w-2 h-2 rounded-full bg-primary-400" aria-hidden="true" />
           {cleanCount} clean
         </span>
         {warningCount > 0 && (

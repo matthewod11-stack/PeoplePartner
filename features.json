@@ -2,7 +2,7 @@
   "$schema": "./features.schema.json",
   "_meta": {
     "description": "Feature tracking for People Partner. Status: not-started | in-progress | pass | fail | blocked",
-    "lastUpdated": "2026-03-02",
+    "lastUpdated": "2026-03-03",
     "project": "People Partner",
     "totalFeatures": 55,
     "passing": 52,
