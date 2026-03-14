@@ -669,7 +669,7 @@ async fn import_employees(
                 continue;
             }
 
-            if employees::get_employee_by_email(&state.pool, &employee.email)
+            if employees::get_employee_by_email(&state.pool, &normalized_email)
                 .await?
                 .is_none()
             {
@@ -848,10 +848,11 @@ async fn get_average_rating(
 
 #[tauri::command]
 async fn create_performance_review(
+    app: tauri::AppHandle,
     state: tauri::State<'_, Database>,
     input: performance_reviews::CreateReview,
 ) -> Result<performance_reviews::PerformanceReview, performance_reviews::ReviewError> {
-    performance_reviews::create_review(&state.pool, input).await
+    performance_reviews::create_review(&state.pool, input, app).await
 }
 
 #[tauri::command]
@@ -2044,9 +2045,8 @@ pub fn run() {
                         println!("Database initialized successfully");
                     }
                     Err(e) => {
-                        eprintln!("Failed to initialize database: {}", e);
-                        // In production, we might want to show an error dialog
-                        // For now, we'll let the app continue and handle errors gracefully
+                        eprintln!("FATAL: Database initialization failed: {}", e);
+                        std::process::exit(1);
                     }
                 }
             });

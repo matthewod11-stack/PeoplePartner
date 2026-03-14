@@ -137,6 +137,12 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
   const [currentTitle, setCurrentTitle] = useState<string | null>(null);
   const streamingMessageId = useRef<string | null>(null);
 
+  // Ref to track current conversationId for async/stream handlers (avoids stale closures)
+  const conversationIdRef = useRef(conversationId);
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+  }, [conversationId]);
+
   // Track if title has been generated for current conversation
   const titleGenerated = useRef<Set<string>>(new Set());
 
@@ -252,6 +258,10 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
           await refreshConversations();
         } catch (err) {
           console.error('[Conversation] Auto-save failed:', err);
+          // Surface to user so they know to manually save or not close the app
+          window.dispatchEvent(new CustomEvent('conversation-save-error', {
+            detail: { error: String(err) }
+          }));
         }
       };
 
@@ -311,8 +321,15 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
         setPiiNotification(redactionResult.summary);
       }
     } catch (err) {
-      // If PII scan fails, continue with original content (fail open for usability)
       console.error('[PII] Scan failed:', err);
+      const shouldContinue = window.confirm(
+        'PII scanning is temporarily unavailable. Your message may contain sensitive information (SSN, credit cards, etc.) that would normally be redacted.\n\nSend anyway?'
+      );
+      if (!shouldContinue) {
+        setIsLoading(false);
+        return;
+      }
+      // Continue with original content if user confirms
     }
 
     // Store redacted message for audit logging
@@ -405,8 +422,9 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
           }
 
           // Create audit entry (fire-and-forget, don't block on errors)
+          // Use conversationIdRef to avoid stale closure if user switched conversations during streaming
           createAuditEntry({
-            conversation_id: conversationId,
+            conversation_id: conversationIdRef.current,
             request_redacted: redactedMessageRef.current ?? '',
             response_text: fullResponse,
             employee_ids_used: employeeIdsRef.current,

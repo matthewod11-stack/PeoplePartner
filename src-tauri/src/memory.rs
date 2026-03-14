@@ -229,24 +229,30 @@ async fn search_summaries_only(
     }
 
     // Build a query that matches any keyword in the summary
-    // For simplicity, we'll search for the first meaningful keyword
-    let search_term = format!("%{}%", keywords[0]);
+    let conditions: Vec<String> = keywords.iter()
+        .map(|_| "summary LIKE ?".to_string())
+        .collect();
+    let where_clause = conditions.join(" OR ");
 
-    let summaries = sqlx::query_as::<_, ConversationSummary>(
+    let query_str = format!(
         r#"
         SELECT id, summary, created_at
         FROM conversations
         WHERE summary IS NOT NULL
           AND summary != ''
-          AND summary LIKE ?
+          AND ({})
         ORDER BY updated_at DESC
         LIMIT ?
         "#,
-    )
-    .bind(&search_term)
-    .bind(limit as i64)
-    .fetch_all(pool)
-    .await?;
+        where_clause
+    );
+
+    let mut query = sqlx::query_as::<_, ConversationSummary>(&query_str);
+    for keyword in &keywords {
+        query = query.bind(format!("%{}%", keyword));
+    }
+    query = query.bind(limit as i64);
+    let summaries = query.fetch_all(pool).await?;
 
     Ok(summaries)
 }

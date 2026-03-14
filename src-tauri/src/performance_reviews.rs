@@ -3,6 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Row};
+use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -74,7 +75,7 @@ pub struct UpdateReview {
     pub review_date: Option<String>,
 }
 
-pub async fn create_review(pool: &DbPool, input: CreateReview) -> Result<PerformanceReview, ReviewError> {
+pub async fn create_review(pool: &DbPool, input: CreateReview, app: AppHandle) -> Result<PerformanceReview, ReviewError> {
     if input.employee_id.trim().is_empty() {
         return Err(ReviewError::Validation("employee_id is required".to_string()));
     }
@@ -110,17 +111,28 @@ pub async fn create_review(pool: &DbPool, input: CreateReview) -> Result<Perform
     let review = get_review(pool, &id).await?;
 
     // Auto-trigger: Extract highlights and regenerate summary in background
-    // Fire-and-forget pattern - don't block the create response
+    // Emits an event to the frontend if extraction fails
     let pool_clone = pool.clone();
     let review_clone = review.clone();
     tokio::spawn(async move {
+        let mut failures: Vec<String> = Vec::new();
         // Extract highlights from review text
         if let Err(e) = crate::highlights::extract_highlights_for_review(&pool_clone, &review_clone).await {
-            eprintln!("[Auto-extract] Failed for review {}: {}", review_clone.id, e);
+            let msg = format!("Highlight extraction failed for review {}: {}", review_clone.id, e);
+            eprintln!("[Auto-extract] {}", msg);
+            failures.push(msg);
         }
         // Regenerate employee summary with new highlight
         if let Err(e) = crate::highlights::generate_employee_summary(&pool_clone, &review_clone.employee_id).await {
-            eprintln!("[Auto-summary] Failed for employee {}: {}", review_clone.employee_id, e);
+            let msg = format!("Summary generation failed for employee {}: {}", review_clone.employee_id, e);
+            eprintln!("[Auto-summary] {}", msg);
+            failures.push(msg);
+        }
+        if !failures.is_empty() {
+            let _ = app.emit("highlight-extraction-error", serde_json::json!({
+                "failures": failures,
+                "count": failures.len(),
+            }));
         }
     });
 

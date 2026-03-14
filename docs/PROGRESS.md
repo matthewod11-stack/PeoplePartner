@@ -13,6 +13,7 @@
 > - [archive/PROGRESS_Phase5.1-V2.5.1.md](./archive/PROGRESS_Phase5.1-V2.5.1.md) (Phase 5.1 - V2.5.1 / Feb 6-7 2026)
 > - [archive/PROGRESS_LaunchHardening.md](./archive/PROGRESS_LaunchHardening.md) (Launch Hardening / Feb 25-26 2026)
 > - [archive/PROGRESS_LaunchPrep_B-E2E.md](./archive/PROGRESS_LaunchPrep_B-E2E.md) (Launch Prep Phase B-A + E2E / Feb 26-27 2026)
+> - [archive/PROGRESS_LaunchPrep_C-E.md](./archive/PROGRESS_LaunchPrep_C-E.md) (Launch Prep Phase C-E / Feb 27 - Mar 2 2026)
 
 ---
 
@@ -20,6 +21,58 @@
 === ADD NEW SESSIONS AT THE TOP ===
 Most recent session should be first.
 -->
+
+## Session: 2026-03-14 (Comprehensive Code Review + Audit Fix Sprint)
+
+**Phase:** Pre-Launch / Quality Hardening
+**Focus:** 4-agent comprehensive code review, independent verification, and systematic fix of all findings across desktop app + website
+
+### Completed
+- [x] **Comprehensive code review** — dispatched 4 specialized agents (Rust quality, React/TS quality, Security audit, Silent failure hunter) reviewing ~44k lines
+- [x] **Independent verification** — separate agent confirmed 10/14 top findings, flagged 3 as overstated, 0 false positives
+- [x] **All findings documented** — 31 issues captured in `docs/KNOWN_ISSUES.md` with verification notes
+- [x] **C1a/b/c: UTF-8 panics fixed** — `pii.rs`, `audit.rs`, `conversations.rs` now use `char_indices()` for safe slicing
+- [x] **C2: DB init failure** — `db.rs` returns Result instead of panicking; `lib.rs` exits cleanly on failure
+- [x] **C3: PII fail-closed** — `ConversationContext.tsx` shows confirm dialog when PII scan fails
+- [x] **H1: Backup transaction** — `backup.rs` restore wrapped in SQLite transaction with rollback on failure
+- [x] **H4: Trial fail-closed** — `TrialContext.tsx` defaults to trial mode on error
+- [x] **H5: Stale conversationId** — `ConversationContext.tsx` uses ref for stable async access
+- [x] **H6: Modal scroll lock** — `Modal.tsx` uses counter stack for nested modals
+- [x] **H9: Email casing** — `lib.rs` uses normalized_email for DB lookup
+- [x] **M1: Memory search** — `memory.rs` now uses all keywords with LIKE OR-chain
+- [x] **M2: Migration parser** — `db.rs` scoped "already exists" suppression to ALTER TABLE only
+- [x] **M3: Auto-save notification** — `ConversationContext.tsx` dispatches CustomEvent on save failure
+- [x] **M4: Offline keyboard** — `ChatInput.tsx` Enter key respects isOffline
+- [x] **M5: Settings error banner** — `SettingsPanel.tsx` shows amber warning on load failures
+- [x] **M6: Static regex** — `context.rs` uses LazyLock for 5 verify_response regexes
+- [x] **M7: Highlight extraction errors** — `bulk_import.rs` returns warnings; `performance_reviews.rs` emits events
+- [x] **M8: FTS rebuild** — `backup.rs` rebuilds FTS indexes after restore
+- [x] **W1: License key removed from Stripe metadata** — `checkout/route.ts`
+- [x] **W2: Rate limiting** — new `lib/server/rate-limit.ts`, applied to checkout (5/min) and validate (10/min)
+- [x] **W3: License key masked** — `SuccessContent.tsx` shows last 4 chars with reveal toggle
+- [x] **W4: Cookie consent** — new `CookieConsent.tsx`, tracking pixels gated on consent
+- [x] **W5: Security headers** — new `middleware.ts` with HSTS, X-Frame-Options, etc.
+
+### Verification
+- [x] `cargo test` — 382 passed, 0 failed, 1 ignored
+- [x] `npx tsc --noEmit` (desktop) — clean
+- [x] `npx tsc --noEmit` (website) — clean
+
+### Issues Encountered
+- Website review agent couldn't access `hr-command-center/` repo (outside session working directory) — resolved by reading files directly from main session
+- 3 findings downgraded after independent verification: C4 (stream events — idiomatic Tauri), H3 (backup secrets — encrypted), H8 (trial TOCTOU — single-user app)
+
+### Remaining
+- **C5: Apple credentials in .env** — manual action: rotate app-specific password at appleid.apple.com
+- Website fixes committed separately (different repo)
+
+### Next Session Should
+1. **Rotate Apple app-specific password** (C5 — manual action)
+2. **Commit website changes** in `hr-command-center` repo separately
+3. **Cut first release build** — the codebase is now hardened for launch
+4. **Consider remaining medium items** — AUDIT-M entries for org aggregates error handling, conversation title generation, summary generation
+
+---
 
 ## Session: 2026-03-04 (E2E Launch Infrastructure Verification)
 
@@ -295,195 +348,6 @@ Most recent session should be first.
 3. Test: chat references to indexed documents (citation format)
 4. Consider Task 14 (formal integration verification) and Task 15 (tracking) as complete
 5. Remaining from plan: no code tasks left, just verification
-
----
-
-## Session: 2026-03-02 (V3.0 Design — Document Ingestion + Phase E.4 Upgrade Wizard)
-
-**Phase:** V3.0 Feature Design + Launch Prep E.4
-**Focus:** Brainstorm and design document ingestion feature; finish upgrade flow wizard
-
-### Completed
-- [x] **Phase E.4 — Upgrade Flow Wizard:** Rewrote `UpgradePrompt.tsx` as 4-step wizard (purchase → license → provider → complete)
-- [x] **TrialContext fix:** Hard prompt dismissal after upgrade completes
-- [x] **V3.0 Brainstorming:** Full collaborative design session for document ingestion feature
-- [x] **Design decisions:** FTS5 retrieval, section-aware chunking, PII scan-and-redact, all file types (.md/.txt/.csv/.pdf/.docx/.xlsx), FSEvents auto-watch, settings-only UI, inline citations
-- [x] **Design doc:** Wrote and committed `docs/plans/2026-03-02-document-ingestion-design.md`
-- [x] **Implementation plan:** Wrote and committed `docs/plans/2026-03-02-document-ingestion-plan.md` (15 tasks)
-- [x] **Windmill research:** Analyzed gowindmill.com Slack integration approach for performance management inspiration
-
-### Verification
-- [x] `npx tsc --noEmit` — clean
-- [x] `npm run build` — successful
-- [x] `cargo test` — 354 passed, 0 failed, 1 ignored
-
-### Files Modified/Created
-| File | Change |
-|------|--------|
-| `src/components/trial/UpgradePrompt.tsx` | Full rewrite — 4-step upgrade wizard |
-| `src/contexts/TrialContext.tsx` | Hard prompt dismiss after upgrade |
-| `ROADMAP_LAUNCH_PREP.md` | Checked off E.4.1, E.4.2 |
-| `features.json` | Updated multi-provider-ui notes |
-| `docs/plans/2026-03-02-document-ingestion-design.md` | **NEW** — approved design doc |
-| `docs/plans/2026-03-02-document-ingestion-plan.md` | **NEW** — 15-task implementation plan |
-
-### Next Session Should
-1. Start implementing document ingestion using `docs/plans/2026-03-02-document-ingestion-plan.md`
-2. Use `superpowers:executing-plans` or `superpowers:subagent-driven-development` skill to work through the 15 tasks
-3. Begin with Task 1 (DB migration) and Task 2 (Rust dependencies) — low complexity warm-up
-4. The plan has complete code for every task — follow it step by step
-5. Phase E remaining items (E.5.2 manual E2E, Phase F) can wait until after V3.0 doc ingestion ships
-
----
-
-## Session: 2026-03-02 (Launch Prep Phase E.4 — Upgrade Flow Wizard)
-
-**Phase:** Launch Prep Phase E.4
-**Focus:** Transform UpgradePrompt from simple external link into multi-step upgrade wizard
-
-### Completed
-- [x] **UpgradePrompt rewrite:** Converted single-view modal into 4-step wizard (purchase → license → provider → complete)
-- [x] **Step 1 (Purchase):** Kept existing pricing card + "Upgrade Now" button, added "I already have a license key" link
-- [x] **Step 2 (License):** Embedded `LicenseKeyInput` inline, auto-advances to provider step on save
-- [x] **Step 3 (Provider):** `ProviderPicker` + `ApiKeyInput` inline with step progress indicator
-- [x] **Step 4 (Complete):** Success confirmation with "Start Using HR Command Center" CTA
-- [x] **TrialContext fix:** Updated `dismissUpgradePrompt` to allow hard prompt dismissal once user leaves trial mode (completed upgrade)
-- [x] **Roadmap:** Checked off E.4.1 and E.4.2 in ROADMAP_LAUNCH_PREP.md
-
-### Verification
-- [x] `npx tsc --noEmit` — clean
-- [x] `npm run build` — successful
-- [x] `cargo test` — 354 passed, 0 failed, 1 ignored
-
-### Files Modified
-| File | Change |
-|------|--------|
-| `src/components/trial/UpgradePrompt.tsx` | Full rewrite — 4-step upgrade wizard |
-| `src/contexts/TrialContext.tsx` | Hard prompt dismiss when no longer in trial |
-| `ROADMAP_LAUNCH_PREP.md` | Checked off E.4.1, E.4.2 |
-
-### Next Session Should
-- Run `cargo tauri dev` for manual E2E testing of the full upgrade wizard flow
-- Test E.5.2: fresh install → trial → upgrade prompt → "I have a key" → license → provider → key → chat
-- Test hard prompt scenario (0 messages remaining → wizard is the only path forward)
-- Consider moving to Phase F (final integration + launch ready) if E2E looks good
-
----
-
-## Session: 2026-03-01 (Launch Prep Phase E — Frontend Provider Picker)
-
-**Phase:** Launch Prep Phase E
-**Focus:** Wire multi-provider infrastructure to React UI — provider picker, updated onboarding, settings panel
-
-### Completed
-- [x] **Backend:** Added 3 Tauri commands (`has_provider_api_key`, `delete_provider_api_key`, `has_any_provider_api_key`) + registered in `generate_handler!`
-- [x] **TypeScript types:** Added `ProviderInfo` to `types.ts`, 8 provider wrappers to `tauri-commands.ts`
-- [x] **Provider config:** Created `src/lib/provider-config.ts` — static display metadata per provider (brand colors, setup guides, console URLs)
-- [x] **ProviderPicker:** New shared card picker component (`src/components/settings/ProviderPicker.tsx`) with brand-colored cards, selection checkmark, key-status badges
-- [x] **ApiKeyInput refactored:** Added `providerId` prop — dynamically switches between legacy Anthropic and per-provider APIs. Backward-compatible when unset.
-- [x] **api-key-errors.ts:** Provider-aware `getApiKeyErrorHint()` — cross-detects OpenAI/Gemini/Anthropic key prefixes
-- [x] **ApiKeyStep rebuilt:** Two-phase flow (Phase 1: provider selection, Phase 2: provider-specific key setup with dynamic guide)
-- [x] **OnboardingContext:** Step 2 renamed "AI Provider", uses `hasAnyProviderApiKey()` instead of `hasApiKey()`
-- [x] **OnboardingFlow:** Step 2 title updated to "Choose your AI provider"
-- [x] **SettingsPanel:** "API Connection" section replaced with "AI Provider" section (ProviderPicker compact + provider-aware ApiKeyInput)
-
-### Verification
-- [x] `cargo test` — 354 passed, 0 failed, 1 ignored
-- [x] `npx tsc --noEmit` — clean
-- [x] `npm run build` — successful
-
-### Files Modified
-| File | Change |
-|------|--------|
-| `src-tauri/src/lib.rs` | +3 Tauri commands + handler registration |
-| `src/lib/types.ts` | +`ProviderInfo` type |
-| `src/lib/tauri-commands.ts` | +8 provider wrappers |
-| `src/lib/provider-config.ts` | **NEW** — provider display metadata |
-| `src/lib/api-key-errors.ts` | Provider-aware error hints |
-| `src/components/settings/ProviderPicker.tsx` | **NEW** — shared card picker |
-| `src/components/settings/ApiKeyInput.tsx` | +`providerId` prop |
-| `src/components/onboarding/steps/ApiKeyStep.tsx` | Two-phase provider+key flow |
-| `src/components/onboarding/OnboardingContext.tsx` | Step name + completion check |
-| `src/components/onboarding/OnboardingFlow.tsx` | Step title/subtitle |
-| `src/components/settings/SettingsPanel.tsx` | Provider section replaces API section |
-
-### Next Session Should
-- Run `cargo tauri dev` for manual E2E testing of the provider picker flow (onboarding + settings)
-- Test switching providers in settings and verifying key-status badges update
-- Consider Phase F (E2E testing with real API keys for all 3 providers)
-- Update ROADMAP_LAUNCH_PREP.md with Phase E completion
-
----
-
-## Session: 2026-02-27 (Launch Prep Phase D — Gemini Provider)
-
-**Phase:** Launch Prep Phase D
-**Focus:** Implement Google Gemini as third AI provider
-
-### Completed
-- [x] Created `src-tauri/src/providers/gemini.rs` (~290 LOC) — full Provider trait implementation for Gemini Generative Language API
-- [x] Wire types: GenerateContentRequest, GeminiContent, Part, SystemInstruction, GenerationConfig, GenerateContentResponse, Candidate, CandidateContent, UsageMetadata, ApiErrorResponse
-- [x] System prompt via separate `systemInstruction` field (like Anthropic's top-level `system`)
-- [x] Role mapping: `"assistant"` → `"model"` for Gemini API compatibility
-- [x] Separate streaming endpoint: `streamGenerateContent?alt=sse` (vs body flag for Anthropic/OpenAI)
-- [x] Auth: `x-goog-api-key` header (vs Bearer for OpenAI, x-api-key for Anthropic)
-- [x] Key validation: `AIzaSy` prefix + exactly 39 chars total
-- [x] Token mapping: `promptTokenCount` → `input_tokens`, `candidatesTokenCount` → `output_tokens`
-- [x] SSE streaming: finishReason field signals Done (no `[DONE]` marker like OpenAI)
-- [x] Multiple text parts joined in both response and SSE parsing
-- [x] Registered in `providers/mod.rs`: module declaration, `get_provider("gemini")` match arm, `available_providers()` entry
-- [x] 19 unit tests covering all trait methods, request building, role mapping, URL construction
-- [x] Checked off D.1–D.8 in ROADMAP_LAUNCH_PREP.md
-
-### Verification
-- [x] `cargo test gemini` — 19 passed, 0 failed
-- [x] `cargo test` — 354 passed, 0 failed, 1 ignored (335 existing + 19 new)
-- [x] `npx tsc --noEmit` — clean
-- [x] `npm run build` — success
-
-### Issues Encountered
-- `openai.rs` from Phase C session is still untracked (never committed) — should be committed
-- Test key string was 1 char short initially; fixed by verifying exact 39-char length
-
-### Next Session Should
-- Commit the orphaned `src-tauri/src/providers/openai.rs` from Phase C
-- Pick up Phase D.9 (manual test with real Gemini key) or move to Phase E (Frontend provider picker + updated onboarding)
-
----
-
-## Session: 2026-02-27 (Launch Prep Phase C — OpenAI Provider)
-
-**Phase:** Launch Prep Phase C
-**Focus:** Implement OpenAI as second AI provider using the Provider trait abstraction
-
-### Completed
-- [x] Created `src-tauri/src/providers/openai.rs` (~280 LOC) — full Provider trait implementation for OpenAI Chat Completions API
-- [x] Wire types: ChatCompletionRequest, OpenAIMessage, ChatCompletionResponse, Choice, Usage, ApiErrorResponse, StreamChunkResponse, StreamChoice, StreamDeltaContent
-- [x] System prompt injected as `messages[0]` with `role: "system"` (vs Anthropic's top-level `system` field)
-- [x] SSE streaming: `[DONE]` checked before JSON parse, `finish_reason: "stop"` returns None to avoid double-Done
-- [x] Auth: `Authorization: Bearer {key}` header (vs Anthropic's `x-api-key`)
-- [x] Key validation: `sk-` prefix + length > 20
-- [x] Token mapping: `prompt_tokens` → `input_tokens`, `completion_tokens` → `output_tokens`
-- [x] Registered in `providers/mod.rs`: module declaration, `get_provider("openai")` match arm, `available_providers()` entry
-- [x] 16 unit tests covering all trait methods + request building
-- [x] Checked off C.1–C.8 in ROADMAP_LAUNCH_PREP.md
-
-### Verification
-- [x] `cargo test openai` — 16 passed, 0 failed
-- [x] `cargo test` — 335 passed, 0 failed, 1 ignored (319 existing + 16 new)
-- [x] `npx tsc --noEmit` — 0 errors (no frontend changes)
-- [x] `npm run build` — successful
-
-### Architecture Notes
-- Zero changes to chat.rs, keyring.rs, lib.rs, Cargo.toml, or frontend — the Phase B abstraction handles everything
-- `build_chat_request()` is private (unlike Anthropic's public `build_message_request()` which the trial proxy needs)
-- Model defaults to `gpt-4o` with 4096 max tokens
-- OpenAI's null content field handled via `unwrap_or_default()`
-
-### Next Session Should
-1. C.9 — Manual test with a real OpenAI API key (`cargo tauri dev`, switch provider, enter key, send message)
-2. Pick up Phase D (Gemini Provider) — same pattern: one file + registry edits
-3. Or skip to Phase E (Frontend Provider Picker UI) if provider backends are sufficient
 
 ---
 

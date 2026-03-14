@@ -2903,6 +2903,29 @@ pub async fn get_system_prompt_for_message(
 // ============================================================================
 
 use regex::Regex;
+use std::sync::LazyLock;
+
+// Static regex patterns for numeric claim extraction (compiled once)
+static HEADCOUNT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(\d+)\s*(?:total\s+)?(?:employees?|people|team\s*members?|staff|headcount)")
+        .expect("headcount regex")
+});
+static ACTIVE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(\d+)\s*active(?:\s+employees?)?|active[:\s]+(\d+)")
+        .expect("active count regex")
+});
+static RATING_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:average|avg|mean)\s*(?:rating|score)?[:\s]*(?:of\s+|is\s+)?(\d+\.?\d*)|(\d+\.?\d*)\s*(?:average|avg)")
+        .expect("rating regex")
+});
+static ENPS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"enps\s*(?:score)?[:\s]*(?:of\s+|is\s+)?([+-]?\d+)|([+-]?\d+)\s*enps")
+        .expect("eNPS regex")
+});
+static TURNOVER_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(\d+\.?\d*)\s*%\s*(?:turnover|attrition)|(?:turnover|attrition)\s*(?:rate)?[:\s]*(?:of\s+)?(\d+\.?\d*)\s*%")
+        .expect("turnover regex")
+});
 
 /// Verify numeric claims in Claude's response against ground truth aggregates
 pub fn verify_response(
@@ -2950,8 +2973,7 @@ fn extract_numeric_claims(response: &str, agg: &OrgAggregates) -> Vec<NumericCla
 
     // Headcount patterns: "100 employees", "have 100 people", "headcount of 100"
     // Also match "100 total employees", "100 active employees", etc.
-    let headcount_re = Regex::new(r"(\d+)\s*(?:total\s+)?(?:employees?|people|team\s*members?|staff|headcount)").unwrap();
-    for cap in headcount_re.captures_iter(&response_lower) {
+    for cap in HEADCOUNT_RE.captures_iter(&response_lower) {
         if let Ok(n) = cap[1].parse::<f64>() {
             // Check if this is specifically about active employees
             let context_before = &response_lower[..cap.get(0).unwrap().start()];
@@ -2973,8 +2995,7 @@ fn extract_numeric_claims(response: &str, agg: &OrgAggregates) -> Vec<NumericCla
     }
 
     // Active count patterns: "82 active", "active: 82"
-    let active_re = Regex::new(r"(\d+)\s*active(?:\s+employees?)?|active[:\s]+(\d+)").unwrap();
-    for cap in active_re.captures_iter(&response_lower) {
+    for cap in ACTIVE_RE.captures_iter(&response_lower) {
         let num_str = cap.get(1).or(cap.get(2)).map(|m| m.as_str());
         if let Some(ns) = num_str {
             if let Ok(n) = ns.parse::<f64>() {
@@ -2993,8 +3014,7 @@ fn extract_numeric_claims(response: &str, agg: &OrgAggregates) -> Vec<NumericCla
 
     // Average rating patterns: "average rating of 3.4", "3.4 average", "avg rating is 3.4"
     if let Some(avg_rating) = agg.avg_rating {
-        let rating_re = Regex::new(r"(?:average|avg|mean)\s*(?:rating|score)?[:\s]*(?:of\s+|is\s+)?(\d+\.?\d*)|(\d+\.?\d*)\s*(?:average|avg)").unwrap();
-        for cap in rating_re.captures_iter(&response_lower) {
+        for cap in RATING_RE.captures_iter(&response_lower) {
             let num_str = cap.get(1).or(cap.get(2)).map(|m| m.as_str());
             if let Some(ns) = num_str {
                 if let Ok(n) = ns.parse::<f64>() {
@@ -3013,8 +3033,7 @@ fn extract_numeric_claims(response: &str, agg: &OrgAggregates) -> Vec<NumericCla
     }
 
     // eNPS patterns: "eNPS of +12", "eNPS is -5", "eNPS: 12", "eNPS score of 15"
-    let enps_re = Regex::new(r"enps\s*(?:score)?[:\s]*(?:of\s+|is\s+)?([+-]?\d+)|([+-]?\d+)\s*enps").unwrap();
-    for cap in enps_re.captures_iter(&response_lower) {
+    for cap in ENPS_RE.captures_iter(&response_lower) {
         let num_str = cap.get(1).or(cap.get(2)).map(|m| m.as_str());
         if let Some(ns) = num_str {
             if let Ok(n) = ns.parse::<f64>() {
@@ -3033,8 +3052,7 @@ fn extract_numeric_claims(response: &str, agg: &OrgAggregates) -> Vec<NumericCla
 
     // Turnover rate patterns: "14.6% turnover", "turnover rate of 14.6%", "attrition of 12%"
     if let Some(turnover_rate) = agg.attrition.turnover_rate_annualized {
-        let turnover_re = Regex::new(r"(\d+\.?\d*)\s*%\s*(?:turnover|attrition)|(?:turnover|attrition)\s*(?:rate)?[:\s]*(?:of\s+)?(\d+\.?\d*)\s*%").unwrap();
-        for cap in turnover_re.captures_iter(&response_lower) {
+        for cap in TURNOVER_RE.captures_iter(&response_lower) {
             let num_str = cap.get(1).or(cap.get(2)).map(|m| m.as_str());
             if let Some(ns) = num_str {
                 if let Ok(n) = ns.parse::<f64>() {
@@ -3056,7 +3074,7 @@ fn extract_numeric_claims(response: &str, agg: &OrgAggregates) -> Vec<NumericCla
             r"(\d+\.?\d*)\s*%\s*(?:in\s+|of\s+)?{}|{}\s*\(?(\d+\.?\d*)\s*%",
             regex::escape(&dept_lower),
             regex::escape(&dept_lower)
-        )).unwrap();
+        )).expect("department percentage regex");
 
         for cap in dept_pct_re.captures_iter(&response_lower) {
             let num_str = cap.get(1).or(cap.get(2)).map(|m| m.as_str());

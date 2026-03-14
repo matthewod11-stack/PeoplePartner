@@ -8,6 +8,10 @@
 import { useEffect, useCallback, useId, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
+// Track how many modals are currently open to prevent scroll lock leaking
+// when nested modals close before their parent
+let modalCount = 0;
+
 interface ModalProps {
   /** Whether the modal is open */
   isOpen: boolean;
@@ -78,30 +82,34 @@ export function Modal({
 
   // Focus trap initialization + body scroll lock
   useEffect(() => {
-    if (isOpen) {
-      previousFocusRef.current = document.activeElement as HTMLElement | null;
-      document.body.style.overflow = 'hidden';
+    if (!isOpen) return;
 
-      window.setTimeout(() => {
-        const dialog = dialogRef.current;
-        if (!dialog) {
-          return;
-        }
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    modalCount++;
+    document.body.style.overflow = 'hidden';
 
-        const firstFocusable = dialog.querySelector<HTMLElement>(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        );
+    window.setTimeout(() => {
+      const dialog = dialogRef.current;
+      if (!dialog) {
+        return;
+      }
 
-        if (firstFocusable) {
-          firstFocusable.focus();
-        } else {
-          dialog.focus();
-        }
-      }, 0);
-    }
+      const firstFocusable = dialog.querySelector<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+
+      if (firstFocusable) {
+        firstFocusable.focus();
+      } else {
+        dialog.focus();
+      }
+    }, 0);
 
     return () => {
-      document.body.style.overflow = '';
+      modalCount--;
+      if (modalCount === 0) {
+        document.body.style.overflow = '';
+      }
       previousFocusRef.current?.focus();
     };
   }, [isOpen]);

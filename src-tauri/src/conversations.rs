@@ -362,7 +362,13 @@ pub async fn generate_title(first_message: &str) -> Result<String, ConversationE
 
     // Truncate if too long (fallback safety)
     if title.len() > 60 {
-        Ok(title[..60].to_string())
+        let end = title
+            .char_indices()
+            .take_while(|(i, _)| *i <= 60)
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(title.len());
+        Ok(format!("{}...", &title[..end]))
     } else {
         Ok(title)
     }

@@ -26,6 +26,8 @@ impl From<sqlx::Error> for ImportError {
 pub struct BulkImportResult {
     pub inserted: usize,
     pub errors: Vec<String>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 // ============================================================================
@@ -141,7 +143,7 @@ pub async fn import_review_cycles(
         }
     }
 
-    Ok(BulkImportResult { inserted, errors })
+    Ok(BulkImportResult { inserted, errors, warnings: Vec::new() })
 }
 
 /// Import employees with predefined IDs (preserves foreign key references)
@@ -187,7 +189,7 @@ pub async fn import_employees_bulk(
         }
     }
 
-    Ok(BulkImportResult { inserted, errors })
+    Ok(BulkImportResult { inserted, errors, warnings: Vec::new() })
 }
 
 /// Import performance ratings with predefined IDs
@@ -224,7 +226,7 @@ pub async fn import_ratings_bulk(
         }
     }
 
-    Ok(BulkImportResult { inserted, errors })
+    Ok(BulkImportResult { inserted, errors, warnings: Vec::new() })
 }
 
 /// Import performance reviews with predefined IDs
@@ -270,26 +272,28 @@ pub async fn import_reviews_bulk(
         }
     }
 
-    // Auto-trigger: Extract highlights and regenerate summaries in background
-    // Fire-and-forget pattern - don't block the import response
+    // Auto-trigger: Extract highlights and regenerate summaries after import
+    // Runs inline so failures are surfaced as warnings in the result
+    let mut warnings = Vec::new();
     if !inserted_review_ids.is_empty() {
-        let pool_clone = pool.clone();
         let employee_ids: Vec<String> = affected_employee_ids.into_iter().collect();
-        tokio::spawn(async move {
-            // Batch extract with rate limiting (100ms between API calls)
-            if let Err(e) = crate::highlights::extract_highlights_batch(&pool_clone, inserted_review_ids).await {
-                eprintln!("[Auto-extract batch] Failed: {}", e);
+        // Batch extract with rate limiting (100ms between API calls)
+        if let Err(e) = crate::highlights::extract_highlights_batch(pool, inserted_review_ids).await {
+            let msg = format!("[Auto-extract batch] Failed: {}", e);
+            eprintln!("{}", msg);
+            warnings.push(msg);
+        }
+        // Regenerate summaries for all affected employees
+        for emp_id in &employee_ids {
+            if let Err(e) = crate::highlights::generate_employee_summary(pool, emp_id).await {
+                let msg = format!("[Auto-summary] Failed for employee {}: {}", emp_id, e);
+                eprintln!("{}", msg);
+                warnings.push(msg);
             }
-            // Regenerate summaries for all affected employees
-            for emp_id in employee_ids {
-                if let Err(e) = crate::highlights::generate_employee_summary(&pool_clone, &emp_id).await {
-                    eprintln!("[Auto-summary] Failed for employee {}: {}", emp_id, e);
-                }
-            }
-        });
+        }
     }
 
-    Ok(BulkImportResult { inserted, errors })
+    Ok(BulkImportResult { inserted, errors, warnings })
 }
 
 /// Import eNPS responses with predefined IDs
@@ -323,7 +327,7 @@ pub async fn import_enps_bulk(
         }
     }
 
-    Ok(BulkImportResult { inserted, errors })
+    Ok(BulkImportResult { inserted, errors, warnings: Vec::new() })
 }
 
 // ============================================================================

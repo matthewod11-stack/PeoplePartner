@@ -233,6 +233,22 @@ static MEDICAL_KEYWORDS_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Clamp a byte index to the nearest valid char boundary (rounding down).
+fn clamp_to_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut i = index;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+// ============================================================================
 // Detection Functions
 // ============================================================================
 
@@ -360,8 +376,8 @@ pub fn detect_bank_accounts(text: &str) -> Vec<PiiMatch> {
         }
 
         // Check if there's a bank keyword within 50 characters
-        let context_start = m.start().saturating_sub(50);
-        let context_end = (m.end() + 50).min(text.len());
+        let context_start = clamp_to_char_boundary(&text_lower, m.start().saturating_sub(50));
+        let context_end = clamp_to_char_boundary(&text_lower, (m.end() + 50).min(text_lower.len()));
         let context = &text_lower[context_start..context_end];
 
         let near_keyword = BANK_CONTEXT_KEYWORDS
@@ -388,8 +404,8 @@ pub fn detect_bank_accounts(text: &str) -> Vec<PiiMatch> {
         }
 
         // Check for "routing" keyword specifically
-        let context_start = m.start().saturating_sub(30);
-        let context_end = (m.end() + 30).min(text.len());
+        let context_start = clamp_to_char_boundary(&text_lower, m.start().saturating_sub(30));
+        let context_end = clamp_to_char_boundary(&text_lower, (m.end() + 30).min(text_lower.len()));
         let context = &text_lower[context_start..context_end];
 
         if context.contains("routing") || context.contains("aba") {

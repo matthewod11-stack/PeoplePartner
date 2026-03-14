@@ -106,7 +106,16 @@ export function TrialProvider({ children }: TrialProviderProps) {
       }
     } catch (err) {
       console.error('[Trial] Failed to fetch trial status:', err);
-      // On error, assume not in trial mode (fail open)
+      // Fail closed: assume trial mode on error to prevent unauthorized full access
+      setTrialStatus({
+        is_trial: true,
+        has_license: false,
+        has_api_key: false,
+        messages_used: 0,
+        messages_limit: 50,
+        employees_used: 0,
+        employees_limit: 10,
+      });
     }
   }, []);
 

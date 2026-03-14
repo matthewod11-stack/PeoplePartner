@@ -50,6 +50,9 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   const [fairnessLensAcknowledged, setFairnessLensAcknowledged] = useState(false);
   const [showFairnessDisclaimer, setShowFairnessDisclaimer] = useState(false);
 
+  // Settings load error state
+  const [loadError, setLoadError] = useState(false);
+
   // Phase E: AI Provider state
   const [activeProviderState, setActiveProviderState] = useState('anthropic');
   const [providerKeyStatus, setProviderKeyStatus] = useState<Record<string, boolean>>({});
@@ -57,36 +60,66 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
   // Load settings on mount
   useEffect(() => {
     if (isOpen) {
+      setLoadError(false);
+
       getDataPath()
         .then(setDataPath)
-        .catch(() => setDataPath('Unable to determine'));
+        .catch((err) => {
+          console.error('[Settings] Failed to load data path:', err);
+          setLoadError(true);
+          setDataPath('Unable to determine');
+        });
 
       getSetting('telemetry_enabled')
         .then((value) => setTelemetryEnabled(value === 'true'))
-        .catch(() => setTelemetryEnabled(false));
+        .catch((err) => {
+          console.error('[Settings] Failed to load telemetry_enabled:', err);
+          setLoadError(true);
+          setTelemetryEnabled(false);
+        });
 
       // V2.4.1: Load signals settings
       getSetting('signals_enabled')
         .then((value) => setSignalsEnabled(value === 'true'))
-        .catch(() => setSignalsEnabled(false));
+        .catch((err) => {
+          console.error('[Settings] Failed to load signals_enabled:', err);
+          setLoadError(true);
+          setSignalsEnabled(false);
+        });
 
       getSetting('signals_acknowledged')
         .then((value) => setSignalsAcknowledged(value === 'true'))
-        .catch(() => setSignalsAcknowledged(false));
+        .catch((err) => {
+          console.error('[Settings] Failed to load signals_acknowledged:', err);
+          setLoadError(true);
+          setSignalsAcknowledged(false);
+        });
 
       // V2.4.2: Load fairness lens settings
       getSetting('fairness_lens_enabled')
         .then((value) => setFairnessLensEnabled(value === 'true'))
-        .catch(() => setFairnessLensEnabled(false));
+        .catch((err) => {
+          console.error('[Settings] Failed to load fairness_lens_enabled:', err);
+          setLoadError(true);
+          setFairnessLensEnabled(false);
+        });
 
       getSetting('fairness_lens_acknowledged')
         .then((value) => setFairnessLensAcknowledged(value === 'true'))
-        .catch(() => setFairnessLensAcknowledged(false));
+        .catch((err) => {
+          console.error('[Settings] Failed to load fairness_lens_acknowledged:', err);
+          setLoadError(true);
+          setFairnessLensAcknowledged(false);
+        });
 
       // Phase E: Load active provider and key status
       getActiveProvider()
         .then(setActiveProviderState)
-        .catch(() => setActiveProviderState('anthropic'));
+        .catch((err) => {
+          console.error('[Settings] Failed to load active provider:', err);
+          setLoadError(true);
+          setActiveProviderState('anthropic');
+        });
 
       loadProviderKeyStatus();
     }
@@ -223,6 +256,12 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
         maxWidth="max-w-xl"
       >
         <div className="space-y-6">
+          {loadError && (
+            <div className="text-sm text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">
+              Some settings could not be loaded. Displayed values may not reflect your configuration.
+            </div>
+          )}
+
           {/* Trial Account Section */}
           <section>
             <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">

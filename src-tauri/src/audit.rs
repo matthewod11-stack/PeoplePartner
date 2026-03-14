@@ -387,7 +387,13 @@ fn truncate_preview(text: &str, max_len: usize) -> String {
     if trimmed.len() <= max_len {
         trimmed.to_string()
     } else {
-        format!("{}...", &trimmed[..max_len.saturating_sub(3)])
+        let end = trimmed
+            .char_indices()
+            .take_while(|(i, _)| *i < max_len.saturating_sub(3))
+            .last()
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0);
+        format!("{}...", &trimmed[..end])
     }
 }
 

@@ -14,7 +14,7 @@ use chrono::{DateTime, Utc};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqliteConnection, SqlitePool};
 use std::io::{Read, Write};
 use thiserror::Error;
 
@@ -603,36 +603,47 @@ async fn fetch_all_tables(pool: &SqlitePool) -> Result<BackupTables, BackupError
 /// Clear all tables in FK-safe order for import
 /// Order: enps_responses → performance_reviews → performance_ratings → audit_log
 ///        → conversations → employees → review_cycles → settings → company
-pub async fn clear_all_tables(pool: &SqlitePool) -> Result<(), BackupError> {
+/// FTS tables are cleared AFTER their content tables so DELETE triggers can fire.
+async fn clear_all_tables(conn: &mut SqliteConnection) -> Result<(), BackupError> {
     // Child tables first (those with foreign keys)
     sqlx::query("DELETE FROM enps_responses")
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     sqlx::query("DELETE FROM performance_reviews")
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     sqlx::query("DELETE FROM performance_ratings")
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
-    sqlx::query("DELETE FROM audit_log").execute(pool).await?;
-
-    // Also clear FTS tables to avoid orphaned entries
-    sqlx::query("DELETE FROM conversations_fts")
-        .execute(pool)
-        .await?;
-    sqlx::query("DELETE FROM performance_reviews_fts")
-        .execute(pool)
+    sqlx::query("DELETE FROM audit_log")
+        .execute(&mut *conn)
         .await?;
 
+    // Content tables before their FTS indexes (DELETE triggers populate FTS delete log)
     sqlx::query("DELETE FROM conversations")
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
-    sqlx::query("DELETE FROM employees").execute(pool).await?;
+    sqlx::query("DELETE FROM conversations_fts")
+        .execute(&mut *conn)
+        .await?;
+
+    sqlx::query("DELETE FROM employees")
+        .execute(&mut *conn)
+        .await?;
     sqlx::query("DELETE FROM review_cycles")
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
-    sqlx::query("DELETE FROM settings").execute(pool).await?;
-    sqlx::query("DELETE FROM company").execute(pool).await?;
+    sqlx::query("DELETE FROM settings")
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("DELETE FROM company")
+        .execute(&mut *conn)
+        .await?;
+
+    // Note: performance_reviews_fts is cleared after performance_reviews above
+    sqlx::query("DELETE FROM performance_reviews_fts")
+        .execute(&mut *conn)
+        .await?;
 
     Ok(())
 }
@@ -641,7 +652,7 @@ pub async fn clear_all_tables(pool: &SqlitePool) -> Result<(), BackupError> {
 // Database Restore Functions (FK-safe order: parent → child)
 // ============================================================================
 
-async fn restore_company(pool: &SqlitePool, rows: &[CompanyRow]) -> Result<usize, BackupError> {
+async fn restore_company(conn: &mut SqliteConnection, rows: &[CompanyRow]) -> Result<usize, BackupError> {
     for row in rows {
         sqlx::query(
             r#"INSERT INTO company (id, name, state, industry, created_at)
@@ -652,13 +663,13 @@ async fn restore_company(pool: &SqlitePool, rows: &[CompanyRow]) -> Result<usize
         .bind(&row.state)
         .bind(&row.industry)
         .bind(&row.created_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
 }
 
-async fn restore_settings(pool: &SqlitePool, rows: &[SettingsRow]) -> Result<usize, BackupError> {
+async fn restore_settings(conn: &mut SqliteConnection, rows: &[SettingsRow]) -> Result<usize, BackupError> {
     for row in rows {
         sqlx::query(
             r#"INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)"#,
@@ -666,14 +677,14 @@ async fn restore_settings(pool: &SqlitePool, rows: &[SettingsRow]) -> Result<usi
         .bind(&row.key)
         .bind(&row.value)
         .bind(&row.updated_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
 }
 
 async fn restore_review_cycles(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     rows: &[ReviewCycleRow],
 ) -> Result<usize, BackupError> {
     for row in rows {
@@ -688,14 +699,14 @@ async fn restore_review_cycles(
         .bind(&row.end_date)
         .bind(&row.status)
         .bind(&row.created_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
 }
 
 async fn restore_employees(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     rows: &[EmployeeRow],
 ) -> Result<usize, BackupError> {
     for row in rows {
@@ -723,14 +734,14 @@ async fn restore_employees(
         .bind(&row.ethnicity)
         .bind(&row.termination_date)
         .bind(&row.termination_reason)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
 }
 
 async fn restore_performance_ratings(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     rows: &[PerformanceRatingRow],
 ) -> Result<usize, BackupError> {
     for row in rows {
@@ -750,14 +761,14 @@ async fn restore_performance_ratings(
         .bind(&row.rating_date)
         .bind(&row.created_at)
         .bind(&row.updated_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
 }
 
 async fn restore_performance_reviews(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     rows: &[PerformanceReviewRow],
 ) -> Result<usize, BackupError> {
     for row in rows {
@@ -781,14 +792,14 @@ async fn restore_performance_reviews(
         .bind(&row.review_date)
         .bind(&row.created_at)
         .bind(&row.updated_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
 }
 
 async fn restore_enps_responses(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     rows: &[EnpsRow],
 ) -> Result<usize, BackupError> {
     for row in rows {
@@ -804,14 +815,14 @@ async fn restore_enps_responses(
         .bind(&row.survey_name)
         .bind(&row.feedback_text)
         .bind(&row.created_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
 }
 
 async fn restore_conversations(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     rows: &[ConversationRow],
 ) -> Result<usize, BackupError> {
     for row in rows {
@@ -825,14 +836,14 @@ async fn restore_conversations(
         .bind(&row.messages_json)
         .bind(&row.created_at)
         .bind(&row.updated_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
 }
 
 async fn restore_audit_log(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     rows: &[AuditLogRow],
 ) -> Result<usize, BackupError> {
     for row in rows {
@@ -846,7 +857,7 @@ async fn restore_audit_log(
         .bind(&row.response_text)
         .bind(&row.context_used)
         .bind(&row.created_at)
-        .execute(pool)
+        .execute(&mut *conn)
         .await?;
     }
     Ok(rows.len())
@@ -856,21 +867,27 @@ async fn restore_audit_log(
 /// Order: company → settings → review_cycles → employees → performance_ratings
 ///        → performance_reviews → enps_responses → conversations → audit_log
 async fn restore_all_tables(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     tables: &BackupTables,
 ) -> Result<TableCounts, BackupError> {
     Ok(TableCounts {
-        company: restore_company(pool, &tables.company).await?,
-        settings: restore_settings(pool, &tables.settings).await?,
-        review_cycles: restore_review_cycles(pool, &tables.review_cycles).await?,
-        employees: restore_employees(pool, &tables.employees).await?,
-        performance_ratings: restore_performance_ratings(pool, &tables.performance_ratings)
-            .await?,
-        performance_reviews: restore_performance_reviews(pool, &tables.performance_reviews)
-            .await?,
-        enps_responses: restore_enps_responses(pool, &tables.enps_responses).await?,
-        conversations: restore_conversations(pool, &tables.conversations).await?,
-        audit_log: restore_audit_log(pool, &tables.audit_log).await?,
+        company: restore_company(&mut *conn, &tables.company).await?,
+        settings: restore_settings(&mut *conn, &tables.settings).await?,
+        review_cycles: restore_review_cycles(&mut *conn, &tables.review_cycles).await?,
+        employees: restore_employees(&mut *conn, &tables.employees).await?,
+        performance_ratings: restore_performance_ratings(
+            &mut *conn,
+            &tables.performance_ratings,
+        )
+        .await?,
+        performance_reviews: restore_performance_reviews(
+            &mut *conn,
+            &tables.performance_reviews,
+        )
+        .await?,
+        enps_responses: restore_enps_responses(&mut *conn, &tables.enps_responses).await?,
+        conversations: restore_conversations(&mut *conn, &tables.conversations).await?,
+        audit_log: restore_audit_log(&mut *conn, &tables.audit_log).await?,
     })
 }
 
@@ -957,7 +974,9 @@ pub fn validate_backup(encrypted_data: &[u8], password: &str) -> Result<BackupMe
     Ok(backup_data.metadata)
 }
 
-/// Import data from an encrypted backup, replacing all existing data
+/// Import data from an encrypted backup, replacing all existing data.
+/// The clear + restore sequence runs inside a SQLite transaction so that a
+/// partial restore failure automatically rolls back, leaving the database intact.
 pub async fn import_backup(
     pool: &SqlitePool,
     encrypted_data: &[u8],
@@ -970,8 +989,8 @@ pub async fn import_backup(
     let json = decompress_data(&compressed)?;
 
     // Parse
-    let backup_data: BackupData = serde_json::from_slice(&json)
-        .map_err(|_| BackupError::InvalidBackup)?;
+    let backup_data: BackupData =
+        serde_json::from_slice(&json).map_err(|_| BackupError::InvalidBackup)?;
 
     // Check version compatibility
     if backup_data.metadata.version != BACKUP_VERSION {
@@ -983,11 +1002,53 @@ pub async fn import_backup(
 
     let warnings = Vec::new();
 
+    // Acquire a single connection and wrap clear + restore in a transaction.
+    // On error the transaction is rolled back explicitly so the database is
+    // never left in a partially-wiped state.
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|e| BackupError::Database(e.to_string()))?;
+    sqlx::query("BEGIN").execute(&mut *conn).await?;
+
     // Clear existing data
-    clear_all_tables(pool).await?;
+    let result = clear_all_tables(&mut *conn).await;
+    if let Err(e) = result {
+        let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+        return Err(e);
+    }
 
     // Restore all tables
-    let restored_counts = restore_all_tables(pool, &backup_data.tables).await?;
+    let restored_counts = match restore_all_tables(&mut *conn, &backup_data.tables).await {
+        Ok(counts) => counts,
+        Err(e) => {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(e);
+        }
+    };
+
+    // Rebuild FTS indexes to ensure search works correctly after restore
+    if let Err(e) = sqlx::query(
+        "INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')",
+    )
+    .execute(&mut *conn)
+    .await
+    {
+        let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+        return Err(BackupError::Database(e.to_string()));
+    }
+
+    if let Err(e) = sqlx::query(
+        "INSERT INTO performance_reviews_fts(performance_reviews_fts) VALUES('rebuild')",
+    )
+    .execute(&mut *conn)
+    .await
+    {
+        let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+        return Err(BackupError::Database(e.to_string()));
+    }
+
+    sqlx::query("COMMIT").execute(&mut *conn).await?;
 
     Ok(ImportResult {
         restored_counts,

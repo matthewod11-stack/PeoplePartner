@@ -71,11 +71,11 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   const handleSubmit = useCallback(() => {
     const trimmed = message.trim();
-    if (trimmed && !disabled) {
+    if (trimmed && !disabled && !isOffline) {
       onSubmit(trimmed);
       setMessage('');
     }
-  }, [message, disabled, onSubmit]);
+  }, [message, disabled, isOffline, onSubmit]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Enter without Shift = submit

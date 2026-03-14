@@ -21,16 +21,16 @@ pub type DbPool = Pool<Sqlite>;
 pub type DbResult<T> = Result<T, DbError>;
 
 /// Get the database file path in the app data directory
-pub fn get_db_path(app: &AppHandle) -> PathBuf {
+pub fn get_db_path(app: &AppHandle) -> DbResult<PathBuf> {
     let app_data_dir = app
         .path()
         .app_data_dir()
-        .expect("Failed to get app data directory");
+        .map_err(|e| DbError::Migration(format!("Failed to get app data directory: {}", e)))?;
 
     // Ensure directory exists
-    fs::create_dir_all(&app_data_dir).expect("Failed to create app data directory");
+    fs::create_dir_all(&app_data_dir)?;
 
-    app_data_dir.join("hr_command_center.db")
+    Ok(app_data_dir.join("hr_command_center.db"))
 }
 
 fn apply_restrictive_permissions(path: &PathBuf) -> std::io::Result<()> {
@@ -68,7 +68,7 @@ fn harden_db_file_permissions(db_path: &PathBuf) -> std::io::Result<()> {
 
 /// Initialize the database connection pool
 pub async fn init_db(app: &AppHandle) -> DbResult<DbPool> {
-    let db_path = get_db_path(app);
+    let db_path = get_db_path(app)?;
     harden_db_file_permissions(&db_path)?;
     let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
@@ -149,20 +149,24 @@ async fn run_migration_sql(pool: &DbPool, migration_sql: &str) -> DbResult<()> {
 
                     // Handle expected errors gracefully:
                     // - "duplicate column" for ALTER TABLE ADD COLUMN (already exists)
-                    // - "table already exists" (should be covered by IF NOT EXISTS, but just in case)
+                    // Only suppress "already exists" for ALTER TABLE statements;
+                    // CREATE TABLE should use IF NOT EXISTS, so propagate those errors.
                     if let Err(e) = result {
                         let err_str = e.to_string().to_lowercase();
+                        let stmt_upper = stmt_without_semi.trim().to_uppercase();
+                        let is_alter_table = stmt_upper.starts_with("ALTER TABLE");
                         let is_duplicate_column = err_str.contains("duplicate column");
-                        let is_table_exists = err_str.contains("already exists");
+                        let is_already_exists = err_str.contains("already exists");
 
-                        if !is_duplicate_column && !is_table_exists {
+                        if is_alter_table && (is_duplicate_column || is_already_exists) {
+                            // Expected on re-runs: ALTER TABLE ADD COLUMN for columns that already exist
+                        } else {
                             return Err(DbError::Migration(format!(
                                 "Failed to execute: {}\nError: {}",
                                 stmt_without_semi.chars().take(100).collect::<String>(),
                                 e
                             )));
                         }
-                        // Otherwise, silently continue - migration already applied
                     }
                 }
             }

@@ -177,6 +177,228 @@ These decisions were made during planning and should NOT be revisited during imp
 
 ---
 
+## Code Review Audit (2026-03-13)
+
+> **Source:** Comprehensive 4-agent code review (Rust quality, React/TS quality, Security, Silent failures)
+> **Status:** Pending independent verification
+> **Scope:** Desktop app (HRCommand) + Website (hr-command-center)
+
+### Desktop App — Critical
+
+### [AUDIT-C1] UTF-8 panics in PII scanner, audit log, and conversation title
+**Status:** Open
+**Severity:** Critical
+**Discovered:** 2026-03-13
+**Description:** Byte-index string slicing on lowercased text will panic on non-ASCII input (e.g., accented names like "Jose", "Muller"). In `pii.rs:365,393`, regex match offsets from original text are used to slice `text_lower`, which can have different byte lengths for non-ASCII chars. Same class of bug in `audit.rs:386` (`truncate_preview`) and `conversations.rs:364` (title truncation at byte 60).
+**Workaround:** None — panics crash the operation.
+**Fix:** Use `char_indices()` for all string slicing to find safe UTF-8 boundaries.
+
+### [AUDIT-C2] Database init failure silently ignored — app launches broken
+**Status:** Open
+**Severity:** Critical
+**Discovered:** 2026-03-13
+**Description:** `lib.rs:2046-2050` — if `db::init_db()` fails, the app continues without a database pool. Every Tauri command then panics. Additionally, `db.rs:28,31` uses `.expect()` which will panic with no user-facing message if app data directory can't be created (permissions, full disk, sandbox issues).
+**Workaround:** None — app appears to launch but nothing works.
+**Fix:** Show error dialog and exit if DB init fails. Convert `get_db_path` to return `Result` instead of panicking.
+
+### [AUDIT-C3] PII scanning fails open — unredacted financial data sent to AI
+**Status:** Open
+**Severity:** Critical
+**Discovered:** 2026-03-13
+**Description:** `ConversationContext.tsx:313-316` — if the PII scanner throws an error (backend crash, IPC failure), the catch block logs to console and sends the original unredacted message (potentially containing SSNs, credit cards, bank accounts) to Claude/OpenAI/Gemini. Comment says "fail open for usability."
+**Workaround:** None — users are unaware their PII was not redacted.
+**Fix:** Change to fail-closed: block the message and show an error to the user when PII scanning fails.
+
+### [AUDIT-C4] Chat stream events silently dropped — UI hangs forever
+**Status:** Open (Verification: OVERSTATED)
+**Severity:** Medium (downgraded from Critical)
+**Discovered:** 2026-03-13
+**Description:** `chat.rs:269,284` — both text delta emission and the `done` signal use `let _ = app.emit(...)`. If the event channel breaks, text deltas vanish silently and the frontend remains in permanent loading state with no timeout or error indication.
+**Verification note:** `app.emit()` in Tauri is in-process event dispatch — failure only occurs if the webview is destroyed, in which case there's no user to notify. Stream content is still accumulated in `full_response` for audit purposes. This is idiomatic Tauri. Consider adding a client-side stream timeout as a UX improvement, not a critical fix.
+
+### [AUDIT-C5] Apple Developer credentials exposed on disk
+**Status:** Open
+**Severity:** Critical
+**Discovered:** 2026-03-13
+**Description:** The `.env` file contains live `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), and `APPLE_TEAM_ID` in plaintext. While `.gitignore`'d and never committed, any process with filesystem access can harvest them.
+**Workaround:** N/A
+**Fix:** Rotate the app-specific password immediately. Move credentials to macOS Keychain or CI secrets.
+
+### Desktop App — High
+
+### [AUDIT-H1] Backup restore has no transaction — partial failure causes data loss
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `backup.rs:961-996` — `import_backup` clears ALL tables then restores one by one without a transaction. If restore fails at table 5/9, the database is half-empty with no rollback. Additionally, FTS indexes are not rebuilt after restore — conversation search is permanently broken.
+**Workaround:** Keep a manual backup before restoring.
+**Fix:** Wrap clear + restore in `pool.begin()` / `tx.commit()`. Run FTS rebuild after restore.
+
+### [AUDIT-H2] License validation fails open on network error
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `lib.rs:272-283` — when the license validation server is unreachable, any key matching the `PP-XXXX-...` format is silently accepted. No logging, no user notification. Block the network = free app.
+**Workaround:** None currently. Related to existing [PHASE-5.3] issue.
+**Fix:** Implement cryptographic license key validation (ed25519 signatures) that works offline. Or cache validation result with periodic re-check.
+
+### [AUDIT-H3] Backup exports device_id, license_key, and signing secrets
+**Status:** Open (Verification: OVERSTATED)
+**Severity:** Medium (downgraded from High)
+**Discovered:** 2026-03-13
+**Description:** `backup.rs:443-458` — the backup function dumps the entire `settings` table, including `device_id`, `license_key`, `proxy_signing_secret`, and `trial_messages_used`. Restoring to a different machine imports the original device_id and license_key.
+**Verification note:** Backup files are AES-256-GCM encrypted with a user-provided password, so exposure requires the password. API keys are stored in macOS Keychain (NOT in settings table) and are NOT included in backups. The real concern is restore-correctness (two machines with same device_id), not security exposure.
+**Fix:** Filter `device_id`, `trial_messages_used`, and `proxy_signing_secret` from backup export to prevent restore-correctness issues.
+
+### [AUDIT-H4] Trial status failure defaults to "not trial" — bypasses all limits
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `TrialContext.tsx:107-110` — if the trial status fetch fails, `isTrialMode` defaults to `false`. Free users silently get unlimited access.
+**Workaround:** None.
+**Fix:** Default to trial mode on error (fail-closed), or show error state.
+
+### [AUDIT-H5] Stale closure on conversationId during streaming
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `ConversationContext.tsx:304-491` — `sendMessage` captures `conversationId` in a closure. If the user switches conversations mid-stream, audit entries and conversation saves write to the wrong conversation.
+**Workaround:** Don't switch conversations while streaming.
+**Fix:** Capture `conversationId` at function start, not from closure. Use a ref for stable access.
+
+### [AUDIT-H6] Modal scroll lock leaks with nested modals
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `Modal.tsx:80-107` — closing an inner modal (e.g., SignalsDisclaimer on top of Settings) clears `overflow: hidden` from body while outer modal is still open, allowing background scrolling.
+**Workaround:** None.
+**Fix:** Use a modal counter or stack approach — only clear overflow when no modals remain.
+
+### [AUDIT-H7] PII only scanned on user input, not on context sent to AI
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `context.rs:2538` — the system prompt includes unredacted employee names, DOBs, gender, ethnicity, performance ratings, termination reasons. The PII scanner only runs on the user's typed message. The bulk of PII sent to AI APIs bypasses scanning. Note: this may be an intentional design trade-off (the AI needs employee context to function).
+**Workaround:** Documented architectural decision — PII scope is "financial only" per locked decisions.
+**Fix:** Document this clearly for compliance. Consider excluding DOB, ethnicity, gender from AI context unless needed. Add data processing disclosure.
+
+### [AUDIT-H8] Trial message counter TOCTOU race condition
+**Status:** Open (Verification: OVERSTATED)
+**Severity:** Low (downgraded from High)
+**Discovered:** 2026-03-13
+**Description:** `trial.rs:127-132` — read-modify-write without atomic update. Concurrent requests can under-count, allowing extra trial messages.
+**Verification note:** This is a single-user desktop app (macOS only, single window). `sendMessage` sets `isLoading(true)` which disables the input, preventing concurrent calls through normal use. The proxy is the authoritative counter. No practical attack vector exists.
+**Workaround:** Proxy is the authoritative counter; local is a fallback.
+**Fix:** Low priority. Could use atomic SQL update if desired.
+
+### [AUDIT-H9] Import dedup uses wrong email casing for DB lookup
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `lib.rs:661-688` — normalizes emails to lowercase for uniqueness check but queries DB with original case. SQLite's `=` is case-sensitive by default, so `Alice@corp.com` != `alice@corp.com`, allowing trial employee limit bypass.
+**Workaround:** None.
+**Fix:** Use `normalized_email` in the database lookup.
+
+### Desktop App — Medium
+
+### [AUDIT-M1] Memory search uses only first keyword
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `memory.rs:233` — `search_summaries_only` uses only `keywords[0]`, discarding all other keywords. "Sarah performance review" only searches for "sarah".
+**Fix:** Build a LIKE OR-chain for all keywords, or use FTS5.
+
+### [AUDIT-M2] Migration parser swallows "table already exists" too broadly
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `db.rs:109-173` — the homegrown SQL migration parser catches all "already exists" errors, not just `ALTER TABLE ADD COLUMN`. Could mask genuine schema bugs on fresh installs.
+**Fix:** Only suppress "duplicate column" for ALTER TABLE migrations.
+
+### [AUDIT-M3] Auto-save failure silently loses conversation data
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `ConversationContext.tsx:252-255` — auto-save failure logs to console only. If the user closes the app, the entire conversation is lost.
+**Fix:** Show a non-intrusive notification on save failure.
+
+### [AUDIT-M4] Keyboard Enter bypasses offline check
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `ChatInput.tsx:74` — the submit button disables on `isOffline`, but the Enter keypress handler doesn't check it. Users can send messages via keyboard while offline.
+**Fix:** Add `isOffline` check to `handleSubmit`.
+
+### [AUDIT-M5] Settings load failures silently default values
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `SettingsPanel.tsx:62-89` — seven `.catch()` handlers silently set defaults (e.g., `setSignalsEnabled(false)`) without logging. If the database is corrupted, a feature the user enabled could be silently disabled.
+**Fix:** Log errors and show a warning banner in Settings.
+
+### [AUDIT-M6] 5x Regex::new().unwrap() in production verify_response path
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `context.rs:2953-3036` — five regex compilations use `.unwrap()` in the `verify_response()` function. If a regex library bug causes failure, the entire response verification crashes.
+**Fix:** Use `lazy_static!` or `OnceLock` to compile regexes once at startup.
+
+### [AUDIT-M7] Background highlight extraction failures invisible
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `bulk_import.rs:278-289` and `performance_reviews.rs:116-125` — fire-and-forget `tokio::spawn` tasks for highlight extraction. Failures log to stderr only. No retry mechanism or user notification.
+**Fix:** Track failed extractions and surface incomplete highlights to the user.
+
+### [AUDIT-M8] FTS index corruption after backup restore
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `backup.rs:606-637` — FTS tables are cleared before main tables, and after restore, no triggers re-fire to populate the FTS index from restored data. Conversation search is broken post-restore.
+**Fix:** Run `INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')` after restore.
+
+### Website (hr-command-center) — High
+
+### [AUDIT-W1] License key exposed in Stripe checkout session metadata
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `api/checkout/route.ts:39` — the license key is stored in Stripe session metadata. Anyone with Stripe dashboard access can see every customer's license key. The `license_id` alone is sufficient for the webhook to activate the license.
+**Workaround:** N/A.
+**Fix:** Remove `license_key` from metadata. Webhook resolves by `checkout_session_id` or `license_id`.
+
+### [AUDIT-W2] No rate limiting on API routes
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `/api/checkout`, `/api/validate-license`, and `/api/webhook` have no rate limiting. An attacker could spam checkout to create thousands of pending licenses, or brute-force license validation.
+**Fix:** Add Vercel edge rate limiting or IP-based limiter middleware.
+
+### [AUDIT-W3] License key displayed without authentication
+**Status:** Open
+**Severity:** High
+**Discovered:** 2026-03-13
+**Description:** `purchase/success/page.tsx:27` — the success page takes `?session_id=...` from the URL and displays the full license key with no auth. If the URL is shared, bookmarked, or in browser history, the key is exposed.
+**Fix:** Only show last 4 characters, require email verification for full key, or add a one-time-use token.
+
+### Website — Medium
+
+### [AUDIT-W4] Tracking pixels loaded without cookie consent
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** `components/TrackingPixels.tsx` — LinkedIn, Reddit, Meta, and Google Analytics pixels load unconditionally on every page. GDPR (EU visitors) and CCPA require consent before tracking.
+**Fix:** Add cookie consent banner; conditionally load pixels.
+
+### [AUDIT-W5] No security headers configured
+**Status:** Open
+**Severity:** Medium
+**Discovered:** 2026-03-13
+**Description:** No `middleware.ts` or `next.config.ts` headers for CSP, HSTS, X-Frame-Options, X-Content-Type-Options, or Referrer-Policy. Vercel adds some defaults but explicit headers would harden the site.
+**Fix:** Add security headers via Next.js middleware or config.
+
+---
+
 ## Resolved Issues
 
 ### [PHASE-2.6] Selected employee not prioritized in context
@@ -502,4 +724,4 @@ The conversation card title text in the sidebar is too large/not adaptive. Title
 
 ---
 
-*Last updated: February 2026*
+*Last updated: March 2026*
