@@ -20,9 +20,10 @@ This verifies the environment and shows current progress.
 ## Project Structure
 
 ```
-HRCommand/
+peoplepartner/app/            # (this repo — desktop app)
 ├── README.md                 # Project overview & status (update on phase change)
 ├── CLAUDE.md                 # ← You are here
+├── PROJECT_STATE.md          # Cross-surface sync doc
 ├── ROADMAP.md                # Task checklist with phases
 ├── AUDIT-2026-02-05.md       # Codebase audit report
 ├── features.json             # Pass/fail feature tracking
@@ -55,6 +56,11 @@ HRCommand/
     │   ├── employees.rs      # Employee CRUD
     │   └── ...               # Additional modules
     └── migrations/           # SQL migration files
+
+# Sibling folders (see parent ~/Desktop/peoplepartner/CLAUDE.md):
+# ../site/   — Marketing website (Next.js, Vercel)
+# ../demo/   — Demo video factory (DaVinci Resolve)
+# ../marketing/ — Ad copy, SEO audits, launch plans, brand materials
 ```
 
 ---
@@ -67,19 +73,19 @@ Follow the **single-feature-per-session rule** to prevent scope creep.
 
 ### Before Working
 1. Run `./scripts/dev-init.sh`
-2. Read most recent entry in `docs/PROGRESS.md` (historical entries in `docs/archive/`)
+2. Read most recent entry in `PROGRESS.md` (historical entries in `docs/archive/`)
 3. Check `ROADMAP.md` for next task
-4. Check `docs/KNOWN_ISSUES.md` for blockers
+4. Check `KNOWN_ISSUES.md` for blockers
 
 ### After Each Task
-1. Update `docs/PROGRESS.md` (entry at TOP)
+1. Update `PROGRESS.md` (entry at TOP)
 2. Update `features.json` status
 3. Check off task in `ROADMAP.md`
 4. Update `README.md` if phase status changed
 5. Commit with descriptive message
 
 ### Progress Log Maintenance
-When `docs/PROGRESS.md` exceeds **10 sessions**, archive older entries:
+When `PROGRESS.md` exceeds **10 sessions**, archive older entries:
 1. Move entries beyond the last 5-7 to `docs/archive/PROGRESS_PHASES_X-Y.md`
 2. Keep the file header and template comment
 3. Update archive filename to reflect phases covered
@@ -90,7 +96,7 @@ When `docs/PROGRESS.md` exceeds **10 sessions**, archive older entries:
 ```
 Before ending: Please follow session end protocol:
 1. Run verification (build, type-check, tests)
-2. Add session entry to TOP of docs/PROGRESS.md
+2. Add session entry to TOP of PROGRESS.md
 3. Update features.json with pass/fail status
 4. Check off completed task in ROADMAP.md
 5. Update README.md project status table if phase changed
@@ -114,7 +120,7 @@ What's the "Next Session Should" note for PROGRESS.md?
 - Phase 4 (Polish) ✓ — Pause Point 4A verified
 
 **Current Focus:**
-Review `docs/KNOWN_ISSUES.md` to decide which V2 features to implement before Phase 5 (Launch).
+Review `KNOWN_ISSUES.md` to decide which V2 features to implement before Phase 5 (Launch).
 
 **Candidate V2 Features:**
 | Feature | Value | Complexity |
@@ -140,7 +146,7 @@ Review `docs/KNOWN_ISSUES.md` to decide which V2 features to implement before Ph
 | Memory | Cross-conversation |
 | Pricing | $99 one-time |
 
-Full list in `docs/KNOWN_ISSUES.md` under "Locked Architectural Decisions"
+Full list in `KNOWN_ISSUES.md` under "Locked Architectural Decisions"
 
 ---
 
@@ -356,5 +362,6 @@ A `PROJECT_STATE.md` file exists at the project root. It serves as a cross-surfa
 
 ---
 
-*Last updated: February 2026*
-*Status: Phase 4 complete — V2 Feature Planning Pause*
+*Last updated: March 2026*
+*Status: All phases complete — pre-launch (targeting April 1, 2026)*
+*Location: ~/Desktop/peoplepartner/app/*

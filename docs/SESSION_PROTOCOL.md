@@ -19,10 +19,10 @@ We use **structured artifacts** to maintain continuity:
 | Artifact | Purpose | Location |
 |----------|---------|----------|
 | **README.md** | Project overview & status | `README.md` |
-| **PROGRESS.md** | Log of completed work | `docs/PROGRESS.md` |
+| **PROGRESS.md** | Log of completed work | `PROGRESS.md` |
 | **ROADMAP.md** | Checkbox tracking | `ROADMAP.md` |
 | **features.json** | Pass/fail status | `features.json` |
-| **KNOWN_ISSUES.md** | Parking lot | `docs/KNOWN_ISSUES.md` |
+| **KNOWN_ISSUES.md** | Parking lot | `KNOWN_ISSUES.md` |
 | **DECISIONS-LOG.md** | Architectural decisions | `docs/reference/DECISIONS-LOG.md` |
 
 ---
@@ -59,10 +59,10 @@ We use **structured artifacts** to maintain continuity:
 ## Session Start Protocol
 
 1. **Run init script:** `./scripts/dev-init.sh`
-2. **Read progress:** Review `docs/PROGRESS.md` for previous session work
+2. **Read progress:** Review `PROGRESS.md` for previous session work
 3. **Check features:** Review `features.json` for pass/fail status
 4. **Verify previous work:** Run `npm run build` and tests
-5. **Check blockers:** Review `docs/KNOWN_ISSUES.md`
+5. **Check blockers:** Review `KNOWN_ISSUES.md`
 6. **Pick next task:** First unchecked item in `ROADMAP.md`
 
 ### Session Start Prompt
@@ -73,10 +73,10 @@ I'm continuing work on People Partner.
 This is a multi-session implementation. Please follow the session protocol:
 
 1. Run ./scripts/dev-init.sh to verify environment
-2. Read docs/PROGRESS.md for previous session work
+2. Read PROGRESS.md for previous session work
 3. Read ROADMAP.md to find the NEXT unchecked task
 4. Check features.json for pass/fail status
-5. Check docs/KNOWN_ISSUES.md for any blockers
+5. Check KNOWN_ISSUES.md for any blockers
 
 Work on ONE task only (single-feature-per-session rule). Tell me what's next.
 ```
@@ -86,7 +86,7 @@ Work on ONE task only (single-feature-per-session rule). Tell me what's next.
 ## Session End Protocol
 
 1. Run verification (build, type-check, tests)
-2. Add entry to TOP of `docs/PROGRESS.md`
+2. Add entry to TOP of `PROGRESS.md`
 3. Update `features.json` status
 4. Check off tasks in `ROADMAP.md`
 5. Update `README.md` project status if phase changed or major milestone reached
@@ -99,7 +99,7 @@ Work on ONE task only (single-feature-per-session rule). Tell me what's next.
 Before ending: Please follow session end protocol:
 
 1. Run verification (build, type-check, tests)
-2. Add session entry to TOP of docs/PROGRESS.md
+2. Add session entry to TOP of PROGRESS.md
 3. Update features.json with pass/fail status
 4. Check off completed task in ROADMAP.md
 5. Update README.md project status table if phase changed
@@ -115,7 +115,7 @@ What's the "Next Session Should" note for PROGRESS.md?
 Use when context is getting long or before a complex operation:
 
 ```
-Let's checkpoint. Update docs/PROGRESS.md and features.json
+Let's checkpoint. Update PROGRESS.md and features.json
 with current state, then we can continue.
 ```
 
@@ -130,7 +130,7 @@ Resuming People Partner after a break. Full context reload:
 
 1. Run ./scripts/dev-init.sh
 2. Read docs/SESSION_PROTOCOL.md (workflow rules)
-3. Read docs/PROGRESS.md (all session history)
+3. Read PROGRESS.md (all session history)
 4. Read DECISIONS-LOG.md for architectural decisions
 5. Check features.json and KNOWN_ISSUES.md
 
@@ -148,7 +148,7 @@ Summarize: where are we, what's next, any blockers?
 | `DECISIONS-LOG.md` | Why we made choices | When questioning approach |
 | `MASTER-FEEDBACK-CONSOLIDATED.md` | AI feedback analysis | For feature prioritization |
 | `ROADMAP.md` | Task checklist | Every session |
-| `docs/PROGRESS.md` | Session log | Every session |
+| `PROGRESS.md` | Session log | Every session |
 | `features.json` | Pass/fail tracking | Every session |
 
 ---

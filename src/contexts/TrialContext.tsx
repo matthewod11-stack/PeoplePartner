@@ -176,12 +176,24 @@ export function TrialProvider({ children }: TrialProviderProps) {
 // Hook
 // =============================================================================
 
+/** Safe defaults when TrialProvider is not yet mounted (e.g. during onboarding) */
+const TRIAL_DEFAULTS: TrialContextValue = {
+  trialStatus: null,
+  isTrialMode: false,
+  messagesRemaining: 0,
+  isAtMessageLimit: false,
+  isAtEmployeeLimit: false,
+  showUpgradePrompt: false,
+  promptSeverity: 'soft',
+  dismissUpgradePrompt: () => {},
+  refreshTrialStatus: async () => {},
+  triggerUpgradePrompt: () => {},
+};
+
 export function useTrial() {
   const context = useContext(TrialContext);
-  if (!context) {
-    throw new Error('useTrial must be used within a TrialProvider');
-  }
-  return context;
+  // Return safe defaults when called outside TrialProvider (e.g. during onboarding)
+  return context ?? TRIAL_DEFAULTS;
 }
 
 // Re-export for convenience

@@ -1,7 +1,7 @@
 # People Partner — Implementation Roadmap
 
 > **Purpose:** Actionable checklist for implementation across multiple sessions.
-> **Related Docs:** [SESSION_PROTOCOL.md](./docs/SESSION_PROTOCOL.md) | [PROGRESS.md](./docs/PROGRESS.md)
+> **Related Docs:** [SESSION_PROTOCOL.md](./docs/SESSION_PROTOCOL.md) | [PROGRESS.md](./PROGRESS.md)
 > **Full Spec:** [HR-Command-Center-Roadmap.md](./docs/HR-Command-Center-Roadmap.md)
 
 ---

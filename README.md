@@ -83,9 +83,9 @@ cargo tauri dev    # Run Tauri app
 | `ROADMAP.md` | Implementation checklist |
 | `docs/HR-Command-Center-Roadmap.md` | Full product roadmap |
 | `docs/HR-Command-Center-Design-Architecture.md` | Technical specification |
-| `docs/PROGRESS.md` | Session-by-session log |
+| `PROGRESS.md` | Session-by-session log |
+| `KNOWN_ISSUES.md` | Blockers and decisions |
 | `docs/SESSION_PROTOCOL.md` | Multi-session workflow |
-| `docs/KNOWN_ISSUES.md` | Blockers and decisions |
 
 ## Business Model
 
