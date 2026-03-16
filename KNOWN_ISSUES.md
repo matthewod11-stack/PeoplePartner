@@ -217,12 +217,12 @@ These decisions were made during planning and should NOT be revisited during imp
 **Verification note:** `app.emit()` in Tauri is in-process event dispatch — failure only occurs if the webview is destroyed, in which case there's no user to notify. Stream content is still accumulated in `full_response` for audit purposes. This is idiomatic Tauri. Consider adding a client-side stream timeout as a UX improvement, not a critical fix.
 
 ### [AUDIT-C5] Apple Developer credentials exposed on disk
-**Status:** Open
+**Status:** Resolved
 **Severity:** Critical
 **Discovered:** 2026-03-13
+**Resolved:** 2026-03-16
 **Description:** The `.env` file contains live `APPLE_ID`, `APPLE_PASSWORD` (app-specific password), and `APPLE_TEAM_ID` in plaintext. While `.gitignore`'d and never committed, any process with filesystem access can harvest them.
-**Workaround:** N/A
-**Fix:** Rotate the app-specific password immediately. Move credentials to macOS Keychain or CI secrets.
+**Resolution:** Old app-specific passwords revoked via appleid.apple.com. New password generated and stored only in GitHub Actions secrets. Local `.env` file deleted from disk.
 
 ### Desktop App — High
 
