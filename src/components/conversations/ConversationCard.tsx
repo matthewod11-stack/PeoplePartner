@@ -75,10 +75,13 @@ export function ConversationCard({
     >
       {/* Title row */}
       <div className="flex items-start justify-between gap-2">
-        <p className={`
-          font-medium truncate flex-1
-          ${isSelected ? 'text-primary-800' : 'text-stone-800'}
-        `}>
+        <p
+          className={`
+            text-sm font-medium line-clamp-2 flex-1
+            ${isSelected ? 'text-primary-800' : 'text-stone-800'}
+          `}
+          title={title}
+        >
           {title}
         </p>
         <span className="text-xs text-stone-500 flex-shrink-0 mt-0.5">
