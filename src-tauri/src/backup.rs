@@ -19,6 +19,19 @@ use std::io::{Read, Write};
 use thiserror::Error;
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/// Settings keys excluded from backup export.
+/// These are device-specific or security-sensitive and should not be
+/// transferred between machines.
+const EXCLUDED_SETTINGS_KEYS: &[&str] = &[
+    "device_id",
+    "trial_messages_used",
+    "proxy_signing_secret",
+];
+
+// ============================================================================
 // Error Types
 // ============================================================================
 
@@ -449,10 +462,17 @@ async fn fetch_settings(pool: &SqlitePool) -> Result<Vec<SettingsRow>, BackupErr
 
     Ok(rows
         .iter()
-        .map(|row| SettingsRow {
-            key: row.get("key"),
-            value: row.get("value"),
-            updated_at: row.get("updated_at"),
+        .filter_map(|row| {
+            let key: String = row.get("key");
+            if EXCLUDED_SETTINGS_KEYS.contains(&key.as_str()) {
+                None
+            } else {
+                Some(SettingsRow {
+                    key,
+                    value: row.get("value"),
+                    updated_at: row.get("updated_at"),
+                })
+            }
         })
         .collect())
 }
@@ -670,7 +690,11 @@ async fn restore_company(conn: &mut SqliteConnection, rows: &[CompanyRow]) -> Re
 }
 
 async fn restore_settings(conn: &mut SqliteConnection, rows: &[SettingsRow]) -> Result<usize, BackupError> {
+    let mut count = 0;
     for row in rows {
+        if EXCLUDED_SETTINGS_KEYS.contains(&row.key.as_str()) {
+            continue;
+        }
         sqlx::query(
             r#"INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)"#,
         )
@@ -679,8 +703,9 @@ async fn restore_settings(conn: &mut SqliteConnection, rows: &[SettingsRow]) -> 
         .bind(&row.updated_at)
         .execute(&mut *conn)
         .await?;
+        count += 1;
     }
-    Ok(rows.len())
+    Ok(count)
 }
 
 async fn restore_review_cycles(
@@ -1127,6 +1152,75 @@ mod tests {
             result,
             Err(BackupError::InvalidPassword) | Err(BackupError::InvalidBackup)
         ));
+    }
+
+    #[test]
+    fn test_excluded_settings_keys_not_in_backup() {
+        // Simulate settings rows that include excluded keys
+        let all_settings = vec![
+            SettingsRow {
+                key: "device_id".to_string(),
+                value: "abc-123".to_string(),
+                updated_at: Some("2025-01-01".to_string()),
+            },
+            SettingsRow {
+                key: "trial_messages_used".to_string(),
+                value: "42".to_string(),
+                updated_at: Some("2025-01-01".to_string()),
+            },
+            SettingsRow {
+                key: "proxy_signing_secret".to_string(),
+                value: "secret-value".to_string(),
+                updated_at: Some("2025-01-01".to_string()),
+            },
+            SettingsRow {
+                key: "theme".to_string(),
+                value: "dark".to_string(),
+                updated_at: Some("2025-01-01".to_string()),
+            },
+            SettingsRow {
+                key: "ai_provider".to_string(),
+                value: "claude".to_string(),
+                updated_at: Some("2025-01-01".to_string()),
+            },
+        ];
+
+        let filtered: Vec<&SettingsRow> = all_settings
+            .iter()
+            .filter(|row| !EXCLUDED_SETTINGS_KEYS.contains(&row.key.as_str()))
+            .collect();
+
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|r| r.key != "device_id"));
+        assert!(filtered.iter().all(|r| r.key != "trial_messages_used"));
+        assert!(filtered.iter().all(|r| r.key != "proxy_signing_secret"));
+        assert!(filtered.iter().any(|r| r.key == "theme"));
+        assert!(filtered.iter().any(|r| r.key == "ai_provider"));
+    }
+
+    #[test]
+    fn test_restore_skips_excluded_settings() {
+        // Verify that the restore filter logic matches the export filter
+        let rows = vec![
+            SettingsRow {
+                key: "device_id".to_string(),
+                value: "old-device".to_string(),
+                updated_at: Some("2025-01-01".to_string()),
+            },
+            SettingsRow {
+                key: "theme".to_string(),
+                value: "dark".to_string(),
+                updated_at: Some("2025-01-01".to_string()),
+            },
+        ];
+
+        let restorable: Vec<&SettingsRow> = rows
+            .iter()
+            .filter(|row| !EXCLUDED_SETTINGS_KEYS.contains(&row.key.as_str()))
+            .collect();
+
+        assert_eq!(restorable.len(), 1);
+        assert_eq!(restorable[0].key, "theme");
     }
 
     #[test]
