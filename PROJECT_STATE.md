@@ -1,9 +1,13 @@
 # People Partner — Project State
 
 > Cross-surface context document. Shared across Claude Chat, Claude Code, and Cowork sessions.
-> **Last regenerated:** 2026-03-11 | **Generated from:** codebase scan + progress log + git history
+> Last updated: 2026-03-24
 
 ---
+
+## Elevator Pitch
+
+Most small companies can't afford an HR department, and the founders doing HR on the side are one compliance mistake away from a lawsuit. People Partner is a desktop app that gives any company a private, AI-powered HR assistant — it understands your specific employees, policies, and context, answers questions in plain English, and never sends your sensitive employee data to the cloud. Everything stays on your machine, with automatic PII redaction before anything touches an AI model.
 
 ## Project Overview
 
