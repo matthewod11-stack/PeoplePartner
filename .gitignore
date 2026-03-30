@@ -51,3 +51,6 @@ coverage/
 # Generated test data (regenerate with npm run generate-test-data)
 # scripts/generated/ — now committed for CI builds
 demo-frames/
+
+# Overnight agent state (runtime artifacts)
+state/
