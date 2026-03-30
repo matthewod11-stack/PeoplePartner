@@ -33,7 +33,7 @@ peoplepartner/app/            # (this repo — desktop app)
 │   ├── HR-Command-Center-Roadmap.md      # Full product roadmap
 │   ├── HR-Command-Center-Design-Architecture.md  # Technical specification
 │   ├── SESSION_PROTOCOL.md   # How to run sessions
-│   ├── KNOWN_ISSUES.md       # Blockers + locked decisions
+│   ├── OVERNIGHT_AGENT.md    # Autonomous agent prompt for tech-debt fixes
 │   ├── archive/              # Archived progress logs (Phases 0-2)
 │   └── reference/            # Archive: feedback, decisions log
 │
@@ -75,7 +75,7 @@ Follow the **single-feature-per-session rule** to prevent scope creep.
 1. Run `./scripts/dev-init.sh`
 2. Read most recent entry in `PROGRESS.md` (historical entries in `docs/archive/`)
 3. Check `ROADMAP.md` for next task
-4. Check `KNOWN_ISSUES.md` for blockers
+4. Check [GitHub Issues](https://github.com/matthewod11-stack/HRCommand/issues) for blockers
 
 ### After Each Task
 1. Update `PROGRESS.md` (entry at TOP)
@@ -120,7 +120,7 @@ What's the "Next Session Should" note for PROGRESS.md?
 - Phase 4 (Polish) ✓ — Pause Point 4A verified
 
 **Current Focus:**
-Review `KNOWN_ISSUES.md` to decide which V2 features to implement before Phase 5 (Launch).
+Review [GitHub Issues](https://github.com/matthewod11-stack/HRCommand/issues) to decide which V2 features to implement before Phase 5 (Launch).
 
 **Candidate V2 Features:**
 | Feature | Value | Complexity |
@@ -146,7 +146,7 @@ Review `KNOWN_ISSUES.md` to decide which V2 features to implement before Phase 5
 | Memory | Cross-conversation |
 | Pricing | $99 one-time |
 
-Full list in `KNOWN_ISSUES.md` under "Locked Architectural Decisions"
+Full list in `docs/reference/DECISIONS-LOG.md`
 
 ---
 
