@@ -54,3 +54,14 @@ demo-frames/
 
 # Overnight agent state (runtime artifacts)
 state/
+
+# Dev/strategy docs (stay local, not public)
+CLAUDE.md
+PROGRESS.md
+PROJECT_STATE.md
+ROADMAP.md
+features.json
+docs/
+prompts/
+test-data/
+scripts/
