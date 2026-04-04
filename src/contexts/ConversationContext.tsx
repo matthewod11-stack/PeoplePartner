@@ -119,6 +119,9 @@ const SEARCH_DEBOUNCE_MS = 300;
 /** Streaming message update interval (ms) */
 const STREAM_UPDATE_INTERVAL_MS = 100;
 
+/** Stream inactivity timeout — error if no chunks received for this long (ms) */
+const STREAM_TIMEOUT_MS = 30_000;
+
 // =============================================================================
 // Provider
 // =============================================================================
@@ -359,6 +362,32 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
     // Set up stream event listener
     let unlisten: UnlistenFn | null = null;
 
+    // Stream inactivity timeout — resets on every chunk, fires error if stream stalls
+    let streamTimeoutId: number | null = null;
+
+    const resetStreamTimeout = () => {
+      if (streamTimeoutId !== null) clearTimeout(streamTimeoutId);
+      streamTimeoutId = window.setTimeout(() => {
+        streamTimeoutId = null;
+        flushBufferedChunkNow();
+        if (unlisten) { unlisten(); unlisten = null; }
+
+        const chatError = categorizeError(new Error('Response timed out — no data received for 30 seconds. The AI provider may be experiencing issues.'));
+        chatError.originalContent = content;
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantId ? { ...msg, content: '', error: chatError } : msg
+          )
+        );
+        streamingMessageId.current = null;
+        setIsLoading(false);
+      }, STREAM_TIMEOUT_MS);
+    };
+
+    const clearStreamTimeout = () => {
+      if (streamTimeoutId !== null) { clearTimeout(streamTimeoutId); streamTimeoutId = null; }
+    };
+
     // Buffer stream chunks to avoid 20-50 re-renders/second during streaming
     let bufferedChunk = '';
     let flushTimeoutId: number | null = null;
@@ -402,8 +431,10 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
     try {
       unlisten = await listen<StreamChunk>('chat-stream', (event) => {
         const { chunk, done, verification } = event.payload;
+        resetStreamTimeout();
 
         if (done) {
+          clearStreamTimeout();
           // Ensure any buffered chunks are rendered before final message updates
           flushBufferedChunkNow();
 
@@ -471,6 +502,9 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       // Reset accumulated response for this message
       accumulatedResponseRef.current = '';
 
+      // Start stream inactivity timeout (covers wait for first chunk)
+      resetStreamTimeout();
+
       // Call Claude API with streaming
       // V2.1.4: Pass aggregates and query_type for answer verification
       await sendChatMessageStreaming(
@@ -480,6 +514,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
         promptResult.query_type
       );
     } catch (error) {
+      clearStreamTimeout();
       flushBufferedChunkNow();
 
       // Categorize error for user-friendly display
