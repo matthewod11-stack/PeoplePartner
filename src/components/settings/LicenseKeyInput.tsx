@@ -68,6 +68,14 @@ export function LicenseKeyInput({
         setErrorMessage(
           'This license is already active on 2 devices. Contact support@peoplepartner.io to deactivate a device.'
         );
+      } else if (/internet connection required/i.test(raw)) {
+        setErrorMessage(
+          'An internet connection is needed to activate your license for the first time.'
+        );
+      } else if (/validation.*expired|re-verify/i.test(raw)) {
+        setErrorMessage(
+          'Please connect to the internet to re-verify your license.'
+        );
       } else {
         setErrorMessage(raw || 'Failed to save license key');
       }

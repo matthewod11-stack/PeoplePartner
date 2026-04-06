@@ -21,6 +21,7 @@ mod enps;
 mod file_parser;
 mod highlights;
 mod keyring;
+mod license_cache;
 mod memory;
 mod models;
 mod network;
@@ -249,8 +250,9 @@ async fn validate_license_key_remote(
     }
 }
 
-/// Store a license key after local format validation and optional remote validation.
-/// Fail-open: if the server is unreachable, the key is accepted on format alone.
+/// Store a license key after local format validation and remote/cached validation.
+/// First-time activation requires an internet connection.
+/// After one successful server validation, offline use is allowed for up to 30 days.
 #[tauri::command]
 async fn store_license_key(
     state: tauri::State<'_, Database>,
@@ -268,9 +270,18 @@ async fn store_license_key(
         .await
         .unwrap_or_default();
 
-    // Attempt remote validation (fail-open on network errors)
+    // Attempt remote validation; fall back to cache if server is unreachable
     match validate_license_key_remote(&normalized, &device_id).await {
-        Ok(LicenseValidationResult::Valid) => { /* valid — continue */ }
+        Ok(LicenseValidationResult::Valid) => {
+            // Cache the successful server validation for offline grace period
+            let _ = license_cache::cache_validation(
+                &state.pool,
+                &normalized,
+                &device_id,
+                license_cache::STATUS_VALID,
+            )
+            .await;
+        }
         Ok(LicenseValidationResult::Invalid) => {
             return Err(
                 "This license key was not recognized. Please check the key and try again.".to_string(),
@@ -279,7 +290,28 @@ async fn store_license_key(
         Ok(LicenseValidationResult::SeatLimitExceeded(msg)) => {
             return Err(format!("Seat limit reached: {}", msg));
         }
-        Err(_) => { /* server unreachable — accept on format alone */ }
+        Err(_) => {
+            // Server unreachable — check for a cached validation
+            match license_cache::get_cached_validation(&state.pool, &normalized).await {
+                Ok(Some(cached))
+                    if license_cache::is_valid_status(&cached.server_status)
+                        && license_cache::is_within_grace_period(&cached.validated_at) =>
+                {
+                    // Cached validation still fresh — allow
+                }
+                Ok(Some(_)) => {
+                    return Err(
+                        "License validation has expired. Please connect to the internet to re-verify your license.".to_string(),
+                    );
+                }
+                _ => {
+                    // No cache — first-time activation requires internet
+                    return Err(
+                        "Unable to verify your license key. Please check your internet connection and try again. An internet connection is required for first-time activation.".to_string(),
+                    );
+                }
+            }
+        }
     }
 
     trial::store_license_key(&state.pool, &normalized)
@@ -292,9 +324,105 @@ async fn store_license_key(
         .map_err(|e| e.to_string())
 }
 
-/// Remove stored license key.
+/// Result of license revalidation on app launch.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "type")]
+enum RevalidationResult {
+    /// License confirmed valid by server.
+    Valid,
+    /// License was revoked or invalid — removed from device.
+    Revoked,
+    /// Offline but within grace period.
+    GracePeriod { days_remaining: i64 },
+    /// Grace period expired — license removed.
+    Expired,
+    /// No license stored (trial mode).
+    NoLicense,
+}
+
+/// Revalidate the stored license key against the server on app launch.
+/// Catches revocations, refreshes the cache, and enforces grace period expiry.
+#[tauri::command]
+async fn revalidate_license(
+    state: tauri::State<'_, Database>,
+) -> Result<RevalidationResult, String> {
+    // Check if a license key is stored
+    let license_key = match trial::get_license_key(&state.pool).await {
+        Ok(Some(key)) => key,
+        _ => return Ok(RevalidationResult::NoLicense),
+    };
+
+    let device_id = trial::get_device_id(&state.pool)
+        .await
+        .unwrap_or_default();
+
+    // Attempt server validation
+    match validate_license_key_remote(&license_key, &device_id).await {
+        Ok(LicenseValidationResult::Valid) => {
+            // Refresh the cache timestamp
+            let _ = license_cache::cache_validation(
+                &state.pool,
+                &license_key,
+                &device_id,
+                license_cache::STATUS_VALID,
+            )
+            .await;
+            Ok(RevalidationResult::Valid)
+        }
+        Ok(LicenseValidationResult::Invalid) | Ok(LicenseValidationResult::SeatLimitExceeded(_)) => {
+            // License revoked or invalid — remove it
+            let _ = trial::delete_license_key(&state.pool).await;
+            let _ = license_cache::clear_cache(&state.pool, &license_key).await;
+            Ok(RevalidationResult::Revoked)
+        }
+        Err(_) => {
+            // Server unreachable — check cached validation
+            match license_cache::get_cached_validation(&state.pool, &license_key).await {
+                Ok(Some(cached)) if license_cache::is_valid_status(&cached.server_status) => {
+                    if license_cache::is_within_grace_period(&cached.validated_at) {
+                        let remaining = license_cache::days_remaining(&cached.validated_at);
+                        Ok(RevalidationResult::GracePeriod {
+                            days_remaining: remaining,
+                        })
+                    } else {
+                        // Grace period expired — remove license
+                        let _ = trial::delete_license_key(&state.pool).await;
+                        let _ = license_cache::clear_cache(&state.pool, &license_key).await;
+                        Ok(RevalidationResult::Expired)
+                    }
+                }
+                Ok(Some(_)) => {
+                    // Cached status is not valid (e.g., revoked) — remove
+                    let _ = trial::delete_license_key(&state.pool).await;
+                    let _ = license_cache::clear_cache(&state.pool, &license_key).await;
+                    Ok(RevalidationResult::Revoked)
+                }
+                _ => {
+                    // No cache but key exists — legacy upgrade (pre-cache customer).
+                    // Grant a grace period so they don't lose access while offline.
+                    let _ = license_cache::cache_validation(
+                        &state.pool,
+                        &license_key,
+                        &device_id,
+                        license_cache::STATUS_LEGACY,
+                    )
+                    .await;
+                    Ok(RevalidationResult::GracePeriod {
+                        days_remaining: license_cache::GRACE_PERIOD_DAYS,
+                    })
+                }
+            }
+        }
+    }
+}
+
+/// Remove stored license key and clear the validation cache.
 #[tauri::command]
 async fn delete_license_key(state: tauri::State<'_, Database>) -> Result<(), String> {
+    // Clear cache before deleting the key (need the key value for cache lookup)
+    if let Ok(Some(key)) = trial::get_license_key(&state.pool).await {
+        let _ = license_cache::clear_cache(&state.pool, &key).await;
+    }
     trial::delete_license_key(&state.pool)
         .await
         .map_err(|e| e.to_string())
@@ -1873,6 +2001,7 @@ pub fn run() {
             has_license_key,
             delete_license_key,
             validate_license_key_format,
+            revalidate_license,
             send_chat_message,
             send_chat_message_streaming,
             check_network_status,

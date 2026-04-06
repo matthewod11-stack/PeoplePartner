@@ -96,6 +96,7 @@ async fn run_migrations(pool: &DbPool) -> DbResult<()> {
         include_str!("../migrations/006_drop_insight_canvas.sql"),
         include_str!("../migrations/007_documents.sql"),
         include_str!("../migrations/008_document_chunks_unique.sql"),
+        include_str!("../migrations/009_license_validation_cache.sql"),
     ];
 
     for migration_sql in migrations {

@@ -99,6 +99,24 @@ export async function validateLicenseKeyFormat(licenseKey: string): Promise<bool
   return invoke('validate_license_key_format', { licenseKey });
 }
 
+/**
+ * Result of license revalidation on app launch.
+ */
+export type RevalidationResult =
+  | { type: 'Valid' }
+  | { type: 'Revoked' }
+  | { type: 'GracePeriod'; days_remaining: number }
+  | { type: 'Expired' }
+  | { type: 'NoLicense' };
+
+/**
+ * Revalidate the stored license key against the server.
+ * Called on app launch to catch revocations and refresh the cache.
+ */
+export async function revalidateLicense(): Promise<RevalidationResult> {
+  return invoke('revalidate_license');
+}
+
 // =============================================================================
 // Phase E - Provider Management
 // =============================================================================

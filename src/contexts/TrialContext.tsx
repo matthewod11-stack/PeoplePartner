@@ -10,7 +10,7 @@ import {
   useMemo,
   type ReactNode,
 } from 'react';
-import { getTrialStatus, type TrialStatus } from '../lib/tauri-commands';
+import { getTrialStatus, revalidateLicense, type TrialStatus } from '../lib/tauri-commands';
 
 // =============================================================================
 // Types
@@ -83,9 +83,17 @@ export function TrialProvider({ children }: TrialProviderProps) {
     ? trialStatus.employees_used >= trialStatus.employees_limit
     : false;
 
-  // Fetch trial status
+  // Fetch trial status and revalidate license on launch
   const refreshTrialStatus = useCallback(async () => {
     try {
+      // Revalidate stored license against server (catches revocations, refreshes cache)
+      const revalidation = await revalidateLicense();
+      if (revalidation.type === 'Revoked' || revalidation.type === 'Expired') {
+        console.warn(`[Trial] License ${revalidation.type.toLowerCase()} — reverting to trial mode`);
+      } else if (revalidation.type === 'GracePeriod') {
+        console.info(`[Trial] Offline grace period: ${revalidation.days_remaining} days remaining`);
+      }
+
       const status = await getTrialStatus();
       setTrialStatus(status);
 
