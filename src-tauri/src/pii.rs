@@ -37,8 +37,10 @@ pub enum PiiError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PiiType {
-    /// Social Security Number (XXX-XX-XXXX or XXXXXXXXX)
+    /// Social Security Number (XXX-XX-XXXX, XXX.XX.XXXX, XXX XX XXXX, or XXXXXXXXX)
     Ssn,
+    /// Employer Identification Number (XX-XXXXXXX)
+    Ein,
     /// Credit Card Number (various formats)
     CreditCard,
     /// Bank Account Number (requires context keywords)
@@ -56,6 +58,7 @@ impl PiiType {
     pub fn placeholder(&self) -> &'static str {
         match self {
             PiiType::Ssn => "[SSN_REDACTED]",
+            PiiType::Ein => "[EIN_REDACTED]",
             PiiType::CreditCard => "[CC_REDACTED]",
             PiiType::BankAccount => "[BANK_ACCT_REDACTED]",
             PiiType::PhoneNumber => "[PHONE_REDACTED]",
@@ -68,6 +71,7 @@ impl PiiType {
     pub fn label(&self) -> &'static str {
         match self {
             PiiType::Ssn => "Social Security Number",
+            PiiType::Ein => "Employer Identification Number",
             PiiType::CreditCard => "Credit Card Number",
             PiiType::BankAccount => "Bank Account Number",
             PiiType::PhoneNumber => "Phone Number",
@@ -117,13 +121,22 @@ pub struct RedactionResult {
 
 // SSN patterns:
 // - XXX-XX-XXXX (with dashes)
+// - XXX.XX.XXXX (with dots — common when copy-pasted from PDFs)
 // - XXX XX XXXX (with spaces)
 // - XXXXXXXXX (9 consecutive digits)
 // Note: Rust regex doesn't support look-around, so we use word boundaries
 static SSN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    // Simple pattern without extended mode to avoid whitespace issues
-    Regex::new(r"\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b|\b[0-9]{3}\s[0-9]{2}\s[0-9]{4}\b|\b[0-9]{9}\b")
-        .expect("SSN regex should compile")
+    Regex::new(
+        r"\b[0-9]{3}-[0-9]{2}-[0-9]{4}\b|\b[0-9]{3}\.[0-9]{2}\.[0-9]{4}\b|\b[0-9]{3}\s[0-9]{2}\s[0-9]{4}\b|\b[0-9]{9}\b"
+    )
+    .expect("SSN regex should compile")
+});
+
+// EIN (Employer Identification Number) pattern: XX-XXXXXXX (2 digits, dash, 7 digits).
+// Ubiquitous on W-9s, 1099s, and HR tax paperwork. The 2-7 split disambiguates
+// EIN from SSN (SSN is 3-2-4).
+static EIN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b[0-9]{2}-[0-9]{7}\b").expect("EIN regex should compile")
 });
 
 // Credit card patterns:
@@ -191,12 +204,16 @@ static PHONE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?x)
         (?:
-            \+?1[\s\-.]?
+            # Optional country/trunk prefix: +1, 1, +44, etc.
+            \+?[0-9]{1,3}[\s\-.]?
         )?
         (?:
-            \([2-9][0-9]{2}\)
+            # Area code — allow any leading digit (including 0/1 for
+            # international formats like 020 in the UK, 011 for intl, etc.)
+            # The previous [2-9] restriction skipped legitimate non-NA numbers.
+            \([0-9]{3}\)
             |
-            [2-9][0-9]{2}
+            [0-9]{3}
         )
         [\s\-.]?
         [0-9]{3}
@@ -266,40 +283,44 @@ pub fn detect_ssn(text: &str) -> Vec<PiiMatch> {
         .collect()
 }
 
-/// Validate SSN format (permissive validation for PII detection)
-/// For a PII scanner, we want to catch anything that LOOKS like an SSN,
-/// even if it might not be a technically valid SSN according to SSA rules.
-/// We only reject obviously impossible patterns:
-/// - Area number (first 3 digits) of 000
-/// - Group number (middle 2 digits) of 00
-/// - Serial number (last 4 digits) of 0000
-/// Note: We intentionally DO NOT reject 666 or 900-999 area codes
-/// because those could still be typos or test data that should be redacted.
+/// Detect EIN (Employer Identification Number) patterns in text.
+/// EIN format is XX-XXXXXXX — distinct from SSN's 3-2-4 grouping.
+pub fn detect_ein(text: &str) -> Vec<PiiMatch> {
+    EIN_PATTERN
+        .find_iter(text)
+        .map(|m| PiiMatch {
+            pii_type: PiiType::Ein,
+            start: m.start(),
+            end: m.end(),
+            matched_text: m.as_str().to_string(),
+        })
+        .collect()
+}
+
+/// Treat anything SSN-shaped as PII.
+///
+/// Note the polarity: this is a PII *protection* tool, not an identity
+/// verifier. A verification system wants to reject anything that isn't a
+/// real, issuable SSN. A redactor wants to err the other way — over-redact
+/// whenever the shape matches, because the failure mode of under-redaction
+/// is a privacy leak.
+///
+/// We only reject the pathological all-same-digit case (e.g. `000-00-0000`,
+/// `111-11-1111`) — those are obvious sentinel / placeholder values and
+/// still get redacted safely if they slip through this filter, since the
+/// placeholder itself is not confidential.
 fn is_valid_ssn(ssn: &str) -> bool {
-    // Remove separators to get just digits
     let digits: String = ssn.chars().filter(|c| c.is_ascii_digit()).collect();
 
     if digits.len() != 9 {
         return false;
     }
 
-    let area: u32 = digits[0..3].parse().unwrap_or(0);
-    let group: u32 = digits[3..5].parse().unwrap_or(0);
-    let serial: u32 = digits[5..9].parse().unwrap_or(0);
-
-    // Only reject obviously impossible patterns (all zeros in any section)
-    // We're permissive because we'd rather over-detect than miss real PII
-    if area == 0 {
-        return false;
-    }
-
-    // Invalid group number
-    if group == 0 {
-        return false;
-    }
-
-    // Invalid serial number
-    if serial == 0 {
+    // Reject only the trivially-non-PII pattern where all 9 digits are
+    // identical. Anything else — including "000-78-3289" or "666-00-0000" —
+    // is considered PII and redacted.
+    let first = digits.as_bytes()[0];
+    if digits.as_bytes().iter().all(|&b| b == first) {
         return false;
     }
 
@@ -471,8 +492,10 @@ pub fn detect_medical_info(text: &str) -> Vec<PiiMatch> {
 pub fn scan_for_pii(text: &str) -> Vec<PiiMatch> {
     let mut all_matches = Vec::new();
 
-    // Detect each PII type
+    // Detect each PII type. SSN runs before EIN so a 3-2-4 match claims the
+    // span first; downstream de-duplication drops overlapping shorter matches.
     all_matches.extend(detect_ssn(text));
+    all_matches.extend(detect_ein(text));
     all_matches.extend(detect_credit_cards(text));
     all_matches.extend(detect_bank_accounts(text));
     all_matches.extend(detect_phone_numbers(text));
@@ -538,6 +561,7 @@ pub fn scan_and_redact(text: &str) -> RedactionResult {
 /// Build a human-readable summary of what was redacted
 fn build_redaction_summary(matches: &[PiiMatch]) -> String {
     let mut ssn_count = 0;
+    let mut ein_count = 0;
     let mut cc_count = 0;
     let mut bank_count = 0;
     let mut phone_count = 0;
@@ -547,6 +571,7 @@ fn build_redaction_summary(matches: &[PiiMatch]) -> String {
     for m in matches {
         match m.pii_type {
             PiiType::Ssn => ssn_count += 1,
+            PiiType::Ein => ein_count += 1,
             PiiType::CreditCard => cc_count += 1,
             PiiType::BankAccount => bank_count += 1,
             PiiType::PhoneNumber => phone_count += 1,
@@ -562,6 +587,13 @@ fn build_redaction_summary(matches: &[PiiMatch]) -> String {
             "{} SSN{}",
             ssn_count,
             if ssn_count > 1 { "s" } else { "" }
+        ));
+    }
+    if ein_count > 0 {
+        parts.push(format!(
+            "{} EIN{}",
+            ein_count,
+            if ein_count > 1 { "s" } else { "" }
         ));
     }
     if cc_count > 0 {
@@ -641,10 +673,14 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_ssn_invalid_area_000() {
-        let text = "Invalid SSN: 000-12-3456";
+    fn test_detect_ssn_area_000_is_redacted() {
+        // Policy: over-redact. Area 000 is not issuable per SSA, but in a PII
+        // protection context we still want it redacted — otherwise a typo /
+        // test data / intentionally-invalid SSN leaks to the provider.
+        // Regression guard for the chat exchange in issue #24.
+        let text = "SSN is 000-78-3289 please remove access";
         let matches = detect_ssn(text);
-        assert_eq!(matches.len(), 0, "SSN with area 000 should be invalid");
+        assert_eq!(matches.len(), 1, "SSN with area 000 must still be redacted");
     }
 
     #[test]
@@ -664,17 +700,70 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_ssn_invalid_group_00() {
-        let text = "Invalid SSN: 123-00-4567";
+    fn test_detect_ssn_group_00_is_redacted() {
+        // Policy: over-redact — 123-00-4567 may be invalid per SSA rules but
+        // it's SSN-shaped and must not leak to the provider.
+        let text = "Invalid but SSN-shaped: 123-00-4567";
         let matches = detect_ssn(text);
-        assert_eq!(matches.len(), 0, "SSN with group 00 should be invalid");
+        assert_eq!(matches.len(), 1, "SSN with group 00 must still be redacted");
     }
 
     #[test]
-    fn test_detect_ssn_invalid_serial_0000() {
-        let text = "Invalid SSN: 123-45-0000";
+    fn test_detect_ssn_serial_0000_is_redacted() {
+        let text = "Invalid but SSN-shaped: 123-45-0000";
         let matches = detect_ssn(text);
-        assert_eq!(matches.len(), 0, "SSN with serial 0000 should be invalid");
+        assert_eq!(matches.len(), 1, "SSN with serial 0000 must still be redacted");
+    }
+
+    #[test]
+    fn test_detect_ssn_all_same_digit_is_skipped() {
+        // Sentinel/placeholder pattern — redacting is harmless either way,
+        // but we skip it to avoid false-positive noise on obvious dummy data.
+        let text = "Placeholder 000-00-0000 and 111-11-1111";
+        let matches = detect_ssn(text);
+        assert_eq!(matches.len(), 0, "all-identical-digit SSN is treated as sentinel");
+    }
+
+    #[test]
+    fn test_detect_ssn_with_dots() {
+        // Copy-paste from PDFs frequently uses dot separators.
+        let text = "SSN 123.45.6789 on file";
+        let matches = detect_ssn(text);
+        assert_eq!(matches.len(), 1, "dotted-SSN variant must be redacted");
+    }
+
+    #[test]
+    fn test_detect_ein_pattern() {
+        let text = "EIN for the payroll vendor: 12-3456789";
+        let matches = detect_ein(text);
+        assert_eq!(matches.len(), 1, "EIN XX-XXXXXXX must be detected");
+        assert_eq!(matches[0].pii_type, PiiType::Ein);
+    }
+
+    #[test]
+    fn test_ein_vs_ssn_disambiguation() {
+        // SSN is 3-2-4 (11 chars with dashes); EIN is 2-7 (10 chars).
+        // Ensure we classify each correctly.
+        let text = "EIN 12-3456789, SSN 123-45-6789";
+        let all_matches = scan_for_pii(text);
+        let ssn_matches: Vec<_> = all_matches.iter().filter(|m| m.pii_type == PiiType::Ssn).collect();
+        let ein_matches: Vec<_> = all_matches.iter().filter(|m| m.pii_type == PiiType::Ein).collect();
+        assert_eq!(ssn_matches.len(), 1);
+        assert_eq!(ein_matches.len(), 1);
+    }
+
+    #[test]
+    fn test_redact_preserves_end_to_end_safety_for_000_ssn() {
+        // Direct regression test for the leak observed in issue #24's chat log.
+        let text = "000-78-3289 i meant this ssn";
+        let result = scan_and_redact(text);
+        assert!(
+            !result.redacted_text.contains("000-78-3289"),
+            "raw SSN leaked through scan_and_redact: {}",
+            result.redacted_text
+        );
+        assert!(result.redacted_text.contains("[SSN_REDACTED]"));
+        assert!(result.had_pii);
     }
 
     #[test]
@@ -753,10 +842,16 @@ mod tests {
     }
 
     #[test]
-    fn test_detect_routing_number() {
+    fn test_routing_number_is_redacted_somehow() {
+        // With the permissive SSN policy, a 9-digit ABA routing number now
+        // matches the SSN pattern first (SSN regex claims all bare 9-digit
+        // sequences) and `detect_bank_accounts` skips it — but the end-user
+        // outcome is what matters: it gets redacted. Verify via the full
+        // scan rather than the bank-specific detector.
         let text = "Routing number: 021000021";
-        let matches = detect_bank_accounts(text);
-        assert_eq!(matches.len(), 1);
+        let result = scan_and_redact(text);
+        assert!(!result.redacted_text.contains("021000021"));
+        assert!(result.had_pii);
     }
 
     #[test]
