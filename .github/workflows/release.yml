@@ -57,6 +57,7 @@ jobs:
           echo "All manifests agree on version $CARGO_V"
 
       - name: Build and Release
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -76,3 +77,30 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Verify latest.json asset URLs
+        if: matrix.args == '--target aarch64-apple-darwin'
+        shell: bash
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          # Prevent regression of the HRCommand -> PeoplePartner rename issue:
+          # tauri-action embeds the repo slug from build time into latest.json,
+          # so a stale workflow on a forked/renamed repo can publish a manifest
+          # whose asset URLs point at the old repo slug.
+          MANIFEST=$(find src-tauri/target -name 'latest.json' -print -quit)
+          if [ -z "$MANIFEST" ]; then
+            echo "::warning::latest.json not found — skipping URL check"
+            exit 0
+          fi
+          echo "Found manifest at: $MANIFEST"
+          cat "$MANIFEST"
+          if grep -q 'HRCommand' "$MANIFEST"; then
+            echo "::error::latest.json contains HRCommand URLs — manifest is stale"
+            exit 1
+          fi
+          if ! grep -q "$REPO" "$MANIFEST"; then
+            echo "::error::latest.json asset URLs do not reference $REPO"
+            exit 1
+          fi
+          echo "latest.json asset URLs correctly reference $REPO"
