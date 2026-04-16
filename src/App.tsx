@@ -32,37 +32,87 @@ const UpgradePrompt = lazy(() =>
   import('./components/trial/UpgradePrompt').then((module) => ({ default: module.UpgradePrompt }))
 );
 
-// Error Boundary to catch React render errors
-class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+// Error Boundary to catch React render errors.
+// Positioned at the outermost App root so first-launch failures (onboarding
+// render errors, OnboardingProvider throws) still produce a branded fallback
+// instead of a blank white screen — critical for a paid-up-front desktop app.
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: React.ErrorInfo | null;
+  copied: boolean;
+}
+
+class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
   constructor(props: { children: ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, errorInfo: null, copied: false };
   }
 
   static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
+    return { hasError: true, error, errorInfo: null, copied: false };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('[ErrorBoundary] Caught error:', error);
     console.error('[ErrorBoundary] Component stack:', errorInfo.componentStack);
+    this.setState({ errorInfo });
   }
+
+  private copyErrorDetails = () => {
+    const { error, errorInfo } = this.state;
+    const details = [
+      `People Partner — crash report`,
+      `Time: ${new Date().toISOString()}`,
+      `Error: ${error?.toString() ?? 'unknown'}`,
+      ``,
+      `Stack:`,
+      error?.stack ?? '(no stack)',
+      ``,
+      `Component stack:`,
+      errorInfo?.componentStack ?? '(no component stack)',
+    ].join('\n');
+
+    navigator.clipboard
+      .writeText(details)
+      .then(() => {
+        this.setState({ copied: true });
+        setTimeout(() => this.setState({ copied: false }), 2000);
+      })
+      .catch((err) => {
+        console.error('[ErrorBoundary] Failed to copy details:', err);
+      });
+  };
 
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen flex items-center justify-center bg-red-50 p-8">
-          <div className="max-w-xl bg-white rounded-xl shadow-lg p-6">
-            <h1 className="text-xl font-bold text-red-600 mb-4">Something went wrong</h1>
-            <pre className="bg-red-100 p-4 rounded text-sm overflow-auto text-red-800">
-              {this.state.error?.message}
+        <div className="min-h-screen flex items-center justify-center bg-stone-50 p-8">
+          <div className="max-w-xl w-full bg-white rounded-xl shadow-lg p-8 border border-stone-200">
+            <h1 className="text-2xl font-semibold text-stone-900 mb-2">
+              Something went wrong
+            </h1>
+            <p className="text-stone-600 mb-4">
+              People Partner hit an unexpected error. Reloading usually resolves it — if
+              not, copy the details below and email support.
+            </p>
+            <pre className="bg-stone-100 p-4 rounded text-sm overflow-auto text-stone-800 max-h-48">
+              {this.state.error?.message ?? 'No error message available'}
             </pre>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              Reload App
-            </button>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => window.location.reload()}
+                className="px-4 py-2 bg-teal-700 text-white rounded-md hover:bg-teal-800 font-medium"
+              >
+                Reload App
+              </button>
+              <button
+                onClick={this.copyErrorDetails}
+                className="px-4 py-2 bg-stone-100 text-stone-700 rounded-md hover:bg-stone-200 font-medium"
+              >
+                {this.state.copied ? 'Copied!' : 'Copy Error Details'}
+              </button>
+            </div>
           </div>
         </div>
       );
@@ -328,27 +378,28 @@ function AppContent() {
     return <OnboardingFlow />;
   }
 
-  // Main app after onboarding is complete
+  // Main app after onboarding is complete. The outer ErrorBoundary is on
+  // <App> itself, so an error here (or in onboarding above) is still caught.
   return (
-    <ErrorBoundary>
-      <LayoutProvider>
-        <ConversationProvider>
-          <TrialProvider>
-            <EmployeeProvider>
-              <MainAppContent />
-            </EmployeeProvider>
-          </TrialProvider>
-        </ConversationProvider>
-      </LayoutProvider>
-    </ErrorBoundary>
+    <LayoutProvider>
+      <ConversationProvider>
+        <TrialProvider>
+          <EmployeeProvider>
+            <MainAppContent />
+          </EmployeeProvider>
+        </TrialProvider>
+      </ConversationProvider>
+    </LayoutProvider>
   );
 }
 
 function App() {
   return (
-    <OnboardingProvider>
-      <AppContent />
-    </OnboardingProvider>
+    <ErrorBoundary>
+      <OnboardingProvider>
+        <AppContent />
+      </OnboardingProvider>
+    </ErrorBoundary>
   );
 }
 
