@@ -6,6 +6,8 @@ use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use std::sync::LazyLock;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 
@@ -14,6 +16,24 @@ use crate::keyring;
 use crate::provider::{Provider, ProviderMessage, StreamDelta};
 use crate::providers;
 use crate::providers::anthropic::AnthropicProvider;
+
+/// Shared HTTP client for all chat egress (BYOK, streaming, trial proxy).
+///
+/// `reqwest::Client::new()` has no timeouts — a hung connection would hang
+/// the streaming task indefinitely. We set a 120s overall request timeout
+/// (long enough for slow providers, short enough to bound pathological
+/// hangs) and a 10s connect timeout. Reconstructing a client per call
+/// also discarded TLS session state; sharing one via `LazyLock` reuses
+/// connections across requests.
+static SHARED_CLIENT: LazyLock<Client> = LazyLock::new(|| {
+    Client::builder()
+        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(10))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .user_agent(concat!("PeoplePartner/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .expect("reqwest client with standard timeouts should build")
+});
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -267,7 +287,7 @@ pub async fn send_message(
     let provider_messages = to_provider_messages(trimmed_messages);
 
     // Build and send the request via the provider
-    let client = Client::new();
+    let client = SHARED_CLIENT.clone();
     let request_builder = provider.build_request(&client, &provider_messages, &system_prompt, &api_key);
     let response = request_builder.send().await?;
 
@@ -419,7 +439,7 @@ pub async fn send_message_streaming(
     let provider_messages = to_provider_messages(trimmed_messages);
 
     // Build and send the request via the provider
-    let client = Client::new();
+    let client = SHARED_CLIENT.clone();
     let request_builder = provider.build_streaming_request(
         &client,
         &provider_messages,
@@ -471,7 +491,7 @@ pub async fn send_message_streaming_trial(
     let body_json = serde_json::to_string(&request)
         .map_err(|e| ChatError::ParseError(e.to_string()))?;
 
-    let client = Client::new();
+    let client = SHARED_CLIENT.clone();
     let endpoint = format!("{}/v1/messages", proxy_url.trim_end_matches('/'));
     let mut request_builder = client
         .post(&endpoint)
