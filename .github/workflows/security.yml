@@ -42,9 +42,15 @@ jobs:
       # Default behavior: fails on vulnerabilities, logs (but does not fail on)
       # unmaintained/unsound warnings. Tighten to `--deny warnings` once #29
       # retires pdf-extract 0.7 / docx-rs 0.4.
+      #
+      # --ignore RUSTSEC-2023-0071: rsa 0.9.x Marvin-attack timing sidechannel.
+      # No upstream fix available. Pulled in transitively by sqlx-macros-core's
+      # sqlx-mysql driver even though we only enable the sqlite feature — the
+      # MySQL code path is never invoked at runtime. Revisit when rsa publishes
+      # a constant-time fix or sqlx-macros splits drivers behind features.
       - name: Run cargo audit
         working-directory: src-tauri
-        run: cargo audit
+        run: cargo audit --ignore RUSTSEC-2023-0071
 
   npm-audit:
     name: npm audit (${{ matrix.name }})
