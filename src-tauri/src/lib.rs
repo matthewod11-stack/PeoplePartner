@@ -22,6 +22,7 @@ mod file_parser;
 mod highlights;
 mod keyring;
 mod license_cache;
+mod logging;
 mod memory;
 mod models;
 mod network;
@@ -1974,6 +1975,7 @@ fn apply_hris_preset(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(logging::plugin())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_dialog::init())
@@ -2171,10 +2173,15 @@ pub fn run() {
 
                         // Store database pool in app state
                         handle.manage(Database::new(pool));
-                        println!("Database initialized successfully");
+                        log::info!("Database initialized successfully");
                     }
                     Err(e) => {
-                        eprintln!("FATAL: Database initialization failed: {}", e);
+                        log::error!("FATAL: Database initialization failed: {}", e);
+                        // Finder-launched apps drop stderr; write a user-visible
+                        // file the user can email to support.
+                        if let Ok(dir) = handle.path().app_data_dir() {
+                            logging::write_crash_file(&dir, "db_init", &e.to_string());
+                        }
                         std::process::exit(1);
                     }
                 }

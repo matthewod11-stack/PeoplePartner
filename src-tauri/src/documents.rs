@@ -309,7 +309,7 @@ fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), DocumentError> {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("[Documents] Cannot read directory {}: {}", dir.display(), e);
+            log::warn!("[Documents] Cannot read directory {}: {}", dir.display(), e);
             return Ok(()); // Skip inaccessible directories gracefully
         }
     };
@@ -317,7 +317,7 @@ fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), DocumentError> {
         let entry = match entry_result {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("[Documents] Skipping unreadable entry in {}: {}", dir.display(), e);
+                log::warn!("[Documents] Skipping unreadable entry in {}: {}", dir.display(), e);
                 continue;
             }
         };
@@ -325,7 +325,7 @@ fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), DocumentError> {
         let metadata = match entry.metadata() {
             Ok(m) => m,
             Err(e) => {
-                eprintln!("[Documents] Cannot read metadata for {}: {}", path.display(), e);
+                log::warn!("[Documents] Cannot read metadata for {}: {}", path.display(), e);
                 continue;
             }
         };
@@ -344,7 +344,7 @@ fn walk_dir(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), DocumentError> {
         } else if is_supported_file(&path) {
             // Skip oversized files
             if metadata.len() > MAX_FILE_SIZE {
-                eprintln!("[Documents] Skipping oversized file ({} bytes): {}", metadata.len(), path.display());
+                log::info!("[Documents] Skipping oversized file ({} bytes): {}", metadata.len(), path.display());
                 continue;
             }
             files.push(path);
@@ -910,7 +910,7 @@ pub async fn scan_folder(pool: &DbPool) -> Result<DocumentFolderStats, DocumentE
     // Index each file (skips unchanged via hash check)
     for file_path in &files {
         if let Err(e) = index_file(pool, folder.id, file_path).await {
-            eprintln!("[Documents] Failed to index {}: {}", file_path.display(), e);
+            log::warn!("[Documents] Failed to index {}: {}", file_path.display(), e);
         }
     }
 
@@ -1096,22 +1096,22 @@ fn start_watcher_inner(
         let mut watcher = match RecommendedWatcher::new(tx, Config::default()) {
             Ok(w) => w,
             Err(e) => {
-                eprintln!("[Documents] Failed to create watcher: {}", e);
+                log::error!("[Documents] Failed to create watcher: {}", e);
                 return;
             }
         };
 
         if let Err(e) = watcher.watch(Path::new(&folder_path), RecursiveMode::Recursive) {
-            eprintln!("[Documents] Failed to watch {}: {}", folder_path, e);
+            log::error!("[Documents] Failed to watch {}: {}", folder_path, e);
             return;
         }
 
-        println!("[Documents] Watching: {}", folder_path);
+        log::info!("[Documents] Watching: {}", folder_path);
 
         // Debounce: wait for 2 seconds of quiet before scanning
         loop {
             if stop_signal.load(Ordering::SeqCst) {
-                println!("[Documents] Watcher stop signal received");
+                log::info!("[Documents] Watcher stop signal received");
                 break;
             }
 
@@ -1127,7 +1127,7 @@ fn start_watcher_inner(
                         break;
                     }
                     // Debounce period passed — scan
-                    println!("[Documents] Changes detected, re-scanning...");
+                    log::debug!("[Documents] Changes detected, re-scanning...");
                     let _ = app_handle.emit("documents-scan", serde_json::json!({
                         "status": "started",
                         "source": "watcher"
@@ -1146,7 +1146,7 @@ fn start_watcher_inner(
                                 }));
                             }
                             Err(e) => {
-                                eprintln!("[Documents] Re-scan failed: {}", e);
+                                log::error!("[Documents] Re-scan failed: {}", e);
                                 let _ = app_handle_clone.emit("documents-scan", serde_json::json!({
                                     "status": "failed",
                                     "source": "watcher",
@@ -1157,13 +1157,13 @@ fn start_watcher_inner(
                     });
                 }
                 Ok(Err(e)) => {
-                    eprintln!("[Documents] Watch error: {}", e);
+                    log::error!("[Documents] Watch error: {}", e);
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     // No events — continue waiting
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    println!("[Documents] Watcher channel closed, stopping");
+                    log::info!("[Documents] Watcher channel closed, stopping");
                     break;
                 }
             }

@@ -31,7 +31,7 @@ impl From<sqlx::Error> for EmployeeError {
         if err_str.contains("UNIQUE constraint failed") && err_str.contains("email") {
             EmployeeError::DuplicateEmail("An employee with this email already exists".to_string())
         } else {
-            eprintln!("[employees] Database error: {}", err_str);
+            log::error!("[employees] Database error: {}", err_str);
             EmployeeError::Database("An internal database error occurred".to_string())
         }
     }

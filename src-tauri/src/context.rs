@@ -2676,7 +2676,7 @@ pub async fn build_chat_context(
     let aggregates = match build_org_aggregates(pool).await {
         Ok(agg) => Some(agg),
         Err(e) => {
-            eprintln!("Warning: Failed to build org aggregates: {}", e);
+            log::warn!("Failed to build org aggregates: {}", e);
             None
         }
     };
@@ -2761,7 +2761,7 @@ pub async fn build_chat_context(
     {
         Ok(memories) => memories.into_iter().map(|m| m.summary).collect(),
         Err(e) => {
-            eprintln!("Warning: Failed to retrieve memories: {}", e);
+            log::warn!("Failed to retrieve memories: {}", e);
             Vec::new()
         }
     };
@@ -2812,7 +2812,7 @@ pub async fn build_chat_context(
         match crate::documents::search_documents(pool, user_message).await {
             Ok(chunks) => chunks,
             Err(e) => {
-                eprintln!("Warning: Failed to search documents: {}", e);
+                log::warn!("Failed to search documents: {}", e);
                 Vec::new()
             }
         };

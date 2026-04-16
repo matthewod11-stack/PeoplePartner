@@ -119,13 +119,13 @@ pub async fn create_review(pool: &DbPool, input: CreateReview, app: AppHandle) -
         // Extract highlights from review text
         if let Err(e) = crate::highlights::extract_highlights_for_review(&pool_clone, &review_clone).await {
             let msg = format!("Highlight extraction failed for review {}: {}", review_clone.id, e);
-            eprintln!("[Auto-extract] {}", msg);
+            log::warn!("[Auto-extract] {}", msg);
             failures.push(msg);
         }
         // Regenerate employee summary with new highlight
         if let Err(e) = crate::highlights::generate_employee_summary(&pool_clone, &review_clone.employee_id).await {
             let msg = format!("Summary generation failed for employee {}: {}", review_clone.employee_id, e);
-            eprintln!("[Auto-summary] {}", msg);
+            log::warn!("[Auto-summary] {}", msg);
             failures.push(msg);
         }
         if !failures.is_empty() {
