@@ -117,6 +117,59 @@ fn to_provider_messages(messages: Vec<ChatMessage>) -> Vec<ProviderMessage> {
         .collect()
 }
 
+/// Apply PII redaction to the chat payload before it leaves the machine.
+///
+/// This is the defense-in-depth enforcement of the product's privacy claim:
+/// no raw SSN / credit card / bank account / phone / address / medical data
+/// should ever reach a provider, even if the frontend's advisory `scan_pii`
+/// path was bypassed (e.g., XSS) or silently failed. Applied uniformly across
+/// BYOK, streaming, trial-proxy, and backend-initiated calls (memory
+/// summarization, review-highlight extraction) since all four paths funnel
+/// through the three send_message* functions.
+///
+/// Returns (redacted messages, redacted system prompt, combined summary).
+/// The combined summary is suitable for emitting to the UI via a Tauri event.
+fn redact_chat_payload(
+    messages: Vec<ChatMessage>,
+    system_prompt: Option<String>,
+) -> (Vec<ChatMessage>, Option<String>, Option<String>) {
+    let mut summary_parts: Vec<String> = Vec::new();
+
+    let redacted_messages: Vec<ChatMessage> = messages
+        .into_iter()
+        .map(|m| {
+            let result = crate::pii::scan_and_redact(&m.content);
+            if result.had_pii {
+                if let Some(s) = result.summary {
+                    summary_parts.push(s);
+                }
+            }
+            ChatMessage {
+                role: m.role,
+                content: result.redacted_text,
+            }
+        })
+        .collect();
+
+    let redacted_system_prompt = system_prompt.map(|sp| {
+        let result = crate::pii::scan_and_redact(&sp);
+        if result.had_pii {
+            if let Some(s) = result.summary {
+                summary_parts.push(s);
+            }
+        }
+        result.redacted_text
+    });
+
+    let combined_summary = if summary_parts.is_empty() {
+        None
+    } else {
+        Some(summary_parts.join("; "))
+    };
+
+    (redacted_messages, redacted_system_prompt, combined_summary)
+}
+
 /// Resolve a provider by ID (with optional model override),
 /// falling back to the default if unknown.
 fn resolve_provider(provider_id: &str, model_id: Option<&str>) -> Box<dyn Provider> {
@@ -203,6 +256,11 @@ pub async fn send_message(
 ) -> Result<ChatResponse, ChatError> {
     let provider = resolve_provider(provider_id, model_id);
     let api_key = get_api_key_for_provider(provider_id)?;
+
+    // Enforce PII redaction before anything leaves the machine. This covers
+    // backend-initiated calls (memory summarization, highlight extraction)
+    // that don't have an AppHandle to emit an event from — summary is dropped.
+    let (messages, system_prompt, _pii_summary) = redact_chat_payload(messages, system_prompt);
 
     // Trim conversation to fit within token budget (silently drops oldest messages)
     let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
@@ -350,6 +408,12 @@ pub async fn send_message_streaming(
     let provider = resolve_provider(provider_id, model_id);
     let api_key = get_api_key_for_provider(provider_id)?;
 
+    // Enforce PII redaction before anything leaves the machine.
+    let (messages, system_prompt, pii_summary) = redact_chat_payload(messages, system_prompt);
+    if let Some(summary) = pii_summary {
+        let _ = app.emit("chat-pii-redacted", &summary);
+    }
+
     // Trim and convert messages
     let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
     let provider_messages = to_provider_messages(trimmed_messages);
@@ -390,6 +454,13 @@ pub async fn send_message_streaming_trial(
     query_type: Option<crate::context::QueryType>,
 ) -> Result<TrialUsageMetadata, ChatError> {
     let anthropic = AnthropicProvider::new();
+
+    // Enforce PII redaction before anything leaves the machine (proxy is still
+    // "off-device" — the user's data hits Cloudflare + Anthropic).
+    let (messages, system_prompt, pii_summary) = redact_chat_payload(messages, system_prompt);
+    if let Some(summary) = pii_summary {
+        let _ = app.emit("chat-pii-redacted", &summary);
+    }
 
     // Trim and convert messages
     let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
@@ -557,5 +628,71 @@ mod tests {
 
         // First message should still be OLDEST (no trimming needed)
         assert_eq!(trimmed[0].content, "OLDEST");
+    }
+
+    // ============================================================================
+    // PII redaction — defense-in-depth regression tests
+    // ============================================================================
+
+    #[test]
+    fn redact_chat_payload_strips_ssn_from_messages() {
+        let messages = vec![
+            make_message("user", "Sarah's SSN is 123-45-6789, please reset her access."),
+            make_message("assistant", "Got it."),
+        ];
+        let (redacted, sys, summary) = redact_chat_payload(messages, None);
+
+        assert!(sys.is_none());
+        assert!(
+            !redacted[0].content.contains("123-45-6789"),
+            "raw SSN leaked through redaction: {}",
+            redacted[0].content
+        );
+        assert!(redacted[0].content.contains("[SSN_REDACTED]"));
+        assert!(summary.is_some(), "should surface a summary for UI event");
+    }
+
+    #[test]
+    fn redact_chat_payload_strips_credit_card_from_system_prompt() {
+        // An employee record leaked a CC into the context builder.
+        let system =
+            Some("Employee Sarah Chen. Company card on file: 4111-1111-1111-1111.".to_string());
+        let (_, sys, summary) = redact_chat_payload(vec![], system);
+
+        let sys = sys.expect("system prompt preserved");
+        assert!(
+            !sys.contains("4111-1111-1111-1111"),
+            "raw CC leaked through redaction: {sys}"
+        );
+        assert!(sys.contains("[CC_REDACTED]"));
+        assert!(summary.is_some());
+    }
+
+    #[test]
+    fn redact_chat_payload_noop_when_no_pii_present() {
+        let messages = vec![make_message("user", "How many employees are in marketing?")];
+        let system = Some("You are a helpful HR assistant.".to_string());
+        let (redacted, sys, summary) = redact_chat_payload(messages.clone(), system.clone());
+
+        assert_eq!(redacted[0].content, messages[0].content);
+        assert_eq!(sys, system);
+        assert!(summary.is_none(), "no PII — no event should fire");
+    }
+
+    #[test]
+    fn redact_chat_payload_survives_to_provider_messages() {
+        // Guard against a future refactor that could accidentally skip redaction.
+        let messages = vec![make_message(
+            "user",
+            "Terminate employee with bank account 123456789012 in the records.",
+        )];
+        let (redacted, _, _) = redact_chat_payload(messages, None);
+        let provider_messages = to_provider_messages(redacted);
+
+        let serialized = serde_json::to_string(&provider_messages[0].content).unwrap();
+        assert!(
+            !serialized.contains("123456789012"),
+            "raw bank account number serialized to provider payload: {serialized}"
+        );
     }
 }
