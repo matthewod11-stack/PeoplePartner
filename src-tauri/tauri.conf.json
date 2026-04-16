@@ -24,7 +24,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.anthropic.com https://peoplepartner.io https://hrcommand-proxy.hrcommand.workers.dev http://localhost:1420 ws://localhost:1420; img-src 'self' data: blob:"
+      "csp": "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:1420 ws://localhost:1420; img-src 'self' data: blob:"
     }
   },
   "bundle": {
