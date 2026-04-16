@@ -552,13 +552,50 @@ fn split_oversized_chunks(chunks: Vec<RawChunk>) -> Vec<RawChunk> {
 // Parsers — Binary Formats
 // ============================================================================
 
+/// Best-effort extraction of a panic message from the payload returned by
+/// `catch_unwind`. Panics can carry either `&'static str` or `String`.
+fn panic_payload_to_string(payload: &Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic payload".to_string()
+    }
+}
+
 /// Parse a PDF file. Extracts text per page, each page becomes a chunk.
+///
+/// The underlying `pdf-extract` crate has historically panicked on malformed PDFs
+/// (encrypted object streams, malformed xref, etc.). We wrap the extraction in
+/// `catch_unwind` so a poisoned file in the watched folder cannot tear down the
+/// watcher thread. Note: in release builds we compile with `panic = "abort"`, so
+/// the catch is effective only in debug/test builds — the bump to pdf-extract
+/// 0.10 is the primary defense in release.
 pub fn parse_pdf(path: &Path) -> Result<Vec<RawChunk>, DocumentError> {
     let bytes = std::fs::read(path)?;
-    let text = pdf_extract::extract_text_from_mem(&bytes).map_err(|e| DocumentError::Parse {
-        file: path.display().to_string(),
-        message: format!("PDF extraction failed: {}", e),
-    })?;
+    let file_display = path.display().to_string();
+
+    let extract_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pdf_extract::extract_text_from_mem(&bytes)
+    }));
+
+    let text = match extract_result {
+        Ok(Ok(text)) => text,
+        Ok(Err(e)) => {
+            return Err(DocumentError::Parse {
+                file: file_display,
+                message: format!("PDF extraction failed: {}", e),
+            });
+        }
+        Err(panic_payload) => {
+            let panic_msg = panic_payload_to_string(&panic_payload);
+            return Err(DocumentError::Parse {
+                file: file_display,
+                message: format!("PDF extraction panicked: {}", panic_msg),
+            });
+        }
+    };
 
     // pdf-extract returns all text concatenated; split on form feeds or large gaps
     // Fall back to paragraph-based chunking with page estimation
@@ -581,12 +618,33 @@ pub fn parse_pdf(path: &Path) -> Result<Vec<RawChunk>, DocumentError> {
 }
 
 /// Parse a .docx file. Extracts paragraph text, splits on heading styles.
+///
+/// Wrapped in `catch_unwind` to defend the watcher thread against malformed
+/// docx files that may cause the (unmaintained) docx-rs 0.4 parser to panic.
 pub fn parse_docx(path: &Path) -> Result<Vec<RawChunk>, DocumentError> {
     let bytes = std::fs::read(path)?;
-    let doc = docx_rs::read_docx(&bytes).map_err(|e| DocumentError::Parse {
-        file: path.display().to_string(),
-        message: format!("DOCX parsing failed: {}", e),
-    })?;
+    let file_display = path.display().to_string();
+
+    let read_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        docx_rs::read_docx(&bytes)
+    }));
+
+    let doc = match read_result {
+        Ok(Ok(doc)) => doc,
+        Ok(Err(e)) => {
+            return Err(DocumentError::Parse {
+                file: file_display,
+                message: format!("DOCX parsing failed: {}", e),
+            });
+        }
+        Err(panic_payload) => {
+            let panic_msg = panic_payload_to_string(&panic_payload);
+            return Err(DocumentError::Parse {
+                file: file_display,
+                message: format!("DOCX parsing panicked: {}", panic_msg),
+            });
+        }
+    };
 
     let mut chunks = Vec::new();
     let mut current_title: Option<String> = None;
@@ -1367,6 +1425,41 @@ mod tests {
         fs::write(&csv_path, "Name,Role\nAlice,Dev\nBob,PM").unwrap();
         let chunks = parse_file(&csv_path).unwrap();
         assert!(!chunks.is_empty());
+    }
+
+    // Regression coverage for #29 — malformed binary input must return an
+    // `Err` instead of panicking, so the watcher thread survives a poisoned
+    // file dropped into the watched folder.
+    #[test]
+    fn test_parse_pdf_malformed_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let pdf_path = dir.path().join("not-really.pdf");
+        // Random bytes masquerading as a PDF — no valid header, xref, or objects.
+        fs::write(&pdf_path, b"\x00\x01\x02not a pdf at all\xff\xfe").unwrap();
+
+        let result = parse_pdf(&pdf_path);
+        assert!(result.is_err(), "malformed PDF must surface as Err, not panic");
+        if let Err(DocumentError::Parse { file, .. }) = result {
+            assert!(file.ends_with("not-really.pdf"));
+        } else {
+            panic!("expected DocumentError::Parse for malformed PDF");
+        }
+    }
+
+    #[test]
+    fn test_parse_docx_malformed_returns_error() {
+        let dir = TempDir::new().unwrap();
+        let docx_path = dir.path().join("fake.docx");
+        // docx is a zip container; arbitrary bytes must not make the parser panic.
+        fs::write(&docx_path, b"PK\x03\x04not a real docx payload").unwrap();
+
+        let result = parse_docx(&docx_path);
+        assert!(result.is_err(), "malformed DOCX must surface as Err, not panic");
+        if let Err(DocumentError::Parse { file, .. }) = result {
+            assert!(file.ends_with("fake.docx"));
+        } else {
+            panic!("expected DocumentError::Parse for malformed DOCX");
+        }
     }
 
     #[test]
