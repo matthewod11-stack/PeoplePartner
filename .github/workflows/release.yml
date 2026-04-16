@@ -41,6 +41,21 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Verify version alignment
+        shell: bash
+        run: |
+          CARGO_V=$(grep -E '^version = ' src-tauri/Cargo.toml | head -1 | cut -d'"' -f2)
+          PKG_V=$(jq -r .version package.json)
+          TAURI_V=$(jq -r .version src-tauri/tauri.conf.json)
+          echo "Cargo.toml:       $CARGO_V"
+          echo "package.json:     $PKG_V"
+          echo "tauri.conf.json:  $TAURI_V"
+          if [ "$CARGO_V" != "$PKG_V" ] || [ "$CARGO_V" != "$TAURI_V" ]; then
+            echo "::error::Version mismatch across manifests — bump all three together"
+            exit 1
+          fi
+          echo "All manifests agree on version $CARGO_V"
+
       - name: Build and Release
         uses: tauri-apps/tauri-action@v0
         env:
