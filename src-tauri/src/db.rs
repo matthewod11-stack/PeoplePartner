@@ -1,9 +1,13 @@
 // People Partner - Database Module
 // SQLite connection management and migrations
 
-use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
+use sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
+};
+use sqlx::{Pool, Sqlite};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use thiserror::Error;
 
@@ -66,15 +70,32 @@ fn harden_db_file_permissions(db_path: &PathBuf) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Build SQLite connect options with the PRAGMAs we require everywhere.
+///
+/// `foreign_keys` and `busy_timeout` are connection-scoped in SQLite, so they
+/// must be applied per-connection. `SqliteConnectOptions` handles that via an
+/// internal after-connect hook. `journal_mode` (WAL) is database-scoped and
+/// persists across connections once set.
+fn connect_options(path: &Path) -> SqliteConnectOptions {
+    SqliteConnectOptions::new()
+        .filename(path)
+        .create_if_missing(true)
+        // Without this, every ON DELETE CASCADE / SET NULL in our migrations is
+        // silently ignored. SQLite defaults this PRAGMA to OFF.
+        .foreign_keys(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5))
+}
+
 /// Initialize the database connection pool
 pub async fn init_db(app: &AppHandle) -> DbResult<DbPool> {
     let db_path = get_db_path(app)?;
     harden_db_file_permissions(&db_path)?;
-    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&db_url)
+        .connect_with(connect_options(&db_path))
         .await?;
 
     // Run migrations
@@ -192,6 +213,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::Row;
 
     #[tokio::test]
     async fn test_migration_sql_is_valid() {
@@ -205,5 +227,84 @@ mod tests {
         assert!(sql.contains("settings"));
         assert!(sql.contains("audit_log"));
         assert!(sql.contains("conversations_fts"));
+    }
+
+    /// Build an in-memory test pool using the same connect_options as production,
+    /// except WAL mode (not supported on :memory: databases).
+    async fn test_pool() -> DbPool {
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1) // :memory: is per-connection; must be 1 to share state
+            .connect_with(options)
+            .await
+            .expect("connect to :memory: pool");
+
+        run_migrations(&pool).await.expect("run migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn pragma_foreign_keys_is_on() {
+        let pool = test_pool().await;
+
+        let row = sqlx::query("PRAGMA foreign_keys")
+            .fetch_one(&pool)
+            .await
+            .expect("query PRAGMA foreign_keys");
+        let enabled: i64 = row.get(0);
+        assert_eq!(
+            enabled, 1,
+            "foreign_keys PRAGMA must be ON; otherwise every CASCADE is silently ignored"
+        );
+    }
+
+    #[tokio::test]
+    async fn cascade_delete_fires_on_employee_delete() {
+        let pool = test_pool().await;
+
+        // Insert an employee and a dependent enps_response (FK → employees ON DELETE CASCADE)
+        sqlx::query(
+            "INSERT INTO employees (id, email, full_name) VALUES ('emp-1', 'a@b.com', 'Test Employee')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert employee");
+
+        sqlx::query(
+            "INSERT INTO enps_responses (id, employee_id, score, survey_date) \
+             VALUES ('enps-1', 'emp-1', 8, '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert enps_response");
+
+        let before: i64 = sqlx::query("SELECT COUNT(*) FROM enps_responses WHERE employee_id = 'emp-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(before, 1);
+
+        // Deleting the employee should CASCADE-delete the enps_response.
+        // Before this PR (foreign_keys OFF by default), the response would remain orphaned.
+        sqlx::query("DELETE FROM employees WHERE id = 'emp-1'")
+            .execute(&pool)
+            .await
+            .expect("delete employee");
+
+        let after: i64 = sqlx::query("SELECT COUNT(*) FROM enps_responses WHERE employee_id = 'emp-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(
+            after, 0,
+            "CASCADE delete did not fire — foreign_keys PRAGMA likely not enforced"
+        );
     }
 }
