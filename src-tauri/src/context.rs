@@ -1567,21 +1567,12 @@ pub async fn find_employees_by_theme(
         return Ok(vec![]);
     }
 
-    // Build dynamic WHERE clause for theme matching
-    // Theme tags are stored in the `themes` column as JSON arrays like '["leadership", "mentoring"]'
-    // Note: `strengths` and `opportunities` columns contain textual descriptions, not theme tags,
-    // so we always search the `themes` column. ThemeTarget is metadata for context interpretation.
-    let mut theme_conditions = Vec::new();
-    for theme in themes {
-        let pattern = format!("%\"{}%", theme); // Matches "theme" in JSON array
-        // Always search the themes column - that's where theme tags are stored
-        theme_conditions.push(format!("rh.themes LIKE '{}'", pattern));
-    }
+    // Theme tags are stored in the `themes` column as JSON arrays like '["leadership", "mentoring"]'.
+    // Build one `rh.themes LIKE ?` per theme and bind each pattern below — never interpolate
+    // user-derived strings into SQL (theme values originate from AI extraction + user queries).
+    let placeholders: Vec<&str> = themes.iter().map(|_| "rh.themes LIKE ?").collect();
+    let theme_where = placeholders.join(" OR ");
 
-    // Combine theme conditions with OR (match any requested theme)
-    let theme_where = theme_conditions.join(" OR ");
-
-    // Build department filter
     let dept_filter = if department.is_some() {
         "AND e.department = ?"
     } else {
@@ -1594,28 +1585,26 @@ pub async fn find_employees_by_theme(
         FROM employees e
         JOIN review_highlights rh ON e.id = rh.employee_id
         WHERE e.status = 'active'
-          AND ({})
-          {}
+          AND ({theme_where})
+          {dept_filter}
         GROUP BY e.id
         ORDER BY match_count DESC
         LIMIT ?
         "#,
-        theme_where, dept_filter
     );
 
-    // Execute query with appropriate bindings
-    let rows: Vec<(String, i64)> = if let Some(dept) = department {
-        sqlx::query_as(&query)
-            .bind(dept)
-            .bind(limit as i64)
-            .fetch_all(pool)
-            .await?
-    } else {
-        sqlx::query_as(&query)
-            .bind(limit as i64)
-            .fetch_all(pool)
-            .await?
-    };
+    let mut q = sqlx::query_as::<_, (String, i64)>(&query);
+    for theme in themes {
+        // JSON-array substring match — the leading quote is intentional so "leadership"
+        // matches but "nonleadership" does not.
+        q = q.bind(format!("%\"{}%", theme));
+    }
+    if let Some(dept) = department {
+        q = q.bind(dept);
+    }
+    q = q.bind(limit as i64);
+
+    let rows: Vec<(String, i64)> = q.fetch_all(pool).await?;
 
     // Fetch full employee context for each match
     let mut employees = Vec::new();
@@ -4729,5 +4718,57 @@ mod tests {
         // Both should be Comparison (theme queries)
         assert_eq!(type1, QueryType::Comparison, "Query1 should be Comparison");
         assert_eq!(type2, QueryType::Comparison, "Query2 should be Comparison");
+    }
+
+    /// Regression test for SQL injection via theme strings.
+    /// Prior to parameterizing the query, a theme containing a single quote
+    /// would break out of the LIKE clause; adversarial themes could reach
+    /// this path via `extract_mentions` on user queries or AI-extracted
+    /// content. Verify evil input is safe, and the function returns an
+    /// empty result set without executing injected SQL.
+    #[tokio::test]
+    async fn find_employees_by_theme_rejects_sql_injection() {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        use std::time::Duration;
+
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("run migrations");
+
+        // Insert a marker employee so we can verify the table still exists post-injection-attempt.
+        sqlx::query(
+            "INSERT INTO employees (id, email, full_name) VALUES ('canary', 'c@x.com', 'Canary')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert canary employee");
+
+        let evil_themes = vec![
+            "'; DROP TABLE employees; --".to_string(),
+            "\" OR 1=1 --".to_string(),
+            "' UNION SELECT id,0 FROM employees --".to_string(),
+        ];
+
+        // Must not panic, must return an empty set (no reviews exist in the fixture).
+        let result = find_employees_by_theme(&pool, &evil_themes, None, ThemeTarget::Any, 10).await;
+        assert!(result.is_ok(), "injection attempt produced an error: {:?}", result);
+        assert!(result.unwrap().is_empty(), "injection attempt returned rows");
+
+        // The employees table must still exist and still contain our canary.
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM employees WHERE id = 'canary'")
+            .fetch_one(&pool)
+            .await
+            .expect("employees table must still exist after injection attempt");
+        assert_eq!(count, 1, "canary employee vanished — SQL injection executed");
     }
 }

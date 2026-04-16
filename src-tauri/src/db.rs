@@ -105,6 +105,12 @@ pub async fn init_db(app: &AppHandle) -> DbResult<DbPool> {
     Ok(pool)
 }
 
+/// Test-only accessor so sibling modules can build a fully-migrated in-memory pool.
+#[cfg(test)]
+pub(crate) async fn run_migrations_for_tests(pool: &DbPool) -> DbResult<()> {
+    run_migrations(pool).await
+}
+
 /// Run database migrations
 async fn run_migrations(pool: &DbPool) -> DbResult<()> {
     // Migration files in order
