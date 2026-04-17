@@ -22,6 +22,7 @@ mod file_parser;
 mod highlights;
 mod keyring;
 mod license_cache;
+mod license_signing;
 mod logging;
 mod memory;
 mod models;
@@ -203,7 +204,10 @@ async fn set_active_model(
 /// Result of remote license key validation.
 #[derive(Debug)]
 enum LicenseValidationResult {
-    Valid,
+    /// `signed_token` is the JWT returned by the server for issue #22.
+    /// `None` means the server response didn't include one (pre-signing
+    /// deploys, transition mode, or LICENSE_SIGNING_PRIVATE_KEY unset).
+    Valid { signed_token: Option<String> },
     Invalid,
     SeatLimitExceeded(String),
 }
@@ -211,6 +215,13 @@ enum LicenseValidationResult {
 /// Validate a license key against the remote server.
 /// Sends device_id for seat-limit enforcement.
 /// Returns the validation result or Err if the server is unreachable (fail-open).
+///
+/// When the server returns a `signed_token` AND `license_signing::signing_enabled()`
+/// is true, the token's signature + license_key / device_id claims are
+/// verified before we trust the `valid: true` bit. A tampered or wrong-device
+/// token downgrades the result to Invalid, closing the local-proxy forgery
+/// vector. When the token is absent or signing is in transition mode, we
+/// trust the unsigned `valid` flag for backward compatibility.
 async fn validate_license_key_remote(
     license_key: &str,
     device_id: &str,
@@ -235,12 +246,37 @@ async fn validate_license_key_remote(
         valid: bool,
         reason: Option<String>,
         message: Option<String>,
+        signed_token: Option<String>,
     }
 
     let body: ValidationResponse = resp.json().await.map_err(|e| e.to_string())?;
 
     if body.valid {
-        Ok(LicenseValidationResult::Valid)
+        // If the server supplied a signed token AND verification is armed,
+        // it must verify. A bad signature or claim mismatch means the
+        // `valid: true` line can't be trusted — likely a local proxy.
+        if let Some(token) = &body.signed_token {
+            match license_signing::verify_signed_token(token, license_key, device_id) {
+                Ok(Some(_claims)) => {
+                    // Verified — treat as Valid and retain the token for caching.
+                }
+                Ok(None) => {
+                    // Transition mode (public key not baked in yet). Accept
+                    // but log so we can confirm the rollout is producing
+                    // tokens before flipping strict mode on.
+                    log::debug!(
+                        "license server returned signed_token but verification is disabled (transition mode)"
+                    );
+                }
+                Err(e) => {
+                    log::warn!("license signed_token verification failed: {e}");
+                    return Ok(LicenseValidationResult::Invalid);
+                }
+            }
+        }
+        Ok(LicenseValidationResult::Valid {
+            signed_token: body.signed_token,
+        })
     } else if body.reason.as_deref() == Some("SEAT_LIMIT_EXCEEDED") {
         let msg = body
             .message
@@ -273,13 +309,14 @@ async fn store_license_key(
 
     // Attempt remote validation; fall back to cache if server is unreachable
     match validate_license_key_remote(&normalized, &device_id).await {
-        Ok(LicenseValidationResult::Valid) => {
+        Ok(LicenseValidationResult::Valid { signed_token }) => {
             // Cache the successful server validation for offline grace period
             let _ = license_cache::cache_validation(
                 &state.pool,
                 &normalized,
                 &device_id,
                 license_cache::STATUS_VALID,
+                signed_token.as_deref(),
             )
             .await;
         }
@@ -292,13 +329,17 @@ async fn store_license_key(
             return Err(format!("Seat limit reached: {}", msg));
         }
         Err(_) => {
-            // Server unreachable — check for a cached validation
+            // Server unreachable — check for a cached validation.
+            // Grace-period acceptance re-verifies the cached signed_token
+            // against the local device_id (if signing is armed), so a
+            // cache row stolen from another machine fails here.
             match license_cache::get_cached_validation(&state.pool, &normalized).await {
                 Ok(Some(cached))
                     if license_cache::is_valid_status(&cached.server_status)
-                        && license_cache::is_within_grace_period(&cached.validated_at) =>
+                        && license_cache::is_within_grace_period(&cached.validated_at)
+                        && cached_token_verifies(&cached, &normalized, &device_id) =>
                 {
-                    // Cached validation still fresh — allow
+                    // Cached validation still fresh AND signature (if any) holds.
                 }
                 Ok(Some(_)) => {
                     return Err(
@@ -359,13 +400,14 @@ async fn revalidate_license(
 
     // Attempt server validation
     match validate_license_key_remote(&license_key, &device_id).await {
-        Ok(LicenseValidationResult::Valid) => {
+        Ok(LicenseValidationResult::Valid { signed_token }) => {
             // Refresh the cache timestamp
             let _ = license_cache::cache_validation(
                 &state.pool,
                 &license_key,
                 &device_id,
                 license_cache::STATUS_VALID,
+                signed_token.as_deref(),
             )
             .await;
             Ok(RevalidationResult::Valid)
@@ -377,9 +419,16 @@ async fn revalidate_license(
             Ok(RevalidationResult::Revoked)
         }
         Err(_) => {
-            // Server unreachable — check cached validation
+            // Server unreachable — check cached validation. If a signed_token
+            // is cached, re-verify it here; a row whose device_id claim
+            // doesn't match the local device_id (stolen cache) fails.
             match license_cache::get_cached_validation(&state.pool, &license_key).await {
                 Ok(Some(cached)) if license_cache::is_valid_status(&cached.server_status) => {
+                    if !cached_token_verifies(&cached, &license_key, &device_id) {
+                        let _ = trial::delete_license_key(&state.pool).await;
+                        let _ = license_cache::clear_cache(&state.pool, &license_key).await;
+                        return Ok(RevalidationResult::Revoked);
+                    }
                     if license_cache::is_within_grace_period(&cached.validated_at) {
                         let remaining = license_cache::days_remaining(&cached.validated_at);
                         Ok(RevalidationResult::GracePeriod {
@@ -401,11 +450,13 @@ async fn revalidate_license(
                 _ => {
                     // No cache but key exists — legacy upgrade (pre-cache customer).
                     // Grant a grace period so they don't lose access while offline.
+                    // No signed_token on legacy rows (they predate #22).
                     let _ = license_cache::cache_validation(
                         &state.pool,
                         &license_key,
                         &device_id,
                         license_cache::STATUS_LEGACY,
+                        None,
                     )
                     .await;
                     Ok(RevalidationResult::GracePeriod {
@@ -413,6 +464,33 @@ async fn revalidate_license(
                     })
                 }
             }
+        }
+    }
+}
+
+/// Re-verify a cached signed_token against the local device_id. Returns true
+/// if the cached row is trustworthy on the current machine:
+///   - row has no signed_token (pre-#22 cache or transition-mode response), or
+///   - signing is disabled (const key unset — transition mode), or
+///   - the signed_token validates under the configured public key AND its
+///     device_id claim matches `expected_device_id`.
+///
+/// Returns false only when signing is armed AND the token fails — which
+/// covers the stolen-cache attack: a row copied from another machine has
+/// the wrong device_id claim and fails verification here.
+fn cached_token_verifies(
+    cached: &license_cache::CachedValidation,
+    expected_license_key: &str,
+    expected_device_id: &str,
+) -> bool {
+    let Some(token) = cached.signed_token.as_deref() else {
+        return true;
+    };
+    match license_signing::verify_signed_token(token, expected_license_key, expected_device_id) {
+        Ok(_) => true,
+        Err(e) => {
+            log::warn!("cached license signed_token failed re-verification: {e}");
+            false
         }
     }
 }

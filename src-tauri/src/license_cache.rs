@@ -41,6 +41,11 @@ pub struct CachedValidation {
     pub device_id: String,
     pub validated_at: String,
     pub server_status: String,
+    /// Signed JWT returned by the server (issue #22). None for rows cached
+    /// by pre-signing builds or responses with the feature disabled. When
+    /// Some, the grace-period read path re-verifies the signature and
+    /// device_id binding before accepting the cached validation.
+    pub signed_token: Option<String>,
 }
 
 // ============================================================================
@@ -77,22 +82,25 @@ pub fn is_valid_status(status: &str) -> bool {
 // Database Operations
 // ============================================================================
 
-/// Cache a validation result (upsert).
+/// Cache a validation result (upsert). `signed_token` is Some when the
+/// server returned a JWT (issue #22); None for pre-signing responses.
 pub async fn cache_validation(
     pool: &DbPool,
     license_key: &str,
     device_id: &str,
     status: &str,
+    signed_token: Option<&str>,
 ) -> Result<(), String> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
         r#"
-        INSERT INTO license_validation_cache (license_key, device_id, validated_at, server_status, created_at, updated_at)
-        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        INSERT INTO license_validation_cache (license_key, device_id, validated_at, server_status, signed_token, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
         ON CONFLICT(license_key) DO UPDATE SET
             device_id = excluded.device_id,
             validated_at = excluded.validated_at,
             server_status = excluded.server_status,
+            signed_token = excluded.signed_token,
             updated_at = datetime('now')
         "#,
     )
@@ -100,6 +108,7 @@ pub async fn cache_validation(
     .bind(device_id)
     .bind(&now)
     .bind(status)
+    .bind(signed_token)
     .execute(pool)
     .await
     .map_err(|e| e.to_string())?;
@@ -113,7 +122,7 @@ pub async fn get_cached_validation(
     license_key: &str,
 ) -> Result<Option<CachedValidation>, String> {
     let result: Option<CachedValidation> = sqlx::query_as(
-        "SELECT license_key, device_id, validated_at, server_status FROM license_validation_cache WHERE license_key = ?",
+        "SELECT license_key, device_id, validated_at, server_status, signed_token FROM license_validation_cache WHERE license_key = ?",
     )
     .bind(license_key)
     .fetch_optional(pool)

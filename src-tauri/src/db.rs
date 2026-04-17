@@ -125,6 +125,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (9, "license_validation_cache", include_str!("../migrations/009_license_validation_cache.sql")),
     (10, "schema_migrations", include_str!("../migrations/010_schema_migrations.sql")),
     (11, "audit_log_append_only", include_str!("../migrations/011_audit_log_append_only.sql")),
+    (12, "license_signed_token", include_str!("../migrations/012_license_signed_token.sql")),
 ];
 
 /// Highest version that the pre-versioning runner may have applied. Used only
@@ -509,6 +510,23 @@ mod tests {
                 context_used TEXT,
                 created_at TEXT DEFAULT (datetime('now')),
                 query_category TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // license_validation_cache is created by migration 009 (pre-legacy);
+        // migration 012 ALTERs it, so it must exist for that ALTER to
+        // succeed when we skip 009 via backfill.
+        sqlx::query(
+            "CREATE TABLE license_validation_cache (
+                license_key TEXT PRIMARY KEY,
+                device_id TEXT NOT NULL,
+                validated_at TEXT NOT NULL,
+                server_status TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
             )",
         )
         .execute(&pool)
