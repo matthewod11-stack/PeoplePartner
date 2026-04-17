@@ -1,6 +1,6 @@
 [package]
 name = "people-partner"
-version = "0.2.0"
+version = "0.2.1"
 description = "Your company's HR brain—private, always in context, always ready to help."
 authors = ["People Partner"]
 edition = "2021"
