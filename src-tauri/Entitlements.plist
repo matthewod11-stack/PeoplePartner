@@ -2,24 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <!--
-    Hardened Runtime carve-outs required by Tauri's WKWebView.
-    Hardened Runtime is enabled by default for notarized Developer ID
-    apps (via `codesign --options runtime`, applied automatically by
-    `tauri build`), and these carve-outs let the embedded webview do
-    JIT + dynamic linking without breaking the notarization check.
-
-    App Sandbox (`com.apple.security.app-sandbox`) is intentionally
-    ABSENT. Sandbox is mandatory for Mac App Store apps; optional for
-    Developer ID distribution (which we use via peoplepartner.io).
-    Enabling it would cause the Tauri auto-updater to fail silently:
-    kernel sandbox blocks `file-write-unlink` on the app's own bundle
-    in /Applications, which the updater does as part of in-place
-    replacement. Loss of sandbox isn't a threat-model regression —
-    our defenses are Keychain (API keys), SQLite at rest (local data),
-    and PII redaction at egress. Kernel-level file sandboxing wasn't
-    load-bearing for any of those.
-    -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
