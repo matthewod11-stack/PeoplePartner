@@ -111,98 +111,190 @@ pub(crate) async fn run_migrations_for_tests(pool: &DbPool) -> DbResult<()> {
     run_migrations(pool).await
 }
 
-/// Run database migrations
-async fn run_migrations(pool: &DbPool) -> DbResult<()> {
-    // Migration files in order
-    let migrations = [
-        include_str!("../migrations/001_initial.sql"),
-        include_str!("../migrations/002_performance_enps.sql"),
-        include_str!("../migrations/003_review_highlights.sql"),
-        include_str!("../migrations/004_insight_canvas.sql"),
-        include_str!("../migrations/005_dei_audit.sql"),
-        include_str!("../migrations/006_drop_insight_canvas.sql"),
-        include_str!("../migrations/007_documents.sql"),
-        include_str!("../migrations/008_document_chunks_unique.sql"),
-        include_str!("../migrations/009_license_validation_cache.sql"),
-    ];
+/// Ordered migration inventory: (version, short_name, embedded_sql).
+/// Versions must be dense and monotonically increasing from 1.
+const MIGRATIONS: &[(i64, &str, &str)] = &[
+    (1, "initial", include_str!("../migrations/001_initial.sql")),
+    (2, "performance_enps", include_str!("../migrations/002_performance_enps.sql")),
+    (3, "review_highlights", include_str!("../migrations/003_review_highlights.sql")),
+    (4, "insight_canvas", include_str!("../migrations/004_insight_canvas.sql")),
+    (5, "dei_audit", include_str!("../migrations/005_dei_audit.sql")),
+    (6, "drop_insight_canvas", include_str!("../migrations/006_drop_insight_canvas.sql")),
+    (7, "documents", include_str!("../migrations/007_documents.sql")),
+    (8, "document_chunks_unique", include_str!("../migrations/008_document_chunks_unique.sql")),
+    (9, "license_validation_cache", include_str!("../migrations/009_license_validation_cache.sql")),
+    (10, "schema_migrations", include_str!("../migrations/010_schema_migrations.sql")),
+];
 
-    for migration_sql in migrations {
-        run_migration_sql(pool, migration_sql).await?;
+/// Highest version that the pre-versioning runner may have applied. Used only
+/// for the one-time legacy-DB backfill; bumping this would re-mark newer
+/// migrations as "already applied" and is almost never what you want.
+const LEGACY_LAST_VERSION: i64 = 9;
+
+/// Run database migrations.
+///
+/// Versioned via `schema_migrations`. Each migration runs inside a transaction,
+/// so a mid-file failure rolls back cleanly instead of leaving the DB in a
+/// half-migrated state. Already-applied versions are skipped.
+///
+/// On first run against a DB created by the pre-versioning runner (identified
+/// by the presence of tables from migration 001 without any `schema_migrations`
+/// rows), versions 1..=LEGACY_LAST_VERSION are backfilled as applied before the
+/// loop — otherwise every CREATE TABLE in migration 001 would fail.
+async fn run_migrations(pool: &DbPool) -> DbResult<()> {
+    bootstrap_schema_migrations_table(pool).await?;
+
+    if is_legacy_unversioned_db(pool).await? {
+        backfill_legacy_versions(pool).await?;
+    }
+
+    let applied = applied_versions(pool).await?;
+
+    for (version, name, sql) in MIGRATIONS {
+        if applied.contains(version) {
+            continue;
+        }
+        apply_migration(pool, *version, name, sql).await?;
     }
 
     Ok(())
 }
 
-/// Execute a single migration file's SQL statements
-async fn run_migration_sql(pool: &DbPool, migration_sql: &str) -> DbResult<()> {
-    // Parse statements carefully - handle BEGIN...END blocks (triggers)
-    // These blocks contain semicolons that shouldn't split the statement
-    let mut current_statement = String::new();
+/// Create the `schema_migrations` table if missing. Runs outside any migration
+/// transaction — idempotent, safe on every startup.
+async fn bootstrap_schema_migrations_table(pool: &DbPool) -> DbResult<()> {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
+            version INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )",
+    )
+    .execute(pool)
+    .await
+    .map_err(|e| DbError::Migration(format!("Bootstrap schema_migrations: {}", e)))?;
+    Ok(())
+}
+
+/// Legacy DB = application tables from migration 001 exist, but
+/// `schema_migrations` is empty. That state can only arise when the old
+/// (pre-versioning) runner populated the DB and we just created
+/// `schema_migrations` for the first time.
+async fn is_legacy_unversioned_db(pool: &DbPool) -> DbResult<bool> {
+    let (migration_count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM schema_migrations")
+            .fetch_one(pool)
+            .await?;
+    if migration_count > 0 {
+        return Ok(false);
+    }
+
+    // `audit_log` is created in migration 001 and is never dropped. Its
+    // presence on an empty `schema_migrations` is the legacy signal.
+    let (audit_log_count,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'audit_log'",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(audit_log_count > 0)
+}
+
+/// Record versions 1..=LEGACY_LAST_VERSION as applied in a single transaction.
+/// Called exactly once, on first startup after upgrading to the versioned
+/// runner against a pre-existing DB.
+async fn backfill_legacy_versions(pool: &DbPool) -> DbResult<()> {
+    let mut tx = pool.begin().await?;
+    for (version, name, _) in MIGRATIONS.iter().filter(|(v, _, _)| *v <= LEGACY_LAST_VERSION) {
+        sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+            .bind(version)
+            .bind(name)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Fetch the set of already-applied migration versions.
+async fn applied_versions(pool: &DbPool) -> DbResult<std::collections::HashSet<i64>> {
+    let rows: Vec<(i64,)> = sqlx::query_as("SELECT version FROM schema_migrations")
+        .fetch_all(pool)
+        .await?;
+    Ok(rows.into_iter().map(|(v,)| v).collect())
+}
+
+/// Execute one migration atomically: all statements in one transaction, plus
+/// the `schema_migrations` row. Any statement failing rolls the whole
+/// transaction back — the DB is never left half-migrated.
+async fn apply_migration(pool: &DbPool, version: i64, name: &str, sql: &str) -> DbResult<()> {
+    let statements = split_sql_statements(sql);
+    let mut tx = pool.begin().await?;
+
+    for stmt in &statements {
+        sqlx::query(stmt)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| {
+                DbError::Migration(format!(
+                    "Migration {} ({}) failed on statement: {}\nError: {}",
+                    version,
+                    name,
+                    stmt.chars().take(100).collect::<String>(),
+                    e
+                ))
+            })?;
+    }
+
+    sqlx::query("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
+        .bind(version)
+        .bind(name)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Split a migration file into individual SQL statements.
+///
+/// Semicolons inside trigger `BEGIN...END` blocks don't terminate statements,
+/// so we track nesting. Empty lines and `--` comments are discarded.
+fn split_sql_statements(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current = String::new();
     let mut inside_begin_block = false;
 
-    for line in migration_sql.lines() {
+    for line in sql.lines() {
         let trimmed = line.trim();
         let upper = trimmed.to_uppercase();
 
-        // Skip empty lines and comments
         if trimmed.is_empty() || trimmed.starts_with("--") {
             continue;
         }
 
-        current_statement.push_str(line);
-        current_statement.push('\n');
+        current.push_str(line);
+        current.push('\n');
 
-        // Track BEGIN...END blocks (used in triggers)
         if upper.contains(" BEGIN") || upper.ends_with(" BEGIN") {
             inside_begin_block = true;
         }
 
-        // Check if this line ends a statement
         let is_end_of_block = upper.starts_with("END;") || upper == "END";
-
         if is_end_of_block && inside_begin_block {
             inside_begin_block = false;
         }
 
-        // Only execute when we have a complete statement:
-        // - Line ends with semicolon AND
-        // - We're not inside a BEGIN...END block
         if trimmed.ends_with(';') && !inside_begin_block {
-            let stmt = current_statement.trim();
+            let stmt = current.trim().trim_end_matches(';').trim().to_string();
             if !stmt.is_empty() {
-                // Remove trailing semicolon for SQLx
-                let stmt_without_semi = stmt.trim_end_matches(';').trim();
-                if !stmt_without_semi.is_empty() {
-                    let result = sqlx::query(stmt_without_semi).execute(pool).await;
-
-                    // Handle expected errors gracefully:
-                    // - "duplicate column" for ALTER TABLE ADD COLUMN (already exists)
-                    // Only suppress "already exists" for ALTER TABLE statements;
-                    // CREATE TABLE should use IF NOT EXISTS, so propagate those errors.
-                    if let Err(e) = result {
-                        let err_str = e.to_string().to_lowercase();
-                        let stmt_upper = stmt_without_semi.trim().to_uppercase();
-                        let is_alter_table = stmt_upper.starts_with("ALTER TABLE");
-                        let is_duplicate_column = err_str.contains("duplicate column");
-                        let is_already_exists = err_str.contains("already exists");
-
-                        if is_alter_table && (is_duplicate_column || is_already_exists) {
-                            // Expected on re-runs: ALTER TABLE ADD COLUMN for columns that already exist
-                        } else {
-                            return Err(DbError::Migration(format!(
-                                "Failed to execute: {}\nError: {}",
-                                stmt_without_semi.chars().take(100).collect::<String>(),
-                                e
-                            )));
-                        }
-                    }
-                }
+                statements.push(stmt);
             }
-            current_statement.clear();
+            current.clear();
         }
     }
 
-    Ok(())
+    statements
 }
 
 /// Database state managed by Tauri
@@ -312,5 +404,149 @@ mod tests {
             after, 0,
             "CASCADE delete did not fire — foreign_keys PRAGMA likely not enforced"
         );
+    }
+
+    // ========================================================================
+    // Versioned-migration runner tests (issue #26).
+    // Cover the three properties the rewrite has to preserve:
+    //   1. schema_migrations is populated after a fresh install
+    //   2. run_migrations is idempotent (second call is a no-op)
+    //   3. a failing migration rolls back cleanly (no partial DDL, no row)
+    //   4. legacy DBs are backfilled rather than re-run
+    // ========================================================================
+
+    /// Empty :memory: pool with the same connect_options as production (minus WAL,
+    /// unsupported on :memory:). Does NOT run migrations — callers drive the
+    /// runner directly to test its behavior.
+    async fn empty_pool() -> DbPool {
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect to :memory: pool")
+    }
+
+    #[tokio::test]
+    async fn fresh_install_records_every_migration() {
+        let pool = empty_pool().await;
+        run_migrations(&pool).await.expect("fresh migration run");
+
+        let versions: Vec<i64> = sqlx::query_scalar("SELECT version FROM schema_migrations ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .expect("read schema_migrations");
+
+        let expected: Vec<i64> = MIGRATIONS.iter().map(|(v, _, _)| *v).collect();
+        assert_eq!(versions, expected, "every migration in MIGRATIONS must appear exactly once");
+    }
+
+    #[tokio::test]
+    async fn second_run_is_noop() {
+        let pool = empty_pool().await;
+        run_migrations(&pool).await.expect("first run");
+        run_migrations(&pool).await.expect("second run must succeed");
+
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM schema_migrations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, MIGRATIONS.len() as i64, "second run must not duplicate rows");
+    }
+
+    #[tokio::test]
+    async fn failed_migration_rolls_back_ddl_and_row() {
+        let pool = empty_pool().await;
+        bootstrap_schema_migrations_table(&pool).await.unwrap();
+
+        // First statement creates a table; second is invalid. If the transaction
+        // honors atomicity, the `rollback_me` table must not exist afterwards
+        // and no row should appear in schema_migrations.
+        let bad_sql = "CREATE TABLE rollback_me (id INTEGER);\nNOT VALID SQL;";
+        let result = apply_migration(&pool, 9999, "bad_fixture", bad_sql).await;
+        assert!(result.is_err(), "bad migration must surface as an error");
+
+        let (table_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'rollback_me'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(table_count, 0, "partial DDL must be rolled back");
+
+        let (row_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM schema_migrations WHERE version = 9999")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(row_count, 0, "schema_migrations row must not be committed on failure");
+    }
+
+    #[tokio::test]
+    async fn legacy_db_is_backfilled_not_rerun() {
+        let pool = empty_pool().await;
+
+        // Simulate a DB left by the pre-versioning runner: audit_log exists but
+        // schema_migrations does not. We give audit_log a minimal schema that
+        // would *conflict* with 001_initial's CREATE TABLE — if the runner
+        // mistakenly tries to re-run 001 we'll see an error.
+        sqlx::query("CREATE TABLE audit_log (fake_column TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        run_migrations(&pool).await.expect("legacy path must not re-run 001");
+
+        // Versions 1..=9 must be marked applied, and migration 10
+        // (schema_migrations itself) must have run fresh.
+        let versions: Vec<i64> = sqlx::query_scalar("SELECT version FROM schema_migrations ORDER BY version")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let expected: Vec<i64> = MIGRATIONS.iter().map(|(v, _, _)| *v).collect();
+        assert_eq!(versions, expected, "backfill + migration-10 must populate every version");
+
+        // `employees` table (created by 001) must NOT exist — proves backfill
+        // really skipped 001 instead of executing it.
+        let (employees_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'employees'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(employees_count, 0, "001 was re-run instead of backfilled");
+    }
+
+    #[tokio::test]
+    async fn backfill_detection_skips_fresh_install() {
+        let pool = empty_pool().await;
+        bootstrap_schema_migrations_table(&pool).await.unwrap();
+
+        assert!(
+            !is_legacy_unversioned_db(&pool).await.unwrap(),
+            "empty DB must not be treated as legacy"
+        );
+    }
+
+    #[tokio::test]
+    async fn split_sql_preserves_trigger_begin_end_blocks() {
+        // Regression guard: the FTS triggers in 001_initial use multi-line
+        // BEGIN...END blocks with internal semicolons. The splitter must
+        // treat each trigger as a single statement.
+        let sql = "CREATE TABLE t (id INT);\n\
+                   CREATE TRIGGER trg AFTER INSERT ON t BEGIN\n\
+                   INSERT INTO t VALUES (1);\n\
+                   INSERT INTO t VALUES (2);\n\
+                   END;";
+        let stmts = split_sql_statements(sql);
+        assert_eq!(stmts.len(), 2, "trigger body must not be split: got {:?}", stmts);
+        assert!(stmts[1].contains("BEGIN"));
+        assert!(stmts[1].contains("INSERT INTO t VALUES (1)"));
+        assert!(stmts[1].contains("INSERT INTO t VALUES (2)"));
     }
 }
