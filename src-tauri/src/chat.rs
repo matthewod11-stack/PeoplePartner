@@ -6,10 +6,12 @@ use hmac::{Hmac, Mac};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
-use std::sync::LazyLock;
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
+use tokio_util::sync::CancellationToken;
 
 use crate::context::{estimate_tokens, get_max_conversation_tokens};
 use crate::keyring;
@@ -37,6 +39,94 @@ static SHARED_CLIENT: LazyLock<Client> = LazyLock::new(|| {
 
 type HmacSha256 = Hmac<Sha256>;
 
+// ============================================================================
+// Stream cancellation registry (issue #25)
+// ============================================================================
+//
+// Every in-flight streaming request registers a CancellationToken keyed by a
+// client-generated stream_id. The frontend calls cancel_stream(stream_id)
+// when the user hits Stop, switches conversations, or unmounts the chat view.
+// The streaming task observes the cancellation via tokio::select! and drops
+// its reqwest::Response, which closes the HTTP connection — the upstream
+// provider stops generating and we stop paying for tokens the user won't see.
+//
+// Before this, abandoned streams kept running to completion, burning tokens
+// silently. The classic symptom was: user opens a slow question, regrets it,
+// starts a new conversation — and the OpenAI bill didn't get smaller.
+
+/// Registry of in-flight streaming requests keyed by client-generated
+/// stream_id. Shared application-wide via Tauri state; managed in `lib.rs`.
+#[derive(Default)]
+pub struct StreamRegistry {
+    inner: Mutex<HashMap<String, CancellationToken>>,
+}
+
+impl StreamRegistry {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a new stream. Returns a token the streaming task awaits on.
+    /// Collisions on stream_id replace the existing entry (the previous
+    /// stream becomes un-cancellable but continues running); client ids are
+    /// UUIDs so collisions shouldn't happen in practice.
+    fn register(&self, stream_id: String) -> CancellationToken {
+        let token = CancellationToken::new();
+        self.inner
+            .lock()
+            .expect("stream registry mutex poisoned")
+            .insert(stream_id, token.clone());
+        token
+    }
+
+    /// Trigger cancellation for the given id. Returns true if found, false if
+    /// unknown. An unknown id is a no-op — the stream may have already ended
+    /// by the time the UI's cancel call reached us.
+    pub fn cancel(&self, stream_id: &str) -> bool {
+        match self
+            .inner
+            .lock()
+            .expect("stream registry mutex poisoned")
+            .get(stream_id)
+        {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Remove a stream's entry on completion (success or error). Called
+    /// automatically by `StreamGuard::drop`, not by the streaming body, so
+    /// the map never leaks even on panic.
+    fn remove(&self, stream_id: &str) {
+        self.inner
+            .lock()
+            .expect("stream registry mutex poisoned")
+            .remove(stream_id);
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.inner.lock().unwrap().len()
+    }
+}
+
+/// RAII guard that removes a stream's registry entry on drop. Ensures the
+/// registry is cleaned up on every exit path — `?`-propagation, panics, and
+/// normal returns alike — without scattering `registry.remove(...)` calls.
+struct StreamGuard<'a> {
+    registry: &'a StreamRegistry,
+    stream_id: &'a str,
+}
+
+impl Drop for StreamGuard<'_> {
+    fn drop(&mut self) {
+        self.registry.remove(self.stream_id);
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ChatError {
     #[error("API key not configured")]
@@ -53,6 +143,8 @@ pub enum ChatError {
     TrialLimitReached { used: Option<u32>, limit: Option<u32> },
     #[error("Trial mode error: {0}")]
     TrialError(String),
+    #[error("Stream cancelled")]
+    Cancelled,
 }
 
 impl From<keyring::KeyringError> for ChatError {
@@ -315,18 +407,38 @@ pub async fn send_message(
 
 /// Process an SSE stream response, emitting "chat-stream" events to the frontend.
 /// Shared between BYOK and trial proxy streaming paths.
+///
+/// The caller passes a `cancel_token` pulled from `StreamRegistry`. If the
+/// token fires mid-stream we emit `chat-stream-cancelled` and return
+/// `ChatError::Cancelled`; dropping the response here closes the reqwest
+/// connection, which stops the upstream provider from streaming further
+/// tokens (the billing event we care about).
 async fn process_sse_stream(
     app: &AppHandle,
     response: reqwest::Response,
     provider: &dyn Provider,
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
+    cancel_token: CancellationToken,
 ) -> Result<(), ChatError> {
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut full_response = String::new();
 
-    while let Some(chunk_result) = stream.next().await {
+    loop {
+        let next = tokio::select! {
+            biased;
+            _ = cancel_token.cancelled() => {
+                // Drop `response` (and therefore `stream`) when the function
+                // returns — closes the HTTP connection and stops upstream
+                // generation. The frontend hook for this event resets the
+                // conversation's streaming-UI state to idle.
+                let _ = app.emit("chat-stream-cancelled", ());
+                return Err(ChatError::Cancelled);
+            }
+            chunk = stream.next() => chunk,
+        };
+        let Some(chunk_result) = next else { break };
         let chunk = chunk_result.map_err(|e| ChatError::RequestError(e.to_string()))?;
         let chunk_str = String::from_utf8_lossy(&chunk);
         buffer.push_str(&chunk_str);
@@ -416,8 +528,15 @@ fn compute_trial_signature(
 
 /// Send a message with streaming response (BYOK / paid mode)
 /// Emits "chat-stream" events to the frontend as chunks arrive
+///
+/// `stream_id` is a client-generated identifier (UUID from the frontend)
+/// that the UI later passes to `cancel_stream` if the user hits Stop. The
+/// guard at the top of this function ensures the registry entry is removed
+/// on every exit path.
 pub async fn send_message_streaming(
     app: AppHandle,
+    registry: &StreamRegistry,
+    stream_id: String,
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
     aggregates: Option<crate::context::OrgAggregates>,
@@ -425,6 +544,12 @@ pub async fn send_message_streaming(
     provider_id: &str,
     model_id: Option<&str>,
 ) -> Result<(), ChatError> {
+    let cancel_token = registry.register(stream_id.clone());
+    let _guard = StreamGuard {
+        registry,
+        stream_id: &stream_id,
+    };
+
     let provider = resolve_provider(provider_id, model_id);
     let api_key = get_api_key_for_provider(provider_id)?;
 
@@ -457,14 +582,21 @@ pub async fn send_message_streaming(
         });
     }
 
-    process_sse_stream(&app, response, &*provider, aggregates, query_type).await
+    process_sse_stream(&app, response, &*provider, aggregates, query_type, cancel_token).await
 }
 
 /// Send a message through the trial proxy with streaming response.
 /// Routes through the proxy URL instead of directly to Anthropic.
 /// The proxy manages the API key; we send a device ID for quota tracking.
+///
+/// Same registry/guard pattern as `send_message_streaming`. Cancelling a
+/// trial stream mid-flight still counts against the trial quota on the
+/// proxy side (the request was accepted) but stops downstream token
+/// delivery — the cost saving is on the Anthropic bill behind the proxy.
 pub async fn send_message_streaming_trial(
     app: AppHandle,
+    registry: &StreamRegistry,
+    stream_id: String,
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
     proxy_url: &str,
@@ -473,6 +605,12 @@ pub async fn send_message_streaming_trial(
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
 ) -> Result<TrialUsageMetadata, ChatError> {
+    let cancel_token = registry.register(stream_id.clone());
+    let _guard = StreamGuard {
+        registry,
+        stream_id: &stream_id,
+    };
+
     let anthropic = AnthropicProvider::new();
 
     // Enforce PII redaction before anything leaves the machine (proxy is still
@@ -536,13 +674,99 @@ pub async fn send_message_streaming_trial(
         });
     }
 
-    process_sse_stream(&app, response, &anthropic, aggregates, query_type).await?;
+    process_sse_stream(&app, response, &anthropic, aggregates, query_type, cancel_token).await?;
     Ok(usage)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ========================================
+    // StreamRegistry tests (issue #25)
+    // ========================================
+
+    #[test]
+    fn registry_starts_empty() {
+        let reg = StreamRegistry::new();
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn register_returns_unfired_token() {
+        let reg = StreamRegistry::new();
+        let token = reg.register("stream-1".into());
+        assert!(!token.is_cancelled());
+        assert_eq!(reg.len(), 1);
+    }
+
+    #[test]
+    fn cancel_fires_matching_token_and_returns_true() {
+        let reg = StreamRegistry::new();
+        let token = reg.register("stream-1".into());
+        assert!(!token.is_cancelled());
+
+        let cancelled = reg.cancel("stream-1");
+        assert!(cancelled, "cancel must report a match");
+        assert!(token.is_cancelled(), "token held by streaming task must observe cancel");
+    }
+
+    #[test]
+    fn cancel_of_unknown_id_is_a_noop_not_an_error() {
+        let reg = StreamRegistry::new();
+        let cancelled = reg.cancel("never-existed");
+        // The frontend may call this on every conversation switch even when
+        // no stream is in flight. It must be safe.
+        assert!(!cancelled);
+    }
+
+    #[test]
+    fn guard_removes_entry_on_drop_even_when_token_already_cancelled() {
+        let reg = StreamRegistry::new();
+        let _token = reg.register("stream-1".into());
+        {
+            let _guard = StreamGuard {
+                registry: &reg,
+                stream_id: "stream-1",
+            };
+            reg.cancel("stream-1");
+            assert_eq!(reg.len(), 1, "cancel alone must not remove the entry");
+        }
+        assert_eq!(reg.len(), 0, "guard drop must clean the registry");
+    }
+
+    #[test]
+    fn cancel_after_guard_drop_is_a_noop() {
+        let reg = StreamRegistry::new();
+        {
+            let token = reg.register("stream-1".into());
+            let _guard = StreamGuard {
+                registry: &reg,
+                stream_id: "stream-1",
+            };
+            drop(token);
+        }
+        // Guard dropped → entry removed → cancel finds nothing.
+        assert!(!reg.cancel("stream-1"));
+    }
+
+    #[tokio::test]
+    async fn cancelled_token_wakes_awaiting_task() {
+        // Models the process_sse_stream loop: a task awaits `.cancelled()`
+        // and must wake when cancel() fires from another task.
+        let reg = std::sync::Arc::new(StreamRegistry::new());
+        let token = reg.register("stream-1".into());
+
+        let reg_for_cancel = reg.clone();
+        let canceller = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            reg_for_cancel.cancel("stream-1");
+        });
+
+        // If cancel never wakes the await, this test hangs and times out.
+        token.cancelled().await;
+        canceller.await.unwrap();
+    }
 
     #[test]
     fn test_message_serialization() {

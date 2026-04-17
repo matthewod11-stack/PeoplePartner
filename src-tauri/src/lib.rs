@@ -486,15 +486,28 @@ async fn send_chat_message(
 /// Emits "chat-stream" events as response chunks arrive
 ///
 /// Dual-path routing: trial mode goes through proxy, paid mode uses BYOK key directly.
+///
+/// `stream_id` is a client-generated UUID. The frontend passes the same id
+/// to `cancel_stream` when the user hits Stop, switches conversations, or
+/// unmounts the chat view (issue #25). Unknown ids are a no-op, so it's safe
+/// for the UI to always call cancel on navigation even if the stream ended.
+///
+/// Optional for backward compatibility while the frontend wire-up lands as
+/// a follow-up. When absent we generate a UUID; the stream runs normally but
+/// the UI can't cancel it (cancel_stream has no way to learn the generated
+/// id). Once the frontend always passes an id, this can become required.
 #[tauri::command]
 async fn send_chat_message_streaming(
     app: tauri::AppHandle,
     state: tauri::State<'_, Database>,
+    registry: tauri::State<'_, chat::StreamRegistry>,
+    stream_id: Option<String>,
     messages: Vec<chat::ChatMessage>,
     system_prompt: Option<String>,
     aggregates: Option<context::OrgAggregates>,
     query_type: Option<context::QueryType>,
 ) -> Result<(), chat::ChatError> {
+    let stream_id = stream_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let has_license = trial::has_license_key(&state.pool)
         .await
         .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
@@ -522,6 +535,8 @@ async fn send_chat_message_streaming(
         // Route through proxy (trial doesn't support model selection)
         let trial_usage = chat::send_message_streaming_trial(
             app,
+            &registry,
+            stream_id,
             messages,
             system_prompt,
             &proxy_url,
@@ -561,10 +576,25 @@ async fn send_chat_message_streaming(
             .map_err(|e| chat::ChatError::RequestError(e.to_string()))?;
 
         chat::send_message_streaming(
-            app, messages, system_prompt, aggregates, query_type,
+            app, &registry, stream_id, messages, system_prompt, aggregates, query_type,
             &provider_id, model_id.as_deref(),
         ).await
     }
+}
+
+/// Cancel an in-flight streaming request by its client-generated stream_id.
+///
+/// Returns true if a matching stream was found and cancelled, false if the
+/// id was unknown (e.g., the stream completed before the UI could call
+/// cancel). Cancelling drops the upstream HTTP connection, so the provider
+/// stops generating and billing for tokens the user won't see.
+///
+/// Calling this with an unknown id is intentionally safe — the frontend can
+/// call it on conversation-switch / unmount without tracking whether a
+/// stream is actually in flight.
+#[tauri::command]
+fn cancel_stream(registry: tauri::State<'_, chat::StreamRegistry>, stream_id: String) -> bool {
+    registry.cancel(&stream_id)
 }
 
 // ============================================================================
@@ -2006,6 +2036,7 @@ pub fn run() {
             revalidate_license,
             send_chat_message,
             send_chat_message_streaming,
+            cancel_stream,
             check_network_status,
             is_online,
             // Company profile
@@ -2173,6 +2204,8 @@ pub fn run() {
 
                         // Store database pool in app state
                         handle.manage(Database::new(pool));
+                        // Registry of in-flight streams for cancel_stream (#25)
+                        handle.manage(chat::StreamRegistry::new());
                         log::info!("Database initialized successfully");
                     }
                     Err(e) => {
