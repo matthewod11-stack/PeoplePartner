@@ -569,4 +569,140 @@ mod tests {
         assert_eq!(parsed.len(), 3);
         assert_eq!(parsed[0], "emp-1");
     }
+
+    // ========================================================================
+    // Append-only trigger tests (issue #21).
+    // Verify migration 011's triggers block mutation at the DB layer and that
+    // the FK change (ON DELETE SET NULL) preserves audit rows when their
+    // parent conversation is deleted.
+    // ========================================================================
+
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::time::Duration;
+
+    async fn test_pool_with_migrations() -> crate::db::DbPool {
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("run migrations");
+        pool
+    }
+
+    async fn insert_audit_row(pool: &crate::db::DbPool, id: &str, conversation_id: Option<&str>) {
+        sqlx::query(
+            "INSERT INTO audit_log (id, conversation_id, request_redacted, response_text, created_at)
+             VALUES (?, ?, 'redacted', 'resp', datetime('now'))",
+        )
+        .bind(id)
+        .bind(conversation_id)
+        .execute(pool)
+        .await
+        .expect("insert audit row");
+    }
+
+    #[tokio::test]
+    async fn audit_log_insert_still_works() {
+        let pool = test_pool_with_migrations().await;
+        insert_audit_row(&pool, "a1", None).await;
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn audit_log_update_is_blocked() {
+        let pool = test_pool_with_migrations().await;
+        insert_audit_row(&pool, "a1", None).await;
+
+        let err = sqlx::query("UPDATE audit_log SET request_redacted = 'tampered' WHERE id = 'a1'")
+            .execute(&pool)
+            .await
+            .expect_err("UPDATE must fail");
+        assert!(
+            err.to_string().contains("append-only"),
+            "expected append-only abort, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn audit_log_delete_is_blocked() {
+        let pool = test_pool_with_migrations().await;
+        insert_audit_row(&pool, "a1", None).await;
+
+        let err = sqlx::query("DELETE FROM audit_log WHERE id = 'a1'")
+            .execute(&pool)
+            .await
+            .expect_err("DELETE must fail");
+        assert!(
+            err.to_string().contains("append-only"),
+            "expected append-only abort, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_conversation_preserves_audit_row_with_dangling_ref() {
+        let pool = test_pool_with_migrations().await;
+
+        // Insert a conversation, then an audit row that references it.
+        sqlx::query("INSERT INTO conversations (id, title) VALUES ('c1', 'test')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        insert_audit_row(&pool, "a1", Some("c1")).await;
+
+        // Delete the conversation — must succeed (no FK blocks it now) and
+        // must leave the audit row behind unchanged. The conversation_id
+        // becomes a dangling reference, which is acceptable because no code
+        // JOINs audit_log back to conversations.
+        sqlx::query("DELETE FROM conversations WHERE id = 'c1'")
+            .execute(&pool)
+            .await
+            .expect("conversation delete must succeed");
+
+        let (audit_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM audit_log WHERE id = 'a1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(audit_count, 1, "audit row must survive conversation deletion");
+
+        let (conv_id,): (Option<String>,) =
+            sqlx::query_as("SELECT conversation_id FROM audit_log WHERE id = 'a1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            conv_id.as_deref(),
+            Some("c1"),
+            "conversation_id must remain as-is (dangling reference), was: {:?}",
+            conv_id
+        );
+    }
+
+    #[tokio::test]
+    async fn audit_log_has_no_fk_to_conversations() {
+        // Migration 011 dropped the FK. Verify by inspecting foreign_key_list.
+        // If this regresses (someone re-adds the FK), conversation deletion
+        // will break at runtime because the SET NULL / NO ACTION interplay
+        // with the append-only trigger is what motivated dropping the FK.
+        let pool = test_pool_with_migrations().await;
+        let fks: Vec<(String,)> = sqlx::query_as(
+            "SELECT \"table\" FROM pragma_foreign_key_list('audit_log')",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(fks.is_empty(), "audit_log must have no FKs after migration 011, got: {:?}", fks);
+    }
 }

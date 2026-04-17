@@ -277,24 +277,18 @@ pub async fn search_conversations(
     Ok(conversations)
 }
 
-/// Delete a conversation by ID
-/// Also deletes associated audit log entries (FK constraint)
+/// Delete a conversation by ID.
+///
+/// Audit rows are deliberately NOT deleted here. Migration 011 dropped the
+/// `audit_log.conversation_id` FK, so the audit trail survives the conversation
+/// (with its `conversation_id` now a dangling reference — accepted because no
+/// code JOINs audit_log back to conversations). Removing the audit rows would
+/// be a tamper vector (user deletes conversation → hides what they asked
+/// Claude), which the append-only audit log explicitly defends against.
 pub async fn delete_conversation(
     pool: &DbPool,
     id: &str,
 ) -> Result<(), ConversationError> {
-    // First, delete associated audit log entries (no ON DELETE CASCADE in schema)
-    sqlx::query(
-        r#"
-        DELETE FROM audit_log
-        WHERE conversation_id = ?
-        "#,
-    )
-    .bind(id)
-    .execute(pool)
-    .await?;
-
-    // Now delete the conversation
     let result = sqlx::query(
         r#"
         DELETE FROM conversations

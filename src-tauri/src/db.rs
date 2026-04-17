@@ -124,6 +124,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (8, "document_chunks_unique", include_str!("../migrations/008_document_chunks_unique.sql")),
     (9, "license_validation_cache", include_str!("../migrations/009_license_validation_cache.sql")),
     (10, "schema_migrations", include_str!("../migrations/010_schema_migrations.sql")),
+    (11, "audit_log_append_only", include_str!("../migrations/011_audit_log_append_only.sql")),
 ];
 
 /// Highest version that the pre-versioning runner may have applied. Used only
@@ -491,25 +492,49 @@ mod tests {
     async fn legacy_db_is_backfilled_not_rerun() {
         let pool = empty_pool().await;
 
-        // Simulate a DB left by the pre-versioning runner: audit_log exists but
-        // schema_migrations does not. We give audit_log a minimal schema that
-        // would *conflict* with 001_initial's CREATE TABLE — if the runner
-        // mistakenly tries to re-run 001 we'll see an error.
-        sqlx::query("CREATE TABLE audit_log (fake_column TEXT)")
-            .execute(&pool)
-            .await
-            .unwrap();
+        // Simulate a DB left by the pre-versioning runner: audit_log exists
+        // (with the post-005 production shape, since that's what any real
+        // pre-upgrade DB would have) but schema_migrations does not. Later
+        // migrations like 011 read from audit_log, so the schema must match
+        // or the post-backfill migrations will fail. If the runner mistakenly
+        // tries to re-run 001 we'll see a CREATE TABLE IF NOT EXISTS no-op
+        // followed by ALTER TABLE in 002 failing with "duplicate column"
+        // (the error-swallow that used to hide this is now gone).
+        sqlx::query(
+            "CREATE TABLE audit_log (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT,
+                request_redacted TEXT NOT NULL,
+                response_text TEXT NOT NULL,
+                context_used TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                query_category TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Seed one row so we can prove migration 011 (which rebuilds the
+        // table) preserves data rather than silently wiping it.
+        sqlx::query(
+            "INSERT INTO audit_log (id, request_redacted, response_text, created_at)
+             VALUES ('legacy-row', 'req', 'resp', datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         run_migrations(&pool).await.expect("legacy path must not re-run 001");
 
-        // Versions 1..=9 must be marked applied, and migration 10
-        // (schema_migrations itself) must have run fresh.
+        // Versions 1..=LEGACY_LAST_VERSION must be marked applied (backfilled),
+        // and migrations LEGACY_LAST_VERSION+1 onward must have run fresh.
         let versions: Vec<i64> = sqlx::query_scalar("SELECT version FROM schema_migrations ORDER BY version")
             .fetch_all(&pool)
             .await
             .unwrap();
         let expected: Vec<i64> = MIGRATIONS.iter().map(|(v, _, _)| *v).collect();
-        assert_eq!(versions, expected, "backfill + migration-10 must populate every version");
+        assert_eq!(versions, expected, "backfill + newer migrations must populate every version");
 
         // `employees` table (created by 001) must NOT exist — proves backfill
         // really skipped 001 instead of executing it.
@@ -520,6 +545,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(employees_count, 0, "001 was re-run instead of backfilled");
+
+        // Migration 011's rebuild must preserve existing audit rows.
+        let (legacy_row_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM audit_log WHERE id = 'legacy-row'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(legacy_row_count, 1, "migration 011 must not drop existing audit rows");
     }
 
     #[tokio::test]

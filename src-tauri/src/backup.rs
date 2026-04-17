@@ -1036,6 +1036,26 @@ pub async fn import_backup(
         .map_err(|e| BackupError::Database(e.to_string()))?;
     sqlx::query("BEGIN").execute(&mut *conn).await?;
 
+    // Temporarily drop the audit-log append-only triggers for the duration of
+    // this transaction. `clear_all_tables` must DELETE FROM audit_log as part
+    // of a full wipe-and-restore, and the triggers otherwise ABORT that DELETE.
+    //
+    // Safety: this entire path is gated by the caller already having the
+    // backup's encryption password (the data was decrypted above). A caller
+    // without the password can't reach this code to exploit the trigger gap,
+    // and DROP TRIGGER inside a transaction rolls back on any failure below,
+    // restoring the append-only guarantee automatically. The CREATE TRIGGER
+    // at the end of the happy path re-arms the guard before COMMIT.
+    for drop_stmt in [
+        "DROP TRIGGER IF EXISTS audit_log_no_update",
+        "DROP TRIGGER IF EXISTS audit_log_no_delete",
+    ] {
+        if let Err(e) = sqlx::query(drop_stmt).execute(&mut *conn).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(BackupError::Database(e.to_string()));
+        }
+    }
+
     // Clear existing data
     let result = clear_all_tables(&mut *conn).await;
     if let Err(e) = result {
@@ -1071,6 +1091,24 @@ pub async fn import_backup(
     {
         let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
         return Err(BackupError::Database(e.to_string()));
+    }
+
+    // Re-arm the audit-log append-only triggers before committing. Must match
+    // migration 011 exactly — if these drift, migration 011 becomes the source
+    // of truth on fresh installs and this block becomes a silent downgrade on
+    // restore.
+    for create_stmt in [
+        "CREATE TRIGGER IF NOT EXISTS audit_log_no_update \
+         BEFORE UPDATE ON audit_log \
+         BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END",
+        "CREATE TRIGGER IF NOT EXISTS audit_log_no_delete \
+         BEFORE DELETE ON audit_log \
+         BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END",
+    ] {
+        if let Err(e) = sqlx::query(create_stmt).execute(&mut *conn).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(BackupError::Database(e.to_string()));
+        }
     }
 
     sqlx::query("COMMIT").execute(&mut *conn).await?;
