@@ -60,7 +60,7 @@ unicode-segmentation = "1.10"
 aes-gcm = "0.10"
 argon2 = "0.5"
 flate2 = "1.0"
-rand = "0.8"
+rand = "0.10"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "3.5"
