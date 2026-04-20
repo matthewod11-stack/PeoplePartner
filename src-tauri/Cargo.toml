@@ -36,7 +36,7 @@ thiserror = "1"
 # HTTP client for Claude API
 reqwest = { version = "0.12", features = ["json", "stream"] }
 futures = "0.3"
-hmac = "0.12"
+hmac = "0.13"
 sha2 = "0.10"
 hex = "0.4"
 jsonwebtoken = "9"  # EdDSA / Ed25519 JWT verification for signed license responses (issue #22)
