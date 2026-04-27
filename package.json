@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.conf.dev.json",
+    "tauri:build": "tauri build",
     "generate-test-data": "tsx scripts/generate-test-data.ts --employees",
     "import-test-data": "tsx scripts/import-test-data.ts"
   },
