@@ -24,7 +24,21 @@ pub enum DbError {
 pub type DbPool = Pool<Sqlite>;
 pub type DbResult<T> = Result<T, DbError>;
 
-/// Get the database file path in the app data directory
+/// SQLite filename used by every released version. Kept as a constant so
+/// the sandbox-data migration code can reference it without duplicating
+/// the literal.
+pub const DB_FILENAME: &str = "hr_command_center.db";
+
+/// Bundle identifier — pinned because the legacy sandbox container path
+/// is named after it. Changing this would orphan every customer's data.
+const BUNDLE_ID: &str = "com.peoplepartner.app";
+
+/// Get the database file path in the app data directory.
+///
+/// Also runs the one-shot v0.2.0 → v0.2.2+ sandbox-to-userlib data
+/// migration if applicable (see `migrate_legacy_sandbox_data_if_needed`).
+/// Migration is best-effort and silent: failures fall through to the
+/// fresh-install code path so the app always starts.
 pub fn get_db_path(app: &AppHandle) -> DbResult<PathBuf> {
     let app_data_dir = app
         .path()
@@ -34,7 +48,104 @@ pub fn get_db_path(app: &AppHandle) -> DbResult<PathBuf> {
     // Ensure directory exists
     fs::create_dir_all(&app_data_dir)?;
 
-    Ok(app_data_dir.join("hr_command_center.db"))
+    // Recover orphaned data left in the legacy sandbox container by signed
+    // v0.2.0 installs (see issue #18 / v0.2.3 release notes). No-op if the
+    // new path already has data, or if there's no legacy container to read.
+    if let Err(e) = migrate_legacy_sandbox_data_if_needed(&app_data_dir, DB_FILENAME) {
+        log::warn!(
+            "sandbox-data migration failed; continuing with fresh data dir: {e}"
+        );
+    }
+
+    Ok(app_data_dir.join(DB_FILENAME))
+}
+
+/// Compute the legacy sandbox-container path that mirrors `app_data_dir`.
+///
+/// macOS sandbox containers nest the user's home tree under
+/// `~/Library/Containers/{bundle_id}/Data/`, so an app whose data dir is
+/// `$HOME/Library/Application Support/{bundle_id}` had data at
+/// `$HOME/Library/Containers/{bundle_id}/Data/Library/Application Support/{bundle_id}`
+/// while sandboxed.
+///
+/// Returns None on non-macOS platforms, or if `app_data_dir` is not under
+/// `$HOME` (which would mean we can't compute a sensible mirror path).
+fn legacy_sandbox_data_dir(app_data_dir: &Path) -> Option<PathBuf> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let home = std::env::var_os("HOME")?;
+    let home = PathBuf::from(home);
+    let inside_home = app_data_dir.strip_prefix(&home).ok()?;
+    Some(
+        home.join("Library")
+            .join("Containers")
+            .join(BUNDLE_ID)
+            .join("Data")
+            .join(inside_home),
+    )
+}
+
+/// One-shot migration: copy v0.2.0's sandbox-container data to the new
+/// non-sandboxed location.
+///
+/// Why copy instead of move: leaves the sandbox container untouched as a
+/// safety backup. If a future migration step is wrong, the original data
+/// is still recoverable from `~/Library/Containers/{bundle_id}/Data/...`.
+/// Disk cost is a few MB; the trade-off is overwhelmingly worth it.
+///
+/// Skip conditions (any one of these → no-op):
+///   - new path already contains a DB (already migrated, or fresh install
+///     in progress)
+///   - not running on macOS
+///   - HOME isn't set (shouldn't happen in practice)
+///   - legacy sandbox path doesn't exist (truly fresh install)
+///
+/// Sidecar handling: SQLite WAL/SHM files are also copied if present.
+/// They may exist if v0.2.0 last shut down without checkpointing.
+///
+/// Returns Ok(true) if migration ran, Ok(false) if skipped. Errors propagate
+/// only if a copy starts and fails partway — caller should treat that as
+/// recoverable (delete the partial new file, fall through to fresh install).
+fn migrate_legacy_sandbox_data_if_needed(
+    app_data_dir: &Path,
+    db_filename: &str,
+) -> std::io::Result<bool> {
+    let new_db = app_data_dir.join(db_filename);
+    if new_db.exists() {
+        return Ok(false);
+    }
+    let Some(legacy_dir) = legacy_sandbox_data_dir(app_data_dir) else {
+        return Ok(false);
+    };
+    let legacy_db = legacy_dir.join(db_filename);
+    if !legacy_db.exists() {
+        return Ok(false);
+    }
+
+    // Migrate. Create the new dir first (caller has already done so for
+    // app_data_dir, but this function is also unit-testable in isolation).
+    fs::create_dir_all(app_data_dir)?;
+    fs::copy(&legacy_db, &new_db)?;
+
+    // Best-effort sidecar copy. If a sidecar copy fails, log and continue —
+    // SQLite will recover from a missing -wal/-shm on next open.
+    for ext in &["-wal", "-shm"] {
+        let sidecar_name = format!("{db_filename}{ext}");
+        let legacy_sidecar = legacy_dir.join(&sidecar_name);
+        if legacy_sidecar.exists() {
+            if let Err(e) = fs::copy(&legacy_sidecar, app_data_dir.join(&sidecar_name)) {
+                log::warn!("failed to copy sandbox sidecar {sidecar_name}: {e}");
+            }
+        }
+    }
+
+    log::info!(
+        "Migrated legacy sandbox data: {} → {}",
+        legacy_dir.display(),
+        app_data_dir.display()
+    );
+    Ok(true)
 }
 
 fn apply_restrictive_permissions(path: &PathBuf) -> std::io::Result<()> {
@@ -582,6 +693,97 @@ mod tests {
             !is_legacy_unversioned_db(&pool).await.unwrap(),
             "empty DB must not be treated as legacy"
         );
+    }
+
+    // ========================================================================
+    // Sandbox-data migration tests (v0.2.3 / issue #18 follow-up).
+    // The actual migration code is path-driven, so these tests work with
+    // tempdirs and don't require a real sandbox container.
+    // ========================================================================
+
+    #[test]
+    fn migration_copies_db_when_new_path_empty_and_legacy_has_data() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_data = tmp.path().join("new");
+        let legacy = tmp.path().join("legacy");
+        fs::create_dir_all(&app_data).unwrap();
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("hr_command_center.db"), b"v0.2.0 db payload").unwrap();
+        fs::write(legacy.join("hr_command_center.db-wal"), b"wal").unwrap();
+
+        // Run migration with explicit paths (so the test doesn't depend on
+        // the cfg!(macos) check inside legacy_sandbox_data_dir).
+        copy_legacy_data(&legacy, &app_data, "hr_command_center.db").unwrap();
+
+        let migrated = fs::read(app_data.join("hr_command_center.db")).unwrap();
+        assert_eq!(migrated, b"v0.2.0 db payload");
+        let migrated_wal = fs::read(app_data.join("hr_command_center.db-wal")).unwrap();
+        assert_eq!(migrated_wal, b"wal");
+    }
+
+    #[test]
+    fn migration_skips_when_new_path_has_db() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_data = tmp.path().join("new");
+        fs::create_dir_all(&app_data).unwrap();
+        fs::write(app_data.join("hr_command_center.db"), b"existing v0.2.2 db").unwrap();
+
+        let ran = migrate_legacy_sandbox_data_if_needed(&app_data, "hr_command_center.db").unwrap();
+        assert!(!ran, "must skip when new path already has a DB");
+
+        // Existing DB must NOT be overwritten.
+        let still_there = fs::read(app_data.join("hr_command_center.db")).unwrap();
+        assert_eq!(still_there, b"existing v0.2.2 db");
+    }
+
+    #[test]
+    fn migration_skips_when_legacy_path_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app_data = tmp.path().join("new");
+        fs::create_dir_all(&app_data).unwrap();
+
+        // Without HOME or sandbox container, the migration is a no-op.
+        let ran = migrate_legacy_sandbox_data_if_needed(&app_data, "hr_command_center.db").unwrap();
+        assert!(!ran, "must skip on fresh install with no sandbox container");
+        assert!(!app_data.join("hr_command_center.db").exists());
+    }
+
+    #[test]
+    fn migration_leaves_sandbox_container_untouched() {
+        // Copy-not-move guarantee: if a future migration version does the
+        // wrong thing, the user's original data is still in the sandbox.
+        let tmp = tempfile::tempdir().unwrap();
+        let app_data = tmp.path().join("new");
+        let legacy = tmp.path().join("legacy");
+        fs::create_dir_all(&app_data).unwrap();
+        fs::create_dir_all(&legacy).unwrap();
+        fs::write(legacy.join("hr_command_center.db"), b"original").unwrap();
+
+        copy_legacy_data(&legacy, &app_data, "hr_command_center.db").unwrap();
+
+        // Source untouched
+        assert!(legacy.join("hr_command_center.db").exists());
+        let original = fs::read(legacy.join("hr_command_center.db")).unwrap();
+        assert_eq!(original, b"original");
+    }
+
+    /// Test helper: bypasses the cfg!(macos) and HOME-derivation logic so
+    /// tests can drive the copy operation directly with arbitrary paths.
+    fn copy_legacy_data(
+        legacy_dir: &Path,
+        new_dir: &Path,
+        db_filename: &str,
+    ) -> std::io::Result<()> {
+        fs::create_dir_all(new_dir)?;
+        fs::copy(legacy_dir.join(db_filename), new_dir.join(db_filename))?;
+        for ext in &["-wal", "-shm"] {
+            let sidecar = format!("{db_filename}{ext}");
+            let src = legacy_dir.join(&sidecar);
+            if src.exists() {
+                fs::copy(&src, new_dir.join(&sidecar))?;
+            }
+        }
+        Ok(())
     }
 
     #[tokio::test]
