@@ -48,7 +48,7 @@ calamine = "0.26"
 # Document parsing
 pdf-extract = "0.10"
 docx-rs = "0.4.20"
-notify = { version = "7", features = ["macos_fsevent"] }
+notify = { version = "8", features = ["macos_fsevent"] }
 
 # PII detection
 regex = "1"
