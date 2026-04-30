@@ -3,3 +3,4 @@
 export { Modal } from './Modal';
 export { OfflineIndicator } from './OfflineIndicator';
 export { PIINotification } from './PIINotification';
+export { UpdateModal } from './UpdateModal';
