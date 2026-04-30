@@ -209,10 +209,11 @@ export function BackupRestore({ onImportComplete }: BackupRestoreProps) {
         {showExportForm && (
           <div className="mt-4 pt-4 border-t border-stone-200 space-y-3">
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">
+              <label htmlFor="backup-export-password" className="block text-xs font-medium text-stone-600 mb-1">
                 Encryption Password
               </label>
               <input
+                id="backup-export-password"
                 type="password"
                 value={exportPassword}
                 onChange={(e) => setExportPassword(e.target.value)}
@@ -221,10 +222,11 @@ export function BackupRestore({ onImportComplete }: BackupRestoreProps) {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">
+              <label htmlFor="backup-export-confirm" className="block text-xs font-medium text-stone-600 mb-1">
                 Confirm Password
               </label>
               <input
+                id="backup-export-confirm"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -283,10 +285,11 @@ export function BackupRestore({ onImportComplete }: BackupRestoreProps) {
           <div className="mt-4 pt-4 border-t border-stone-200 space-y-3">
             {/* File Selection */}
             <div>
-              <label className="block text-xs font-medium text-stone-600 mb-1">
+              <label htmlFor="backup-import-file" className="block text-xs font-medium text-stone-600 mb-1">
                 Backup File
               </label>
               <input
+                id="backup-import-file"
                 ref={fileInputRef}
                 type="file"
                 accept=".hrbackup"
@@ -301,10 +304,11 @@ export function BackupRestore({ onImportComplete }: BackupRestoreProps) {
             {/* Password Input */}
             {selectedFile && !previewMetadata && (
               <div>
-                <label className="block text-xs font-medium text-stone-600 mb-1">
+                <label htmlFor="backup-import-password" className="block text-xs font-medium text-stone-600 mb-1">
                   Backup Password
                 </label>
                 <input
+                  id="backup-import-password"
                   type="password"
                   value={importPassword}
                   onChange={(e) => setImportPassword(e.target.value)}
