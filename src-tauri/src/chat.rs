@@ -229,6 +229,38 @@ fn to_provider_messages(messages: Vec<ChatMessage>) -> Vec<ProviderMessage> {
         .collect()
 }
 
+/// Scrub plausible API key substrings from upstream error text before it
+/// reaches the UI / logs / support transcripts.
+///
+/// Provider error bodies occasionally echo a portion of the offending key
+/// (e.g., a 401 message that quotes the key). Even a partial leak — to a
+/// browser console, an exported audit log, or a screenshot in a support
+/// email — is a key-rotation event. The helper covers the three live
+/// providers (Anthropic, OpenAI, Google) plus the generic `sk-` prefix
+/// shared by Anthropic + OpenAI legacy keys, and intentionally over-matches
+/// (long-enough alphanumeric runs after a known prefix) to be robust to
+/// minor prefix variations.
+fn redact_api_keys(text: &str) -> String {
+    use std::sync::OnceLock;
+    static PATTERNS: OnceLock<Vec<regex::Regex>> = OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        vec![
+            // Anthropic: sk-ant-... (covers sk-ant-api03-..., sk-ant-admin-..., etc.)
+            regex::Regex::new(r"sk-ant-[A-Za-z0-9_\-]{10,}").unwrap(),
+            // OpenAI: sk-proj-..., sk-svcacct-..., sk-...
+            regex::Regex::new(r"sk-[A-Za-z0-9_\-]{20,}").unwrap(),
+            // Google AI Studio / Gemini
+            regex::Regex::new(r"AIzaSy[A-Za-z0-9_\-]{20,}").unwrap(),
+        ]
+    });
+
+    let mut out = text.to_string();
+    for re in patterns {
+        out = re.replace_all(&out, "[API_KEY_REDACTED]").to_string();
+    }
+    out
+}
+
 /// Apply PII redaction to the chat payload before it leaves the machine.
 ///
 /// This is the defense-in-depth enforcement of the product's privacy claim:
@@ -388,7 +420,11 @@ pub async fn send_message(
     if !status.is_success() {
         let error_text = response.text().await.unwrap_or_default();
         let parsed = provider.parse_error_response(&error_text);
-        return Err(ChatError::ApiError(format!("HTTP {}: {}", status.as_u16(), parsed)));
+        return Err(ChatError::ApiError(redact_api_keys(&format!(
+            "HTTP {}: {}",
+            status.as_u16(),
+            parsed
+        ))));
     }
 
     // Parse successful response via the provider
@@ -478,7 +514,7 @@ async fn process_sse_stream(
                                 });
                             }
                             StreamDelta::Error(msg) => {
-                                return Err(ChatError::ApiError(msg));
+                                return Err(ChatError::ApiError(redact_api_keys(&msg)));
                             }
                         }
                     }
@@ -497,7 +533,11 @@ fn check_http_error_status(
     provider: &dyn Provider,
 ) -> Result<(), ChatError> {
     let parsed = provider.parse_error_response(error_text);
-    Err(ChatError::ApiError(format!("HTTP {}: {}", status.as_u16(), parsed)))
+    Err(ChatError::ApiError(redact_api_keys(&format!(
+        "HTTP {}: {}",
+        status.as_u16(),
+        parsed
+    ))))
 }
 
 fn parse_trial_usage_headers(headers: &reqwest::header::HeaderMap) -> TrialUsageMetadata {
@@ -938,5 +978,66 @@ mod tests {
             !serialized.contains("123456789012"),
             "raw bank account number serialized to provider payload: {serialized}"
         );
+    }
+
+    // ========================================
+    // API key redaction in error text (issue #36)
+    // ========================================
+
+    #[test]
+    fn redact_api_keys_strips_anthropic_key() {
+        let msg = "HTTP 401: authentication_error: Invalid API key sk-ant-api03-AbCdEf1234567890XYZ provided";
+        let out = redact_api_keys(msg);
+        assert!(
+            !out.contains("sk-ant-api03-AbCdEf1234567890XYZ"),
+            "anthropic key leaked: {out}"
+        );
+        assert!(out.contains("[API_KEY_REDACTED]"));
+    }
+
+    #[test]
+    fn redact_api_keys_strips_openai_project_key() {
+        let msg = "HTTP 401: invalid_api_key: sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 is not valid";
+        let out = redact_api_keys(msg);
+        assert!(
+            !out.contains("sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"),
+            "openai key leaked: {out}"
+        );
+        assert!(out.contains("[API_KEY_REDACTED]"));
+    }
+
+    #[test]
+    fn redact_api_keys_strips_gemini_key() {
+        let msg = "API key not valid. Please pass a valid API key. (key=AIzaSyAbcdEfgh1234567890IjklMnopQr)";
+        let out = redact_api_keys(msg);
+        assert!(
+            !out.contains("AIzaSyAbcdEfgh1234567890IjklMnopQr"),
+            "gemini key leaked: {out}"
+        );
+        assert!(out.contains("[API_KEY_REDACTED]"));
+    }
+
+    #[test]
+    fn redact_api_keys_strips_multiple_keys_in_one_message() {
+        let msg = "Compared keys sk-ant-abcdef1234567890 and sk-proj-zzzzzzzzzzzzzzzzzzzzzzzzz; both invalid.";
+        let out = redact_api_keys(msg);
+        assert!(!out.contains("sk-ant-abcdef1234567890"));
+        assert!(!out.contains("sk-proj-zzzzzzzzzzzzzzzzzzzzzzzzz"));
+        // Two redactions for two keys.
+        assert_eq!(out.matches("[API_KEY_REDACTED]").count(), 2);
+    }
+
+    #[test]
+    fn redact_api_keys_passthrough_when_no_key_present() {
+        let msg = "HTTP 503: service_unavailable: Anthropic API is temporarily overloaded. Try again.";
+        assert_eq!(redact_api_keys(msg), msg);
+    }
+
+    #[test]
+    fn redact_api_keys_does_not_match_short_sk_strings() {
+        // Avoid false positives on short product SKUs like sk-100 or sk-pro.
+        let msg = "Item code sk-shortidx and SKU sk-100 unaffected.";
+        let out = redact_api_keys(msg);
+        assert_eq!(out, msg, "short sk- substrings must not match (false positive)");
     }
 }
