@@ -1917,7 +1917,7 @@ async fn set_document_folder(
         .await
         .map_err(|e| e.to_string())?;
     // Restart watcher for the new folder
-    watcher.start(pool.clone());
+    watcher.start(pool.clone()).await;
     Ok(stats)
 }
 
@@ -1930,7 +1930,7 @@ async fn remove_document_folder(
         .await
         .map_err(|e| e.to_string())?;
     // Stop watcher — no folder to watch
-    watcher.stop();
+    watcher.stop().await;
     Ok(())
 }
 
@@ -2276,8 +2276,10 @@ pub fn run() {
             tauri::async_runtime::block_on(async move {
                 match db::init_db(&handle).await {
                     Ok(pool) => {
-                        // Start document folder watcher (V3.0)
-                        let watcher_state = documents::start_watcher(pool.clone(), handle.clone());
+                        // Start document folder watcher (V3.0). Async since
+                        // issue #38 — safe to await inside the existing
+                        // tauri::async_runtime::block_on(async move { ... }).
+                        let watcher_state = documents::start_watcher(pool.clone(), handle.clone()).await;
                         handle.manage(watcher_state);
 
                         // Store database pool in app state
