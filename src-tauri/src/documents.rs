@@ -120,6 +120,10 @@ pub struct DocumentFolderStats {
     pub pii_file_count: u32,
     pub error_file_count: u32,
     pub last_scanned_at: Option<String>,
+    /// Whether the on-disk folder is currently accessible. False covers BOTH
+    /// "folder was deleted/moved" AND "macOS revoked Full Disk Access" — the
+    /// frontend treats it as a single "needs reselect" signal. (issue #38)
+    pub folder_accessible: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,6 +228,12 @@ pub async fn get_folder_stats(pool: &DbPool) -> Result<Option<DocumentFolderStat
         "SELECT COUNT(*) FROM documents WHERE folder_id = ?1 AND error IS NOT NULL"
     ).bind(folder.id).fetch_one(pool).await?;
 
+    // read_dir().is_ok() catches BOTH the folder being deleted/moved AND
+    // macOS Full Disk Access being revoked, where Path::exists() would still
+    // return true. Single syscall — a more honest "can we actually read this
+    // folder" signal than exists().
+    let folder_accessible = std::fs::read_dir(&folder.path).is_ok();
+
     Ok(Some(DocumentFolderStats {
         path: folder.path,
         label: folder.label,
@@ -232,6 +242,7 @@ pub async fn get_folder_stats(pool: &DbPool) -> Result<Option<DocumentFolderStat
         pii_file_count: pii_count.0 as u32,
         error_file_count: error_count.0 as u32,
         last_scanned_at: folder.last_scanned_at,
+        folder_accessible,
     }))
 }
 
@@ -1078,151 +1089,231 @@ pub fn format_document_context(chunks: &[RetrievedChunk]) -> String {
 }
 
 // ============================================================================
-// File System Watcher
+// File System Watcher (issue #38: async refactor + folder-missing handling +
+// real debouncing via notify-debouncer-full)
 // ============================================================================
+//
+// Why async + tokio:
+// - Old design used std::thread + std::sync::Mutex<JoinHandle>; start() called
+//   stop() (which join()s the thread) while holding the mutex → deadlock risk
+//   when called from a Tauri tokio command. New design uses tokio::sync::Mutex
+//   and tokio::task::JoinHandle so stop() yields rather than blocks.
+// - Old loop block-on'd a tokio runtime handle from inside a std thread to run
+//   the async DB scan. New loop is itself a tokio task — scan_folder() is just
+//   awaited directly.
+//
+// Why notify-debouncer-full:
+// - Old "debounce" was recv_timeout(2s) with an inner drain loop that resets
+//   every 2s. Under continuous churn (cloud sync, git ops), the drain never
+//   ends and a scan never fires; under bursty churn the drain may fire mid-
+//   sequence. The official debouncer guarantees a fixed timeout window after
+//   the last event before delivering a coalesced batch.
+// - DEBOUNCE_INTERVAL = 1500ms catches OneDrive/Dropbox/iCloud bursts (~500ms
+//   to 1s typical) and Word/Excel save cycles without feeling laggy on a
+//   single drag-drop.
 
-use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{mpsc, Arc};
+use notify::{event::RemoveKind, EventKind, RecursiveMode};
+use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
-/// Manages the lifecycle of the file-system watcher thread.
+/// Debounce window — see module-level comment for the choice rationale.
+const DEBOUNCE_INTERVAL: Duration = Duration::from_millis(1500);
+
+/// Bounded wait when stopping a running watcher. The inner task may be in the
+/// middle of a `scan_folder` await that doesn't observe `cancel.cancelled()`
+/// until the scan finishes. We don't want to hang the UI thread that called
+/// `set_document_folder` or `remove_document_folder` if a scan is genuinely
+/// stuck — log a warning and move on. The cancel signal still fires when the
+/// scan eventually finishes, so the task exits without leaking the debouncer.
+const WATCHER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Tauri event name emitted when the watcher detects the watched root has
+/// disappeared (or after a rescan attempt finds it missing).
+pub const FOLDER_MISSING_EVENT: &str = "documents-folder-missing";
+
+/// Manages the lifecycle of the file-system watcher task.
 /// Allows stopping/restarting when the watched folder changes.
 pub struct WatcherState {
-    handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
-    stop_signal: Arc<AtomicBool>,
+    inner: TokioMutex<Option<RunningWatcher>>,
     app_handle: AppHandle,
+}
+
+struct RunningWatcher {
+    handle: tokio::task::JoinHandle<()>,
+    cancel: CancellationToken,
 }
 
 impl WatcherState {
     pub fn new(app_handle: AppHandle) -> Self {
         Self {
-            handle: std::sync::Mutex::new(None),
-            stop_signal: Arc::new(AtomicBool::new(false)),
+            inner: TokioMutex::new(None),
             app_handle,
         }
     }
 
-    /// Stop the current watcher thread (if running)
-    pub fn stop(&self) {
-        self.stop_signal.store(true, Ordering::SeqCst);
-        if let Ok(mut guard) = self.handle.lock() {
-            if let Some(h) = guard.take() {
-                let _ = h.join();
+    /// Stop the running watcher (if any). Returns when the task observes the
+    /// cancel and exits, or after `WATCHER_SHUTDOWN_TIMEOUT`. Non-blocking on
+    /// the tokio runtime.
+    pub async fn stop(&self) {
+        let mut guard = self.inner.lock().await;
+        if let Some(rw) = guard.take() {
+            rw.cancel.cancel();
+            match tokio::time::timeout(WATCHER_SHUTDOWN_TIMEOUT, rw.handle).await {
+                Ok(_) => {}
+                Err(_) => {
+                    // Hung scan. The cancel signal is still set, so the task
+                    // will exit after the in-flight scan returns. We don't
+                    // abort here because the JoinHandle was consumed by
+                    // tokio::time::timeout — and abort() on a task mid-
+                    // sqlx-transaction risks DB pool corruption anyway.
+                    log::warn!(
+                        "[Documents] Watcher did not exit within {:?}; cancel signal sent, task will exit on next yield",
+                        WATCHER_SHUTDOWN_TIMEOUT
+                    );
+                }
             }
         }
     }
 
-    /// Stop any existing watcher, then start a new one for the active folder
-    pub fn start(&self, pool: DbPool) {
-        self.stop();
-        // Reset stop signal for the new thread
-        self.stop_signal.store(false, Ordering::SeqCst);
-
-        if let Ok(mut guard) = self.handle.lock() {
-            let stop = self.stop_signal.clone();
-            let app_handle = self.app_handle.clone();
-            *guard = start_watcher_inner(pool, app_handle, stop);
+    /// Stop any existing watcher, then start a new one for the active folder.
+    pub async fn start(&self, pool: DbPool) {
+        self.stop().await;
+        let cancel = CancellationToken::new();
+        let app_handle = self.app_handle.clone();
+        if let Some(handle) = start_watcher_inner(pool, app_handle, cancel.clone()).await {
+            *self.inner.lock().await = Some(RunningWatcher { handle, cancel });
         }
     }
 }
 
-/// Internal watcher loop that respects a stop signal
-fn start_watcher_inner(
+/// Spawn the watcher task. Returns None if no folder is configured or the
+/// debouncer fails to attach to the path.
+async fn start_watcher_inner(
     pool: DbPool,
     app_handle: AppHandle,
-    stop_signal: Arc<AtomicBool>,
-) -> Option<std::thread::JoinHandle<()>> {
-    // We need a tokio runtime handle for async DB operations
-    let rt = match tokio::runtime::Handle::try_current() {
-        Ok(h) => h,
-        Err(_) => return None,
+    cancel: CancellationToken,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let folder_path_str = get_document_folder(&pool).await.ok().flatten()?.path;
+
+    // Canonicalize so we can later compare notify event paths against the
+    // watched root reliably. macOS FSEvents may surface paths through
+    // `/private/var/...` even when the user selected `/var/...`.
+    let watched_root = match std::fs::canonicalize(&folder_path_str) {
+        Ok(p) => p,
+        Err(e) => {
+            log::warn!(
+                "[Documents] Cannot canonicalize {}: {}; folder not watched",
+                folder_path_str,
+                e
+            );
+            return None;
+        }
     };
 
-    let handle = std::thread::spawn(move || {
-        let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
-
-        // Check if folder is configured
-        let folder_path = match rt.block_on(async {
-            let folder = get_document_folder(&pool).await.ok().flatten();
-            folder.map(|f| f.path)
-        }) {
-            Some(p) => p,
-            None => return, // No folder configured
-        };
-
-        let mut watcher = match RecommendedWatcher::new(tx, Config::default()) {
-            Ok(w) => w,
-            Err(e) => {
-                log::error!("[Documents] Failed to create watcher: {}", e);
-                return;
-            }
-        };
-
-        if let Err(e) = watcher.watch(Path::new(&folder_path), RecursiveMode::Recursive) {
-            log::error!("[Documents] Failed to watch {}: {}", folder_path, e);
-            return;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<DebounceEventResult>();
+    let mut debouncer = match new_debouncer(DEBOUNCE_INTERVAL, None, move |result: DebounceEventResult| {
+        // Send is non-blocking on unbounded; ignore errors (rx dropped → task ended).
+        let _ = tx.send(result);
+    }) {
+        Ok(d) => d,
+        Err(e) => {
+            log::error!("[Documents] Failed to create debouncer: {}", e);
+            return None;
         }
+    };
 
-        log::info!("[Documents] Watching: {}", folder_path);
+    if let Err(e) = debouncer.watch(&watched_root, RecursiveMode::Recursive) {
+        log::error!(
+            "[Documents] Failed to watch {}: {}",
+            watched_root.display(),
+            e
+        );
+        return None;
+    }
 
-        // Debounce: wait for 2 seconds of quiet before scanning
+    log::info!("[Documents] Watching: {}", watched_root.display());
+
+    let handle = tokio::spawn(async move {
+        // Keep the debouncer alive for the duration of the task; dropping it
+        // would unsubscribe from FSEvents.
+        let _debouncer = debouncer;
+
         loop {
-            if stop_signal.load(Ordering::SeqCst) {
-                log::info!("[Documents] Watcher stop signal received");
-                break;
-            }
+            tokio::select! {
+                _ = cancel.cancelled() => {
+                    log::info!("[Documents] Watcher cancelled");
+                    return;
+                }
+                msg = rx.recv() => {
+                    let Some(result) = msg else {
+                        // Sender dropped — should only happen on shutdown.
+                        return;
+                    };
+                    match result {
+                        Ok(events) => {
+                            // 1. Root-removal detection: any Remove(Folder|Any)
+                            //    event whose path canonicalizes to the watched
+                            //    root means the folder itself is gone.
+                            let root_event = events.iter().any(|de| {
+                                matches!(
+                                    de.event.kind,
+                                    EventKind::Remove(RemoveKind::Folder | RemoveKind::Any)
+                                ) && de.event.paths.iter().any(|p| {
+                                    std::fs::canonicalize(p).ok().as_deref()
+                                        == Some(&watched_root)
+                                })
+                            });
 
-            match rx.recv_timeout(Duration::from_secs(2)) {
-                Ok(Ok(_event)) => {
-                    // Got an event — keep draining for 2 seconds
-                    while rx.recv_timeout(Duration::from_secs(2)).is_ok() {
-                        if stop_signal.load(Ordering::SeqCst) {
-                            return;
+                            // 2. Belt-and-suspenders: re-check exists() AFTER
+                            //    the debounce window. Catches cases where the
+                            //    Remove event was filtered or missed (e.g.,
+                            //    quick unmount/remount), and avoids false
+                            //    positives on atomic-replace renames where a
+                            //    Create immediately follows the Remove.
+                            if root_event && !watched_root.exists() {
+                                log::info!(
+                                    "[Documents] Watched root no longer accessible: {}",
+                                    watched_root.display()
+                                );
+                                let _ = app_handle.emit(
+                                    FOLDER_MISSING_EVENT,
+                                    serde_json::json!({
+                                        "path": watched_root.to_string_lossy(),
+                                    }),
+                                );
+                                return;
+                            }
+
+                            // 3. Even if no Remove event, a missing folder
+                            //    means we shouldn't rescan (would just emit a
+                            //    failed-scan event). Surface as folder-missing.
+                            if !watched_root.exists() {
+                                let _ = app_handle.emit(
+                                    FOLDER_MISSING_EVENT,
+                                    serde_json::json!({
+                                        "path": watched_root.to_string_lossy(),
+                                    }),
+                                );
+                                return;
+                            }
+
+                            // 4. need_rescan() = the debouncer dropped events
+                            //    under load and recommends a full sync. We
+                            //    already do a full scan_folder, so this is
+                            //    informational; logged for forensics.
+                            if events.iter().any(|de| de.event.need_rescan()) {
+                                log::info!("[Documents] Debouncer requested rescan (event drop)");
+                            }
+
+                            run_rescan(&pool, &app_handle).await;
+                        }
+                        Err(errors) => {
+                            for e in errors {
+                                log::error!("[Documents] Watch error: {}", e);
+                            }
                         }
                     }
-                    if stop_signal.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    // Debounce period passed — scan
-                    log::debug!("[Documents] Changes detected, re-scanning...");
-                    let _ = app_handle.emit("documents-scan", serde_json::json!({
-                        "status": "started",
-                        "source": "watcher"
-                    }));
-                    let pool_clone = pool.clone();
-                    let app_handle_clone = app_handle.clone();
-                    rt.block_on(async {
-                        match scan_folder(&pool_clone).await {
-                            Ok(stats) => {
-                                let _ = app_handle_clone.emit("documents-scan", serde_json::json!({
-                                    "status": "completed",
-                                    "source": "watcher",
-                                    "file_count": stats.file_count,
-                                    "chunk_count": stats.chunk_count,
-                                    "last_scanned_at": stats.last_scanned_at,
-                                }));
-                            }
-                            Err(e) => {
-                                log::error!("[Documents] Re-scan failed: {}", e);
-                                let _ = app_handle_clone.emit("documents-scan", serde_json::json!({
-                                    "status": "failed",
-                                    "source": "watcher",
-                                    "error": e.to_string(),
-                                }));
-                            }
-                        }
-                    });
-                }
-                Ok(Err(e)) => {
-                    log::error!("[Documents] Watch error: {}", e);
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // No events — continue waiting
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    log::info!("[Documents] Watcher channel closed, stopping");
-                    break;
                 }
             }
         }
@@ -1231,11 +1322,46 @@ fn start_watcher_inner(
     Some(handle)
 }
 
+/// Trigger a full rescan and emit the corresponding lifecycle events.
+/// Extracted from the watcher loop for readability + reuse from tests.
+async fn run_rescan(pool: &DbPool, app_handle: &AppHandle) {
+    log::debug!("[Documents] Rescan triggered");
+    let _ = app_handle.emit(
+        "documents-scan",
+        serde_json::json!({ "status": "started", "source": "watcher" }),
+    );
+    match scan_folder(pool).await {
+        Ok(stats) => {
+            let _ = app_handle.emit(
+                "documents-scan",
+                serde_json::json!({
+                    "status": "completed",
+                    "source": "watcher",
+                    "file_count": stats.file_count,
+                    "chunk_count": stats.chunk_count,
+                    "last_scanned_at": stats.last_scanned_at,
+                }),
+            );
+        }
+        Err(e) => {
+            log::error!("[Documents] Re-scan failed: {}", e);
+            let _ = app_handle.emit(
+                "documents-scan",
+                serde_json::json!({
+                    "status": "failed",
+                    "source": "watcher",
+                    "error": e.to_string(),
+                }),
+            );
+        }
+    }
+}
+
 /// Start watching the active document folder for changes.
 /// Returns a WatcherState that can be used to stop/restart the watcher.
-pub fn start_watcher(pool: DbPool, app_handle: AppHandle) -> WatcherState {
+pub async fn start_watcher(pool: DbPool, app_handle: AppHandle) -> WatcherState {
     let state = WatcherState::new(app_handle);
-    state.start(pool);
+    state.start(pool).await;
     state
 }
 
@@ -1623,5 +1749,64 @@ mod tests {
         assert_eq!(results.len(), 1, "Only active folder chunks should be returned");
         assert_eq!(results[0].file_name, "policy.md");
         assert!(results[0].content.contains("20 days"));
+    }
+
+    // ========================================
+    // folder_accessible field (issue #38)
+    // ========================================
+    //
+    // Backstop the load-bearing assumption that drives the
+    // documents-folder-missing UX: `get_folder_stats` must report
+    // `folder_accessible = false` for any path that can't be opened with
+    // `read_dir`. The frontend banner in DocumentFolderConfig.tsx renders
+    // off this field, so a regression here surfaces as "watcher fires the
+    // event but the user reopens Settings and the banner doesn't show."
+
+    #[tokio::test]
+    async fn get_folder_stats_reports_inaccessible_when_path_missing() {
+        let pool = setup_documents_test_db().await;
+        // Path that definitely doesn't exist on any reasonable test machine.
+        sqlx::query(
+            "INSERT INTO document_folders (id, path, active) VALUES (1, '/nonexistent/people-partner/test/path', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let stats = get_folder_stats(&pool)
+            .await
+            .expect("get_folder_stats should succeed even when folder is missing")
+            .expect("active folder row exists, so Some is expected");
+
+        assert!(
+            !stats.folder_accessible,
+            "missing folder must report folder_accessible = false (backs the missing-folder banner)"
+        );
+        // Sanity: stats are still well-formed for an empty folder.
+        assert_eq!(stats.file_count, 0);
+        assert_eq!(stats.chunk_count, 0);
+    }
+
+    #[tokio::test]
+    async fn get_folder_stats_reports_accessible_for_real_dir() {
+        let pool = setup_documents_test_db().await;
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().to_string_lossy().to_string();
+
+        sqlx::query("INSERT INTO document_folders (id, path, active) VALUES (1, ?1, 1)")
+            .bind(&path)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let stats = get_folder_stats(&pool)
+            .await
+            .unwrap()
+            .expect("active folder row exists");
+
+        assert!(
+            stats.folder_accessible,
+            "real readable folder must report folder_accessible = true"
+        );
     }
 }
