@@ -1051,7 +1051,7 @@ struct EmployeeRow {
 }
 
 /// Internal struct for rating query result
-#[derive(Debug, FromRow)]
+#[derive(Debug, Clone, FromRow)]
 struct RatingRow {
     overall_rating: f64,
     cycle_name: String,
@@ -1059,7 +1059,7 @@ struct RatingRow {
 }
 
 /// Internal struct for eNPS query result
-#[derive(Debug, FromRow)]
+#[derive(Debug, Clone, FromRow)]
 struct EnpsRow {
     score: i32,
     survey_name: Option<String>,
@@ -1195,14 +1195,7 @@ pub async fn find_relevant_employees(
     // Limit results
     employee_ids.truncate(remaining_limit);
 
-    // Fetch full employee context for each ID
-    let mut employees = Vec::new();
-    for id in employee_ids {
-        if let Ok(emp) = get_employee_context(pool, &id).await {
-            employees.push(emp);
-        }
-    }
-
+    let employees = get_employee_contexts(pool, &employee_ids).await?;
     Ok(finalize_results(employees))
 }
 
@@ -1354,6 +1347,260 @@ pub async fn get_employee_context(
     })
 }
 
+/// Batch variant of `get_employee_context`. Issues 4 IN-clause queries (basic
+/// info, manager names, ratings + cycles, eNPS) instead of N×4 sequential
+/// per-employee queries, then assembles the EmployeeContext list in input-ID
+/// order.
+///
+/// IDs not found in the employees table are silently skipped — matches the
+/// per-row `if let Ok(emp) = ...` pattern at every caller in this module.
+///
+/// Highlights/summary lookups remain sequential per-employee; their batching
+/// would require extending `highlights::*` and is out of scope for #32.
+pub async fn get_employee_contexts(
+    pool: &DbPool,
+    employee_ids: &[String],
+) -> Result<Vec<EmployeeContext>, ContextError> {
+    if employee_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let placeholders = employee_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+
+    // 1) Batch: employee basic info
+    let basic_query = format!(
+        "SELECT id, email, full_name, department, job_title, hire_date, work_state, status, manager_id \
+         FROM employees WHERE id IN ({})",
+        placeholders
+    );
+    let mut q = sqlx::query_as::<_, EmployeeRow>(&basic_query);
+    for id in employee_ids {
+        q = q.bind(id);
+    }
+    let basic_rows: Vec<EmployeeRow> = q.fetch_all(pool).await?;
+    let basic_by_id: std::collections::HashMap<String, EmployeeRow> =
+        basic_rows.into_iter().map(|r| (r.id.clone(), r)).collect();
+
+    // 2) Batch: manager names (deduplicate manager_ids; one row per distinct manager)
+    let manager_ids: Vec<String> = {
+        let mut ids: Vec<String> = basic_by_id
+            .values()
+            .filter_map(|e| e.manager_id.clone())
+            .collect();
+        ids.sort();
+        ids.dedup();
+        ids
+    };
+    let manager_names_by_id: std::collections::HashMap<String, String> = if manager_ids.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        let mgr_placeholders = manager_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let mgr_query = format!(
+            "SELECT id, full_name FROM employees WHERE id IN ({})",
+            mgr_placeholders
+        );
+        let mut q = sqlx::query(&mgr_query);
+        for id in &manager_ids {
+            q = q.bind(id);
+        }
+        q.fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("full_name")))
+            .collect()
+    };
+
+    // 3) Batch: ratings JOIN cycles, ORDER BY rc.start_date DESC.
+    // Local row type because grouping needs employee_id (per-employee RatingRow doesn't carry it).
+    #[derive(FromRow)]
+    struct RatingRowWithEmpId {
+        employee_id: String,
+        overall_rating: f64,
+        cycle_name: String,
+        rating_date: Option<String>,
+    }
+    let ratings_query = format!(
+        r#"SELECT pr.employee_id, pr.overall_rating, rc.name as cycle_name, pr.rating_date
+        FROM performance_ratings pr
+        JOIN review_cycles rc ON pr.review_cycle_id = rc.id
+        WHERE pr.employee_id IN ({})
+        ORDER BY rc.start_date DESC"#,
+        placeholders
+    );
+    let mut q = sqlx::query_as::<_, RatingRowWithEmpId>(&ratings_query);
+    for id in employee_ids {
+        q = q.bind(id);
+    }
+    let rating_rows: Vec<RatingRowWithEmpId> = q.fetch_all(pool).await?;
+    let mut ratings_by_emp: std::collections::HashMap<String, Vec<RatingRow>> =
+        std::collections::HashMap::new();
+    for r in rating_rows {
+        ratings_by_emp
+            .entry(r.employee_id)
+            .or_default()
+            .push(RatingRow {
+                overall_rating: r.overall_rating,
+                cycle_name: r.cycle_name,
+                rating_date: r.rating_date,
+            });
+    }
+
+    // 4) Batch: eNPS responses, ORDER BY survey_date DESC.
+    #[derive(FromRow)]
+    struct EnpsRowWithEmpId {
+        employee_id: String,
+        score: i32,
+        survey_name: Option<String>,
+        survey_date: String,
+        feedback_text: Option<String>,
+    }
+    let enps_query = format!(
+        "SELECT employee_id, score, survey_name, survey_date, feedback_text \
+         FROM enps_responses WHERE employee_id IN ({}) \
+         ORDER BY survey_date DESC",
+        placeholders
+    );
+    let mut q = sqlx::query_as::<_, EnpsRowWithEmpId>(&enps_query);
+    for id in employee_ids {
+        q = q.bind(id);
+    }
+    let enps_rows: Vec<EnpsRowWithEmpId> = q.fetch_all(pool).await?;
+    let mut enps_by_emp: std::collections::HashMap<String, Vec<EnpsRow>> =
+        std::collections::HashMap::new();
+    for e in enps_rows {
+        enps_by_emp.entry(e.employee_id).or_default().push(EnpsRow {
+            score: e.score,
+            survey_name: e.survey_name,
+            survey_date: e.survey_date,
+            feedback_text: e.feedback_text,
+        });
+    }
+
+    // Assemble in input-ID order, dropping IDs not found in basic_by_id.
+    let mut out: Vec<EmployeeContext> = Vec::with_capacity(employee_ids.len());
+    for id in employee_ids {
+        let Some(emp) = basic_by_id.get(id) else {
+            continue;
+        };
+
+        let manager_name = emp
+            .manager_id
+            .as_ref()
+            .and_then(|mid| manager_names_by_id.get(mid))
+            .cloned();
+
+        let ratings = ratings_by_emp.get(id).cloned().unwrap_or_default();
+        let enps_responses = enps_by_emp.get(id).cloned().unwrap_or_default();
+
+        let rating_trend = calculate_trend(
+            &ratings.iter().map(|r| r.overall_rating).collect::<Vec<_>>(),
+        );
+        let enps_trend = calculate_trend(
+            &enps_responses
+                .iter()
+                .map(|e| e.score as f64)
+                .collect::<Vec<_>>(),
+        );
+
+        let all_ratings: Vec<RatingInfo> = ratings
+            .iter()
+            .map(|r| RatingInfo {
+                cycle_name: r.cycle_name.clone(),
+                overall_rating: r.overall_rating,
+                rating_date: r.rating_date.clone(),
+            })
+            .collect();
+        let all_enps: Vec<EnpsInfo> = enps_responses
+            .iter()
+            .map(|e| EnpsInfo {
+                score: e.score,
+                survey_name: e.survey_name.clone(),
+                survey_date: e.survey_date.clone(),
+                feedback: e.feedback_text.clone(),
+            })
+            .collect();
+
+        // Highlights/summary remain per-employee — out of scope for this batch.
+        let raw_highlights = highlights::get_highlights_or_empty(pool, id).await;
+        let summary = highlights::get_summary_or_none(pool, id).await;
+
+        let cycle_names: std::collections::HashMap<String, String> = if !raw_highlights.is_empty() {
+            let cycle_ids: Vec<String> = raw_highlights
+                .iter()
+                .map(|h| h.review_cycle_id.clone())
+                .collect();
+            let cyc_placeholders = cycle_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+            let cyc_query = format!(
+                "SELECT id, name FROM review_cycles WHERE id IN ({})",
+                cyc_placeholders
+            );
+            let mut qb = sqlx::query(&cyc_query);
+            for cid in &cycle_ids {
+                qb = qb.bind(cid);
+            }
+            qb.fetch_all(pool)
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .map(|row| (row.get::<String, _>("id"), row.get::<String, _>("name")))
+                .collect()
+        } else {
+            std::collections::HashMap::new()
+        };
+
+        let recent_highlights: Vec<CycleHighlight> = raw_highlights
+            .into_iter()
+            .take(3)
+            .map(|h| CycleHighlight {
+                cycle_name: cycle_names
+                    .get(&h.review_cycle_id)
+                    .cloned()
+                    .unwrap_or_else(|| "Review".to_string()),
+                strengths: h.strengths,
+                opportunities: h.opportunities,
+                themes: h.themes,
+                sentiment: h.overall_sentiment,
+            })
+            .collect();
+
+        let career_summary = summary.as_ref().and_then(|s| s.career_narrative.clone());
+        let key_strengths = summary
+            .as_ref()
+            .map(|s| s.key_strengths.clone())
+            .unwrap_or_default();
+        let development_areas = summary
+            .as_ref()
+            .map(|s| s.development_areas.clone())
+            .unwrap_or_default();
+
+        out.push(EmployeeContext {
+            id: emp.id.clone(),
+            full_name: emp.full_name.clone(),
+            email: emp.email.clone(),
+            department: emp.department.clone(),
+            job_title: emp.job_title.clone(),
+            hire_date: emp.hire_date.clone(),
+            work_state: emp.work_state.clone(),
+            status: emp.status.clone(),
+            manager_name,
+            latest_rating: ratings.first().map(|r| r.overall_rating),
+            latest_rating_cycle: ratings.first().map(|r| r.cycle_name.clone()),
+            rating_trend,
+            all_ratings,
+            latest_enps: enps_responses.first().map(|e| e.score),
+            latest_enps_date: enps_responses.first().map(|e| e.survey_date.clone()),
+            enps_trend,
+            all_enps,
+            career_summary,
+            key_strengths,
+            development_areas,
+            recent_highlights,
+        });
+    }
+
+    Ok(out)
+}
+
 /// Calculate trend from a series of values (most recent first)
 fn calculate_trend(values: &[f64]) -> Option<String> {
     if values.len() < 2 {
@@ -1441,13 +1688,8 @@ pub async fn find_longest_tenure(
     .fetch_all(pool)
     .await?;
 
-    let mut employees = Vec::new();
-    for (id,) in rows {
-        if let Ok(emp) = get_employee_context(pool, &id).await {
-            employees.push(emp);
-        }
-    }
-    Ok(employees)
+    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    get_employee_contexts(pool, &ids).await
 }
 
 /// Find newest employees (sorted by hire_date DESC)
@@ -1462,13 +1704,8 @@ pub async fn find_newest_employees(
     .fetch_all(pool)
     .await?;
 
-    let mut employees = Vec::new();
-    for (id,) in rows {
-        if let Ok(emp) = get_employee_context(pool, &id).await {
-            employees.push(emp);
-        }
-    }
-    Ok(employees)
+    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    get_employee_contexts(pool, &ids).await
 }
 
 /// Find employees hired within the last N days (for new hires digest)
@@ -1485,13 +1722,8 @@ pub async fn find_recent_hires(
     .fetch_all(pool)
     .await?;
 
-    let mut employees = Vec::new();
-    for (id,) in rows {
-        if let Ok(emp) = get_employee_context(pool, &id).await {
-            employees.push(emp);
-        }
-    }
-    Ok(employees)
+    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    get_employee_contexts(pool, &ids).await
 }
 
 /// Find underperforming employees (rating < 2.5 in recent cycles)
@@ -1515,13 +1747,8 @@ pub async fn find_underperformers(
     .fetch_all(pool)
     .await?;
 
-    let mut employees = Vec::new();
-    for (id,) in rows {
-        if let Ok(emp) = get_employee_context(pool, &id).await {
-            employees.push(emp);
-        }
-    }
-    Ok(employees)
+    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    get_employee_contexts(pool, &ids).await
 }
 
 /// Find top performers (rating >= 4.5 in recent cycles)
@@ -1545,13 +1772,8 @@ pub async fn find_top_performers(
     .fetch_all(pool)
     .await?;
 
-    let mut employees = Vec::new();
-    for (id,) in rows {
-        if let Ok(emp) = get_employee_context(pool, &id).await {
-            employees.push(emp);
-        }
-    }
-    Ok(employees)
+    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    get_employee_contexts(pool, &ids).await
 }
 
 /// V2.2.2b: Find employees by theme from extracted review highlights
@@ -1606,15 +1828,8 @@ pub async fn find_employees_by_theme(
 
     let rows: Vec<(String, i64)> = q.fetch_all(pool).await?;
 
-    // Fetch full employee context for each match
-    let mut employees = Vec::new();
-    for (id, _match_count) in &rows {
-        if let Ok(emp) = get_employee_context(pool, id).await {
-            employees.push(emp);
-        }
-    }
-
-    Ok(employees)
+    let ids: Vec<String> = rows.into_iter().map(|(id, _)| id).collect();
+    get_employee_contexts(pool, &ids).await
 }
 
 /// Find employees with upcoming work anniversaries (within next 30 days)
@@ -1645,13 +1860,8 @@ pub async fn find_upcoming_anniversaries(
     .fetch_all(pool)
     .await?;
 
-    let mut employees = Vec::new();
-    for (id,) in rows {
-        if let Ok(emp) = get_employee_context(pool, &id).await {
-            employees.push(emp);
-        }
-    }
-    Ok(employees)
+    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    get_employee_contexts(pool, &ids).await
 }
 
 /// Find recently terminated employees for attrition queries
@@ -1667,13 +1877,8 @@ pub async fn find_recent_terminations(
     .fetch_all(pool)
     .await?;
 
-    let mut employees = Vec::new();
-    for (id,) in rows {
-        if let Ok(emp) = get_employee_context(pool, &id).await {
-            employees.push(emp);
-        }
-    }
-    Ok(employees)
+    let ids: Vec<String> = rows.into_iter().map(|(id,)| id).collect();
+    get_employee_contexts(pool, &ids).await
 }
 
 /// Build a lightweight employee list for roster queries
@@ -4770,5 +4975,117 @@ mod tests {
             .await
             .expect("employees table must still exist after injection attempt");
         assert_eq!(count, 1, "canary employee vanished — SQL injection executed");
+    }
+
+    /// Regression test for #32: the batch `get_employee_contexts` must
+    /// preserve input ID order, silently skip IDs absent from the employees
+    /// table, resolve manager_name when the manager is inside *and* outside
+    /// the batch, default missing rating/eNPS data to None, and return an
+    /// empty Vec for empty input. Locking these in one test rather than five
+    /// because they all share a single fixture.
+    #[tokio::test]
+    async fn get_employee_contexts_preserves_order_and_resolves_managers() {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        use std::time::Duration;
+
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("run migrations");
+
+        // emp_a's manager (emp_c) is in the batch; emp_b's manager (ghost) is in
+        // the employees table but NOT requested in the batch — exercises the
+        // secondary IN query that resolves manager names beyond the batch set.
+        sqlx::query(
+            r#"
+            INSERT INTO employees (id, email, full_name, manager_id) VALUES
+                ('emp_a', 'a@x.com', 'Alice', 'emp_c'),
+                ('emp_b', 'b@x.com', 'Bob',   'ghost'),
+                ('emp_c', 'c@x.com', 'Carol', NULL),
+                ('ghost', 'g@x.com', 'Ghost', NULL)
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert employees");
+
+        sqlx::query(
+            "INSERT INTO review_cycles (id, name, cycle_type, start_date, end_date) \
+             VALUES ('cyc1', '2024 Annual', 'annual', '2024-01-01', '2024-12-31')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert cycle");
+
+        sqlx::query(
+            "INSERT INTO performance_ratings (id, employee_id, review_cycle_id, overall_rating) \
+             VALUES ('r1', 'emp_a', 'cyc1', 4.5)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert rating");
+
+        sqlx::query(
+            "INSERT INTO enps_responses (id, employee_id, score, survey_date) \
+             VALUES ('e1', 'emp_a', 9, '2024-12-01')",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert enps");
+
+        // Input: emp_b, emp_a, missing, emp_c. The "missing" id has no row in
+        // employees — must be silently dropped without affecting survivors' order.
+        let input_ids = vec![
+            "emp_b".to_string(),
+            "emp_a".to_string(),
+            "missing".to_string(),
+            "emp_c".to_string(),
+        ];
+        let result = get_employee_contexts(&pool, &input_ids)
+            .await
+            .expect("batch query");
+
+        assert_eq!(result.len(), 3, "missing id should be silently skipped");
+        assert_eq!(result[0].id, "emp_b", "input order must be preserved");
+        assert_eq!(result[1].id, "emp_a");
+        assert_eq!(result[2].id, "emp_c");
+
+        // emp_a: has rating + eNPS, manager (emp_c) IS in the batch.
+        assert_eq!(result[1].latest_rating, Some(4.5));
+        assert_eq!(result[1].latest_enps, Some(9));
+        assert_eq!(
+            result[1].manager_name.as_deref(),
+            Some("Carol"),
+            "manager_name must resolve when manager is within the batch"
+        );
+
+        // emp_b: no rating, no eNPS, manager (ghost) is NOT in the batch but IS
+        // in the employees table — must still resolve via the secondary IN query.
+        assert!(result[0].latest_rating.is_none());
+        assert!(result[0].latest_enps.is_none());
+        assert_eq!(
+            result[0].manager_name.as_deref(),
+            Some("Ghost"),
+            "manager_name must resolve when manager is outside the batch but in employees"
+        );
+
+        // emp_c: no manager_id, manager_name should be None (not "" or unwrap-default).
+        assert_eq!(result[2].manager_name, None);
+
+        // Empty input → empty Vec (no SQL run).
+        let empty: Vec<String> = Vec::new();
+        let empty_result = get_employee_contexts(&pool, &empty)
+            .await
+            .expect("empty batch");
+        assert!(empty_result.is_empty(), "empty input must return empty Vec");
     }
 }
