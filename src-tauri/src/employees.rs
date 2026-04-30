@@ -595,3 +595,191 @@ pub struct ImportResult {
     pub updated: i64,
     pub errors: Vec<String>,
 }
+
+// ============================================================================
+// Tests (issue #39)
+// ============================================================================
+//
+// Backfill for the `employees.rs` test gap. Focuses on
+// `build_employee_filter_where_clause` — the dynamic SQL builder is the
+// highest-risk untested code in the module, since an off-by-one in
+// condition joining silently returns the wrong rows.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_filter() -> EmployeeFilter {
+        EmployeeFilter::default()
+    }
+
+    #[test]
+    fn empty_filter_produces_no_where_clause() {
+        let (sql, bindings) = build_employee_filter_where_clause(&empty_filter());
+        assert_eq!(sql, "", "no clause for empty filter");
+        assert!(bindings.is_empty(), "no bindings for empty filter");
+    }
+
+    #[test]
+    fn single_status_filter_produces_one_condition() {
+        let filter = EmployeeFilter {
+            status: Some("active".to_string()),
+            ..Default::default()
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(sql, " WHERE status = ?");
+        assert_eq!(bindings, vec!["active".to_string()]);
+    }
+
+    #[test]
+    fn two_filters_join_with_and() {
+        let filter = EmployeeFilter {
+            status: Some("active".to_string()),
+            department: Some("Engineering".to_string()),
+            ..Default::default()
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(sql, " WHERE status = ? AND department = ?");
+        assert_eq!(bindings, vec!["active".to_string(), "Engineering".to_string()]);
+    }
+
+    #[test]
+    fn all_six_filters_set_produces_all_six_conditions_in_order() {
+        // Lock the ordering so future contributors can't accidentally
+        // re-shuffle the AND chain into a binding-misaligned query.
+        let filter = EmployeeFilter {
+            status: Some("terminated".to_string()),
+            department: Some("Sales".to_string()),
+            work_state: Some("CA".to_string()),
+            search: Some("Alice".to_string()),
+            gender: Some("F".to_string()),
+            ethnicity: Some("Asian".to_string()),
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(
+            sql,
+            " WHERE status = ? AND department = ? AND work_state = ? \
+             AND (full_name LIKE ? OR email LIKE ?) AND gender = ? AND ethnicity = ?"
+        );
+        // Search produces 2 bindings (full_name + email), so 7 total bindings
+        // for 6 filters. Critical to assert positions because the SQL builder
+        // and binding list must align — any drift means wrong rows returned.
+        assert_eq!(
+            bindings,
+            vec![
+                "terminated".to_string(),
+                "Sales".to_string(),
+                "CA".to_string(),
+                "%Alice%".to_string(),
+                "%Alice%".to_string(),
+                "F".to_string(),
+                "Asian".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn search_wraps_pattern_in_wildcards_and_emits_two_bindings() {
+        let filter = EmployeeFilter {
+            search: Some("smith".to_string()),
+            ..Default::default()
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(sql, " WHERE (full_name LIKE ? OR email LIKE ?)");
+        assert_eq!(bindings, vec!["%smith%".to_string(), "%smith%".to_string()]);
+    }
+
+    #[test]
+    fn whitespace_only_filter_values_are_treated_as_unset() {
+        // A common pitfall: UI clears a field but leaves whitespace in state.
+        // Without trimming, the query would match on " " and silently return
+        // zero rows. Verify the trim+is_empty guard catches every field.
+        let filter = EmployeeFilter {
+            status: Some("   ".to_string()),
+            department: Some("\t".to_string()),
+            work_state: Some(" ".to_string()),
+            search: Some("".to_string()),
+            gender: Some("   ".to_string()),
+            ethnicity: Some("\n".to_string()),
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(sql, "", "blank inputs must produce no clause");
+        assert!(bindings.is_empty());
+    }
+
+    #[test]
+    fn empty_string_filter_values_are_treated_as_unset() {
+        let filter = EmployeeFilter {
+            status: Some(String::new()),
+            department: Some(String::new()),
+            ..Default::default()
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(sql, "");
+        assert!(bindings.is_empty());
+    }
+
+    #[test]
+    fn none_filter_values_are_skipped() {
+        // Mixed: some Some(value), some None — only the Some ones should
+        // produce conditions.
+        let filter = EmployeeFilter {
+            status: Some("active".to_string()),
+            department: None,
+            work_state: None,
+            search: None,
+            gender: Some("M".to_string()),
+            ethnicity: None,
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(sql, " WHERE status = ? AND gender = ?");
+        assert_eq!(bindings, vec!["active".to_string(), "M".to_string()]);
+    }
+
+    #[test]
+    fn search_with_special_chars_passes_through_to_binding() {
+        // SQL injection guard: special chars are bound as parameters, not
+        // interpolated into the SQL — the SQL string is fixed regardless.
+        // The pattern shows up in the binding (with % wrapping) but the SQL
+        // contains only the placeholder.
+        let filter = EmployeeFilter {
+            search: Some("o'malley; DROP TABLE--".to_string()),
+            ..Default::default()
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(sql, " WHERE (full_name LIKE ? OR email LIKE ?)");
+        assert_eq!(
+            bindings,
+            vec![
+                "%o'malley; DROP TABLE--%".to_string(),
+                "%o'malley; DROP TABLE--%".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn filter_values_are_trimmed_before_binding() {
+        // The trim happens on the read; binding gets the trimmed value.
+        let filter = EmployeeFilter {
+            status: Some("  active  ".to_string()),
+            department: Some(" Engineering\n".to_string()),
+            ..Default::default()
+        };
+        let (sql, bindings) = build_employee_filter_where_clause(&filter);
+        assert_eq!(sql, " WHERE status = ? AND department = ?");
+        assert_eq!(bindings, vec!["active".to_string(), "Engineering".to_string()]);
+    }
+
+    #[test]
+    fn filter_struct_default_is_all_none() {
+        // Lock the EmployeeFilter::default() invariant so changes here are
+        // explicit (an opt-in is invisible if any field starts non-None).
+        let filter = EmployeeFilter::default();
+        assert!(filter.status.is_none());
+        assert!(filter.department.is_none());
+        assert!(filter.work_state.is_none());
+        assert!(filter.search.is_none());
+        assert!(filter.gender.is_none());
+        assert!(filter.ethnicity.is_none());
+    }
+}
