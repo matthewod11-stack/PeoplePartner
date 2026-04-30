@@ -1,8 +1,8 @@
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useLayout } from '../../contexts/LayoutContext';
 import { useNetwork } from '../../hooks';
 import { useUpdateCheck, type UpdatePhase } from '../../hooks/useUpdateCheck';
-import { OfflineIndicator } from '../shared';
+import { OfflineIndicator, UpdateModal } from '../shared';
 import { TabSwitcher, ConversationSidebar } from '../conversations';
 import { EmployeePanel } from '../employees';
 import { TrialBanner } from '../trial/TrialBanner';
@@ -95,7 +95,24 @@ function IconButton({
 export function AppShell({ children, contextPanel, onSettingsClick }: AppShellProps) {
   const { sidebarOpen, contextPanelOpen, sidebarTab, toggleSidebar, toggleContextPanel, setSidebarTab } = useLayout();
   const { isOnline, errorMessage, checkNow, isChecking } = useNetwork();
-  const { updateAvailable, phase, installing, error: updateError, installUpdate, retry: retryUpdate } = useUpdateCheck();
+  const {
+    updateAvailable,
+    isSnoozed,
+    phase,
+    installing,
+    error: updateError,
+    installUpdate,
+    snoozeUpdate,
+    retry: retryUpdate,
+  } = useUpdateCheck();
+  // Modal opens explicitly when the user clicks the chip — gives them a
+  // chance to read release notes + decide between Restart and Later, instead
+  // of the previous "click installs immediately" flow.
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+
+  // The chip is only shown when there's an update AND it's not snoozed.
+  // The snoozed state is honoured implicitly by the chip render below.
+  const showUpdateChip = !!updateAvailable && !isSnoozed;
 
   return (
     <div className="h-screen flex flex-col bg-stone-50 overflow-hidden">
@@ -169,10 +186,10 @@ export function AppShell({ children, contextPanel, onSettingsClick }: AppShellPr
                 Try again
               </button>
             </div>
-          ) : updateAvailable && (
+          ) : showUpdateChip && (
             <button
               type="button"
-              onClick={() => { void installUpdate(); }}
+              onClick={() => setUpdateModalOpen(true)}
               disabled={installing}
               className="
                 px-2 py-1 mr-1
@@ -305,6 +322,27 @@ export function AppShell({ children, contextPanel, onSettingsClick }: AppShellPr
           </div>
         </aside>
       </div>
+
+      {/* Update prompt modal — opens when user clicks the header chip. */}
+      <UpdateModal
+        isOpen={updateModalOpen && !!updateAvailable}
+        update={updateAvailable}
+        installing={installing}
+        onInstall={() => {
+          // Don't close — the modal shows "Installing…" while the download
+          // runs, then the relaunch tears the page down anyway.
+          void installUpdate();
+        }}
+        onLater={() => {
+          snoozeUpdate();
+          setUpdateModalOpen(false);
+        }}
+        onClose={() => {
+          // Close without snoozing — the chip stays visible so the user can
+          // re-open it. Parity with hitting Escape.
+          setUpdateModalOpen(false);
+        }}
+      />
     </div>
   );
 }
