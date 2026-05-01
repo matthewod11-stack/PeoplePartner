@@ -1,0 +1,26 @@
+-- License validation: signed server responses (issue #22).
+--
+-- Adds storage for a server-signed JWT alongside the cached validation
+-- result. When the server starts signing responses, the app stores the
+-- token here and re-verifies its signature + device_id binding on every
+-- offline grace-period read. This closes two attack surfaces:
+--
+--   1. Local-proxy forgery. The pre-signing response shape (`{valid,
+--      reason, message}`) is trivially forgeable by a user who points
+--      `peoplepartner.io` at a local HTTP intercept. A signed JWT can't
+--      be forged without the private key held only by the site server.
+--
+--   2. Cache portability. A `license_validation_cache` row stolen from
+--      another machine could previously be dropped into this app's DB
+--      to unlock paid mode offline. With device_id bound into the
+--      signed JWT's claims, a row whose device_id claim doesn't match
+--      the local device_id fails verification.
+--
+-- The column is nullable: during the rollout window the site may return
+-- responses without a signed_token (old versions, key-not-yet-configured,
+-- etc). The verification code treats NULL as "pre-signing response —
+-- accept" to keep upgrades unblocked. Once every live site deploy signs
+-- and every shipped app version verifies, we can require non-NULL via
+-- a follow-up migration.
+
+ALTER TABLE license_validation_cache ADD COLUMN signed_token TEXT;
