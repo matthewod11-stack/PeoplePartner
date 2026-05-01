@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   getDocumentFolder,
   setDocumentFolder,
@@ -13,6 +14,10 @@ export function DocumentFolderConfig() {
   const [isLoading, setIsLoading] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState('');
+  // Issue #38: surface a banner when the watcher (or this mount's read of
+  // folder_accessible) detects the folder is no longer reachable. Persistent
+  // until the user reselects or removes — Option A semantics.
+  const [folderMissing, setFolderMissing] = useState(false);
 
   useEffect(() => {
     setIsLoading(true);
@@ -20,6 +25,29 @@ export function DocumentFolderConfig() {
       .then(setStats)
       .catch(() => setStats(null))
       .finally(() => setIsLoading(false));
+  }, []);
+
+  // Reflect the latest folder_accessible state. Also clears the banner when
+  // the user removes the folder entirely (stats becomes null) or reselects
+  // a folder that IS accessible.
+  useEffect(() => {
+    if (stats === null) {
+      setFolderMissing(false);
+    } else {
+      setFolderMissing(!stats.folder_accessible);
+    }
+  }, [stats]);
+
+  // Listen for the live folder-missing event from the watcher backend.
+  // Tauri events emitted while no listener is mounted are LOST — that's why
+  // we ALSO check `stats.folder_accessible` on mount above. The listener is
+  // for live transitions (user pulls the drive while Settings is open).
+  useEffect(() => {
+    let unlisten: UnlistenFn | null = null;
+    listen('documents-folder-missing', () => setFolderMissing(true))
+      .then((u) => { unlisten = u; })
+      .catch((err) => console.error('[DocumentFolderConfig] listen failed:', err));
+    return () => { unlisten?.(); };
   }, []);
 
   const handleChooseFolder = useCallback(async () => {
@@ -121,6 +149,53 @@ export function DocumentFolderConfig() {
 
   return (
     <div className="p-4 bg-stone-50 border border-stone-200 rounded-xl space-y-3">
+      {/* Folder-missing alert (issue #38). Only shown when the configured
+          folder is no longer reachable \u2014 drive unmounted, folder moved, or
+          macOS Full Disk Access revoked. The indexed documents are preserved;
+          reselecting the same path re-engages them without re-indexing. */}
+      {folderMissing && (
+        <div
+          role="alert"
+          className="flex items-start gap-3 px-3 py-3 bg-red-50 border border-red-200 rounded-lg"
+        >
+          <svg
+            className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.732 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-red-800">
+              Your documents folder is no longer accessible.
+            </p>
+            <p className="text-xs text-red-700 mt-1">
+              The folder may have been moved, deleted, or its drive disconnected.
+              Your indexed documents are preserved \u2014 reselect the same folder to resume.
+            </p>
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={handleChooseFolder}
+                className="px-3 py-1.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors"
+              >
+                Reselect folder
+              </button>
+              <button
+                type="button"
+                onClick={handleRemove}
+                className="px-3 py-1.5 text-sm font-medium text-red-700 bg-white border border-red-300 hover:bg-red-100 rounded-md transition-colors"
+              >
+                Remove documents
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full bg-primary-100">

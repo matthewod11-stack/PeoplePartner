@@ -444,6 +444,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder="Search commands, conversations, employees..."
+            aria-label="Search commands, conversations, and employees"
             className="
               flex-1 text-base text-stone-700
               placeholder:text-stone-400

@@ -394,7 +394,7 @@ function CycleSelector({ cycles, newCycleName, onNewCycleNameChange, onCreateCyc
         )}
         <div className="pt-4 border-t border-stone-200 flex gap-2">
           <input type="text" value={newCycleName} onChange={(e) => onNewCycleNameChange(e.target.value)}
-            placeholder="New cycle name" className="flex-1 px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-primary-200" />
+            placeholder="New cycle name" aria-label="New review cycle name" className="flex-1 px-3 py-2 border border-stone-300 rounded-lg focus:ring-2 focus:ring-primary-200" />
           <button onClick={onCreateCycle} disabled={!newCycleName.trim()}
             className={`px-4 py-2 rounded-lg font-medium ${newCycleName.trim() ? 'bg-primary-500 text-white hover:bg-primary-600' : 'bg-stone-200 text-stone-400'}`}>
             Create

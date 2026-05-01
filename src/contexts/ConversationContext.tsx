@@ -61,9 +61,13 @@ interface ConversationContextValue {
   setSearchQuery: (query: string) => void;
   refreshConversations: () => Promise<void>;
 
-  // PII redaction notification
+  // PII redaction notification (success: text was scanned, redactions surfaced)
   piiNotification: string | null;
   clearPiiNotification: () => void;
+
+  // PII scan failure (fail-closed: message was NOT sent)
+  piiScanError: string | null;
+  clearPiiScanError: () => void;
 }
 
 interface ConversationMessagesContextValue {
@@ -75,6 +79,7 @@ interface ConversationMetaContextValue {
   conversationId: string;
   currentTitle: string | null;
   piiNotification: string | null;
+  piiScanError: string | null;
 }
 
 interface ConversationDirectoryContextValue {
@@ -94,6 +99,7 @@ interface ConversationActionsContextValue {
   setSearchQuery: (query: string) => void;
   refreshConversations: () => Promise<void>;
   clearPiiNotification: () => void;
+  clearPiiScanError: () => void;
 }
 
 // =============================================================================
@@ -177,9 +183,17 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
   // PII notification state
   // ---------------------------------------------------------------------------
   const [piiNotification, setPiiNotification] = useState<string | null>(null);
+  // Separate state for fail-closed scan errors. Persistent (no auto-dismiss);
+  // distinct from the redaction-success summary so the renderer can style it
+  // as an error and the user understands the message was NOT sent.
+  const [piiScanError, setPiiScanError] = useState<string | null>(null);
 
   const clearPiiNotification = useCallback(() => {
     setPiiNotification(null);
+  }, []);
+
+  const clearPiiScanError = useCallback(() => {
+    setPiiScanError(null);
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -325,14 +339,14 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       }
     } catch (err) {
       console.error('[PII] Scan failed:', err);
-      const shouldContinue = window.confirm(
-        'PII scanning is temporarily unavailable. Your message may contain sensitive information (SSN, credit cards, etc.) that would normally be redacted.\n\nSend anyway?'
+      // Fail closed: privacy is the product. We do not let the user opt out
+      // of a redaction step that may have caught (e.g.) an SSN. The message
+      // is not sent; the input retains its content for the user to retry.
+      setPiiScanError(
+        'Privacy scanner unavailable. Your message was not sent. Please try again in a moment.'
       );
-      if (!shouldContinue) {
-        setIsLoading(false);
-        return;
-      }
-      // Continue with original content if user confirms
+      setIsLoading(false);
+      return;
     }
 
     // Store redacted message for audit logging
@@ -663,8 +677,9 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       conversationId,
       currentTitle,
       piiNotification,
+      piiScanError,
     }),
-    [conversationId, currentTitle, piiNotification]
+    [conversationId, currentTitle, piiNotification, piiScanError]
   );
 
   const directoryValue = useMemo<ConversationDirectoryContextValue>(
@@ -688,6 +703,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       setSearchQuery,
       refreshConversations,
       clearPiiNotification,
+      clearPiiScanError,
     }),
     [
       sendMessage,
@@ -698,6 +714,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       setSearchQuery,
       refreshConversations,
       clearPiiNotification,
+      clearPiiScanError,
     ]
   );
 
