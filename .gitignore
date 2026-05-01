@@ -64,4 +64,10 @@ features.json
 docs/
 prompts/
 test-data/
-scripts/
+# scripts/ is local-only EXCEPT the generated synthetic test-data JSONs,
+# which release CI imports at build time via Vite (no generator in CI).
+# Using `scripts/*` (not `scripts/`) so negations below can re-include
+# specific paths — git's rule is that you can't re-include children of a
+# directory that's itself excluded via a trailing-slash pattern.
+scripts/*
+!scripts/generated/

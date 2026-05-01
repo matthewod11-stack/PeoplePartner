@@ -56,6 +56,29 @@ jobs:
           fi
           echo "All manifests agree on version $CARGO_V"
 
+      - name: Validate entitlements
+        shell: bash
+        run: |
+          # Pre-notarize gate. Catches release-blocker plist misconfigs BEFORE
+          # burning macOS-runner minutes on signing + notarization.
+          # Origin: v0.2.0/v0.2.1 sandbox incident (#18, #41).
+          PLIST=src-tauri/Entitlements.plist
+          if [ ! -f "$PLIST" ]; then
+            echo "::error::$PLIST not found"
+            exit 1
+          fi
+          if grep -q 'com.apple.security.app-sandbox' "$PLIST"; then
+            echo "::error::App Sandbox must not be enabled for Developer ID distribution — it breaks the auto-updater. See #18/#41."
+            exit 1
+          fi
+          for KEY in cs.allow-jit cs.allow-unsigned-executable-memory cs.disable-library-validation; do
+            if ! grep -q "com.apple.security.$KEY" "$PLIST"; then
+              echo "::error::Required hardened-runtime carve-out missing from $PLIST: com.apple.security.$KEY"
+              exit 1
+            fi
+          done
+          echo "Entitlements OK: no sandbox, all 3 hardened-runtime carve-outs present."
+
       - name: Build and Release
         id: tauri
         uses: tauri-apps/tauri-action@v0

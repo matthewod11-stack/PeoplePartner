@@ -277,8 +277,9 @@ async function transformRowToEnps(
 function SurveyNameInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <div className="p-4 bg-primary-50 border border-primary-200 rounded-lg">
-      <label className="block text-sm font-medium text-primary-700 mb-2">Survey Name</label>
+      <label htmlFor="enps-survey-name" className="block text-sm font-medium text-primary-700 mb-2">Survey Name</label>
       <input
+        id="enps-survey-name"
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}

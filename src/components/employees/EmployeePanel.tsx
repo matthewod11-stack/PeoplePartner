@@ -38,6 +38,7 @@ function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={placeholder}
         className="
           w-full pl-9 pr-3 py-2
           bg-white/60 border border-stone-200/60

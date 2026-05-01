@@ -129,12 +129,13 @@ interface ChatAreaProps {
 function ChatArea({ chatInputRef }: ChatAreaProps) {
   // Get conversation state from context
   const { messages, isLoading } = useConversationMessages();
-  const { piiNotification } = useConversationMeta();
+  const { piiNotification, piiScanError } = useConversationMeta();
   const {
     sendMessage,
     retryMessage,
     startNewConversation,
     clearPiiNotification,
+    clearPiiScanError,
   } = useConversationActions();
 
   // Get selected employee from context (for prioritizing in context builder)
@@ -201,10 +202,16 @@ function ChatArea({ chatInputRef }: ChatAreaProps) {
           </Badge>
         </div>
       )}
-      {/* PII redaction notification */}
+      {/* PII redaction notification (success: text was scanned) */}
       <PIINotification
         summary={piiNotification}
         onDismiss={clearPiiNotification}
+      />
+      {/* PII scan failure (fail-closed: message was NOT sent) */}
+      <PIINotification
+        summary={piiScanError}
+        onDismiss={clearPiiScanError}
+        variant="error"
       />
       <MessageList
         messages={messages}
