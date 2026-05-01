@@ -1,0 +1,79 @@
+name: CI
+
+# PR-time correctness gate. Catches real compile + test failures that the
+# audit-only Security Audit workflow does not. Tracks issue #74 — the trap
+# fired once when 5 cargo majors merged on green-audit signal but broke the
+# build (hmac::new_from_slice removed, rand::RngCore moved, notify type
+# conflict, OsRng.fill_bytes API change). All 5 had to be reverted.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    name: cargo build + test
+    # macOS runner required: src-tauri/Cargo.toml has a
+    # [target.'cfg(target_os = "macos")'.dependencies] block, and notify
+    # uses the macos_fsevent feature. Linux runs would skip those code
+    # paths and miss real bugs. 10x cost is the correct tradeoff for
+    # catching API-break regressions before merge.
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: cargo test
+        working-directory: src-tauri
+        # cargo test builds the lib + tests + runs them in one step.
+        # 478+ tests; cold ~3-5 min, warm ~30 sec.
+        run: cargo test
+
+  typecheck:
+    name: tsc --noEmit (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: root
+            directory: .
+            command: npm run type-check
+          - name: proxy
+            directory: proxy
+            command: npx tsc --noEmit
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.directory }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.directory }}
+        run: npm ci
+
+      - name: Type-check
+        working-directory: ${{ matrix.directory }}
+        run: ${{ matrix.command }}
