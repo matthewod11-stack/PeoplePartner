@@ -166,7 +166,6 @@ export function MessageList({
       className="flex-1 overflow-y-auto"
       role="log"
       aria-label="Chat messages"
-      aria-live="polite"
     >
       <div className="py-4">
         {messages.map((message, index) => (

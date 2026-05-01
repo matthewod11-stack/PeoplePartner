@@ -414,6 +414,7 @@ function CycleSelector({
               value={newCycleName}
               onChange={(e) => onNewCycleNameChange(e.target.value)}
               placeholder="e.g., 2024 Annual Review"
+              aria-label="New review cycle name"
               className="flex-1 px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-200 focus:border-primary-400"
             />
             <button

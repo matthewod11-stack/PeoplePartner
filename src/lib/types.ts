@@ -634,6 +634,11 @@ export interface DocumentFolderStats {
   pii_file_count: number;
   error_file_count: number;
   last_scanned_at: string | null;
+  /**
+   * False when the on-disk folder cannot be read — covers both deletion/move
+   * AND macOS Full Disk Access revocation. Issue #38.
+   */
+  folder_accessible: boolean;
 }
 
 /** Aggregate indexing stats for the active document folder */
