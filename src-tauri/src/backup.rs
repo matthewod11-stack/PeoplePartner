@@ -6,10 +6,10 @@
 //! - flate2 for compression
 
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, KeyInit, OsRng, Payload},
     Aes256Gcm, Nonce,
 };
-use argon2::{password_hash::SaltString, Argon2, PasswordHasher};
+use argon2::{password_hash::SaltString, Algorithm, Argon2, Params, PasswordHasher, Version};
 use chrono::{DateTime, Utc};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use rand::RngCore;
@@ -69,7 +69,7 @@ impl From<sqlx::Error> for BackupError {
 // Constants
 // ============================================================================
 
-/// Current backup format version
+/// Current backup format version (JSON metadata version)
 const BACKUP_VERSION: &str = "1.0";
 
 /// Minimum password length
@@ -80,6 +80,51 @@ const SALT_LENGTH: usize = 16;
 
 /// Nonce length for AES-GCM
 const NONCE_LENGTH: usize = 12;
+
+// ============================================================================
+// Crypto Envelope (issue #34)
+// ============================================================================
+//
+// Backups encrypted on or after this change use a new wire format with a magic
+// prefix, format version, pinned Argon2 KDF parameters, and AES-GCM Associated
+// Data (AAD) covering the parameter header. Backups created before this change
+// remain decryptable via the legacy fallback path in `decrypt_data`.
+//
+// Wire format (new, "PPB1"):
+//   [magic 4 "PPB1"][format_version u8][m_kib u32 LE][t u32 LE][p u32 LE]
+//   [salt 16][nonce 12][ciphertext_with_aad_tag]
+//
+// AAD = the first 17 bytes (magic + format_version + m + t + p). Tampering with
+// the params or version bytes makes decryption fail (the GCM tag won't verify),
+// so an attacker can't downgrade the KDF or swap to a weaker algorithm header.
+//
+// Legacy format (v1.0 backups): [salt 16][nonce 12][ciphertext]. No magic, no
+// AAD; key derivation matched the `Argon2::default()` of the argon2 0.5.x
+// crate at the time. We pin to those same numerical params here so legacy
+// backups continue to decrypt unchanged regardless of future crate defaults.
+
+/// Magic bytes identifying the new envelope. ASCII so it's grep-able.
+const ENVELOPE_MAGIC: &[u8; 4] = b"PPB1";
+
+/// Envelope format version. Bump when the layout changes incompatibly.
+const ENVELOPE_FORMAT_VERSION: u8 = 1;
+
+/// Argon2id memory cost in KiB. Pinned to argon2 0.5.x default to keep
+/// legacy backups decryptable; safe upper bound for desktop hardware.
+const ARGON2_MEMORY_KIB: u32 = 19_456;
+
+/// Argon2id iteration count. Pinned to argon2 0.5.x default.
+const ARGON2_ITERATIONS: u32 = 2;
+
+/// Argon2id parallelism. Pinned to argon2 0.5.x default (single-threaded).
+const ARGON2_PARALLELISM: u32 = 1;
+
+/// Length of the new envelope header (magic + version + 3×u32 + salt + nonce).
+const ENVELOPE_HEADER_LEN: usize = 4 + 1 + 12 + SALT_LENGTH + NONCE_LENGTH; // 45
+
+/// Bytes of the new envelope header that participate as AAD (everything up to
+/// salt — i.e., magic + version + the three KDF params).
+const ENVELOPE_AAD_LEN: usize = 4 + 1 + 12; // 17
 
 // ============================================================================
 // Backup Metadata & Results
@@ -265,85 +310,166 @@ pub struct BackupData {
 // Encryption Helpers
 // ============================================================================
 
-/// Derive a 256-bit key from password using Argon2id
-fn derive_key(password: &str, salt: &[u8]) -> Result<[u8; 32], BackupError> {
-    // Use Argon2id with reasonable parameters for desktop app
-    let argon2 = Argon2::default();
+/// Build an Argon2id instance with explicitly-pinned parameters. Pinning
+/// matters for two reasons:
+///   1. A future change in `argon2`'s `Default` would silently break decryption
+///      of backups created with the previous default — pinning prevents that.
+///   2. The chosen numerical values intentionally match `Argon2::default()`
+///      for the argon2 0.5.x crate, so legacy v1.0 backups (which used the
+///      default) continue to decrypt unchanged.
+fn build_pinned_argon2() -> Result<Argon2<'static>, BackupError> {
+    let params = Params::new(
+        ARGON2_MEMORY_KIB,
+        ARGON2_ITERATIONS,
+        ARGON2_PARALLELISM,
+        Some(32),
+    )
+    .map_err(|e| BackupError::Encryption(format!("Argon2 params: {}", e)))?;
+    Ok(Argon2::new(Algorithm::Argon2id, Version::V0x13, params))
+}
 
-    // Convert salt to SaltString format
+/// Derive a 256-bit key using the legacy KDF path (matches v1.0 backups).
+///
+/// v1.0 funnelled the salt through `SaltString::encode_b64` before passing to
+/// `hash_password`, which means the actual Argon2 input is the b64 encoding
+/// of the salt — not the raw bytes. Replicating that here is what keeps old
+/// backup files decryptable.
+fn derive_key_legacy(password: &str, salt: &[u8]) -> Result<[u8; 32], BackupError> {
+    let argon2 = build_pinned_argon2()?;
     let salt_string = SaltString::encode_b64(salt)
         .map_err(|e| BackupError::Encryption(format!("Salt encoding error: {}", e)))?;
-
-    // Hash the password
     let hash = argon2
         .hash_password(password.as_bytes(), &salt_string)
         .map_err(|e| BackupError::Encryption(format!("Key derivation error: {}", e)))?;
-
-    // Extract the hash output (32 bytes for AES-256)
     let hash_output = hash
         .hash
         .ok_or_else(|| BackupError::Encryption("No hash output".to_string()))?;
-
     let bytes = hash_output.as_bytes();
     if bytes.len() < 32 {
         return Err(BackupError::Encryption("Hash output too short".to_string()));
     }
-
     let mut key = [0u8; 32];
     key.copy_from_slice(&bytes[..32]);
     Ok(key)
 }
 
-/// Encrypt data with AES-256-GCM
-/// Returns: [salt: 16 bytes][nonce: 12 bytes][ciphertext]
+/// Derive a 256-bit key using the new envelope KDF path (raw salt input via
+/// `hash_password_into`). Distinct from `derive_key_legacy` — produces a
+/// different key for the same (password, salt) — but that's fine because the
+/// new envelope has its own magic-prefixed wire format.
+fn derive_key_envelope(
+    password: &str,
+    salt: &[u8],
+    m_kib: u32,
+    t: u32,
+    p: u32,
+) -> Result<[u8; 32], BackupError> {
+    let params = Params::new(m_kib, t, p, Some(32))
+        .map_err(|e| BackupError::Encryption(format!("Argon2 params: {}", e)))?;
+    let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+    let mut key = [0u8; 32];
+    argon2
+        .hash_password_into(password.as_bytes(), salt, &mut key)
+        .map_err(|e| BackupError::Encryption(format!("Key derivation error: {}", e)))?;
+    Ok(key)
+}
+
+/// Encrypt data with AES-256-GCM using the new envelope.
+///
+/// Layout: [magic 4][format_ver 1][m 4][t 4][p 4][salt 16][nonce 12][ciphertext+tag]
+/// AAD covers the first 17 bytes (magic + version + KDF params).
 fn encrypt_data(data: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
-    // Generate random salt and nonce
     let mut salt = [0u8; SALT_LENGTH];
     let mut nonce_bytes = [0u8; NONCE_LENGTH];
     OsRng.fill_bytes(&mut salt);
     OsRng.fill_bytes(&mut nonce_bytes);
 
-    // Derive key from password
-    let key = derive_key(password, &salt)?;
+    let key = derive_key_envelope(
+        password,
+        &salt,
+        ARGON2_MEMORY_KIB,
+        ARGON2_ITERATIONS,
+        ARGON2_PARALLELISM,
+    )?;
 
-    // Create cipher and encrypt
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|e| BackupError::Encryption(format!("Cipher init error: {}", e)))?;
-
     let nonce = Nonce::from_slice(&nonce_bytes);
+
+    // Build the header. AAD is the slice [..ENVELOPE_AAD_LEN] of this buffer.
+    let mut header = Vec::with_capacity(ENVELOPE_HEADER_LEN);
+    header.extend_from_slice(ENVELOPE_MAGIC);
+    header.push(ENVELOPE_FORMAT_VERSION);
+    header.extend_from_slice(&ARGON2_MEMORY_KIB.to_le_bytes());
+    header.extend_from_slice(&ARGON2_ITERATIONS.to_le_bytes());
+    header.extend_from_slice(&ARGON2_PARALLELISM.to_le_bytes());
+    header.extend_from_slice(&salt);
+    header.extend_from_slice(&nonce_bytes);
+    debug_assert_eq!(header.len(), ENVELOPE_HEADER_LEN);
+
+    let aad = &header[..ENVELOPE_AAD_LEN];
     let ciphertext = cipher
-        .encrypt(nonce, data)
+        .encrypt(nonce, Payload { msg: data, aad })
         .map_err(|e| BackupError::Encryption(format!("Encryption error: {}", e)))?;
 
-    // Concatenate salt + nonce + ciphertext
-    let mut result = Vec::with_capacity(SALT_LENGTH + NONCE_LENGTH + ciphertext.len());
-    result.extend_from_slice(&salt);
-    result.extend_from_slice(&nonce_bytes);
+    let mut result = Vec::with_capacity(ENVELOPE_HEADER_LEN + ciphertext.len());
+    result.extend_from_slice(&header);
     result.extend_from_slice(&ciphertext);
-
     Ok(result)
 }
 
-/// Decrypt data with AES-256-GCM
-/// Expects: [salt: 16 bytes][nonce: 12 bytes][ciphertext]
+/// Decrypt data with AES-256-GCM. Auto-detects envelope vs legacy format.
 fn decrypt_data(encrypted: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
-    // Validate minimum length
-    if encrypted.len() < SALT_LENGTH + NONCE_LENGTH + 16 {
+    if encrypted.len() >= 4 && &encrypted[..4] == ENVELOPE_MAGIC {
+        decrypt_envelope(encrypted, password)
+    } else {
+        decrypt_legacy(encrypted, password)
+    }
+}
+
+fn decrypt_envelope(encrypted: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
+    if encrypted.len() < ENVELOPE_HEADER_LEN + 16 {
         return Err(BackupError::InvalidBackup);
     }
 
-    // Extract salt, nonce, and ciphertext
+    let format_version = encrypted[4];
+    if format_version != ENVELOPE_FORMAT_VERSION {
+        return Err(BackupError::VersionMismatch {
+            expected: ENVELOPE_FORMAT_VERSION.to_string(),
+            found: format_version.to_string(),
+        });
+    }
+
+    // Extract pinned-but-self-describing params (defensive against future bumps).
+    let m_kib = u32::from_le_bytes(encrypted[5..9].try_into().unwrap());
+    let t = u32::from_le_bytes(encrypted[9..13].try_into().unwrap());
+    let p = u32::from_le_bytes(encrypted[13..17].try_into().unwrap());
+    let salt = &encrypted[17..17 + SALT_LENGTH];
+    let nonce_bytes = &encrypted[17 + SALT_LENGTH..ENVELOPE_HEADER_LEN];
+    let ciphertext = &encrypted[ENVELOPE_HEADER_LEN..];
+    let aad = &encrypted[..ENVELOPE_AAD_LEN];
+
+    let key = derive_key_envelope(password, salt, m_kib, t, p)?;
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|e| BackupError::Encryption(format!("Cipher init error: {}", e)))?;
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    cipher
+        .decrypt(nonce, Payload { msg: ciphertext, aad })
+        .map_err(|_| BackupError::InvalidPassword)
+}
+
+fn decrypt_legacy(encrypted: &[u8], password: &str) -> Result<Vec<u8>, BackupError> {
+    if encrypted.len() < SALT_LENGTH + NONCE_LENGTH + 16 {
+        return Err(BackupError::InvalidBackup);
+    }
     let salt = &encrypted[..SALT_LENGTH];
     let nonce_bytes = &encrypted[SALT_LENGTH..SALT_LENGTH + NONCE_LENGTH];
     let ciphertext = &encrypted[SALT_LENGTH + NONCE_LENGTH..];
 
-    // Derive key from password
-    let key = derive_key(password, salt)?;
-
-    // Create cipher and decrypt
+    let key = derive_key_legacy(password, salt)?;
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|e| BackupError::Encryption(format!("Cipher init error: {}", e)))?;
-
     let nonce = Nonce::from_slice(nonce_bytes);
     cipher
         .decrypt(nonce, ciphertext)
@@ -1036,6 +1162,26 @@ pub async fn import_backup(
         .map_err(|e| BackupError::Database(e.to_string()))?;
     sqlx::query("BEGIN").execute(&mut *conn).await?;
 
+    // Temporarily drop the audit-log append-only triggers for the duration of
+    // this transaction. `clear_all_tables` must DELETE FROM audit_log as part
+    // of a full wipe-and-restore, and the triggers otherwise ABORT that DELETE.
+    //
+    // Safety: this entire path is gated by the caller already having the
+    // backup's encryption password (the data was decrypted above). A caller
+    // without the password can't reach this code to exploit the trigger gap,
+    // and DROP TRIGGER inside a transaction rolls back on any failure below,
+    // restoring the append-only guarantee automatically. The CREATE TRIGGER
+    // at the end of the happy path re-arms the guard before COMMIT.
+    for drop_stmt in [
+        "DROP TRIGGER IF EXISTS audit_log_no_update",
+        "DROP TRIGGER IF EXISTS audit_log_no_delete",
+    ] {
+        if let Err(e) = sqlx::query(drop_stmt).execute(&mut *conn).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(BackupError::Database(e.to_string()));
+        }
+    }
+
     // Clear existing data
     let result = clear_all_tables(&mut *conn).await;
     if let Err(e) = result {
@@ -1071,6 +1217,24 @@ pub async fn import_backup(
     {
         let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
         return Err(BackupError::Database(e.to_string()));
+    }
+
+    // Re-arm the audit-log append-only triggers before committing. Must match
+    // migration 011 exactly — if these drift, migration 011 becomes the source
+    // of truth on fresh installs and this block becomes a silent downgrade on
+    // restore.
+    for create_stmt in [
+        "CREATE TRIGGER IF NOT EXISTS audit_log_no_update \
+         BEFORE UPDATE ON audit_log \
+         BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END",
+        "CREATE TRIGGER IF NOT EXISTS audit_log_no_delete \
+         BEFORE DELETE ON audit_log \
+         BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END",
+    ] {
+        if let Err(e) = sqlx::query(create_stmt).execute(&mut *conn).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(BackupError::Database(e.to_string()));
+        }
     }
 
     sqlx::query("COMMIT").execute(&mut *conn).await?;
@@ -1221,6 +1385,106 @@ mod tests {
 
         assert_eq!(restorable.len(), 1);
         assert_eq!(restorable[0].key, "theme");
+    }
+
+    // ========================================
+    // Envelope + backward-compat tests (issue #34)
+    // ========================================
+
+    /// Manually build a v1.0-style legacy backup using the legacy KDF and the
+    /// raw `[salt][nonce][ciphertext]` layout. Lets us regression-test the
+    /// backward-compat decrypt path without needing an actual v1.0 fixture.
+    fn synthesize_legacy_backup(data: &[u8], password: &str) -> Vec<u8> {
+        let mut salt = [0u8; SALT_LENGTH];
+        let mut nonce_bytes = [0u8; NONCE_LENGTH];
+        OsRng.fill_bytes(&mut salt);
+        OsRng.fill_bytes(&mut nonce_bytes);
+
+        let key = derive_key_legacy(password, &salt).unwrap();
+        let cipher = Aes256Gcm::new_from_slice(&key).unwrap();
+        let nonce = Nonce::from_slice(&nonce_bytes);
+        let ciphertext = cipher.encrypt(nonce, data).unwrap();
+
+        let mut out = Vec::with_capacity(SALT_LENGTH + NONCE_LENGTH + ciphertext.len());
+        out.extend_from_slice(&salt);
+        out.extend_from_slice(&nonce_bytes);
+        out.extend_from_slice(&ciphertext);
+        out
+    }
+
+    #[test]
+    fn legacy_v10_backup_still_decrypts() {
+        // The promise: any backup file produced by the previous release can
+        // still be opened by the current code. If this test ever breaks,
+        // every existing customer backup just became unrecoverable.
+        let data = b"legacy backup body - must remain readable";
+        let password = "backuppassword42";
+
+        let legacy = synthesize_legacy_backup(data, password);
+        // No magic prefix on legacy:
+        assert_ne!(&legacy[..4], ENVELOPE_MAGIC);
+
+        let decrypted = decrypt_data(&legacy, password).unwrap();
+        assert_eq!(decrypted, data);
+    }
+
+    #[test]
+    fn new_envelope_carries_magic_prefix() {
+        // Quick wire-format guard so future envelope tweaks don't accidentally
+        // drop the magic bytes (which would break the version-detect branch).
+        let encrypted = encrypt_data(b"payload", "passwordlongenough").unwrap();
+        assert_eq!(&encrypted[..4], ENVELOPE_MAGIC);
+        assert_eq!(encrypted[4], ENVELOPE_FORMAT_VERSION);
+    }
+
+    #[test]
+    fn aad_tamper_breaks_envelope_decryption() {
+        // Flip a single byte in the KDF-params block (not salt/nonce). With
+        // AAD covering those bytes, GCM tag verification must fail.
+        let data = b"sensitive backup body";
+        let password = "passwordlongenough";
+        let mut encrypted = encrypt_data(data, password).unwrap();
+
+        // Tamper with the iterations field (bytes 9..13).
+        encrypted[9] ^= 0x01;
+
+        let result = decrypt_data(&encrypted, password);
+        assert!(
+            matches!(result, Err(BackupError::InvalidPassword)),
+            "tampered AAD must fail GCM verification, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn unknown_envelope_version_rejected_cleanly() {
+        let data = b"payload";
+        let password = "passwordlongenough";
+        let mut encrypted = encrypt_data(data, password).unwrap();
+
+        // Bump the format version byte to something the current code doesn't
+        // know how to parse. Caller should get a typed VersionMismatch, not a
+        // generic InvalidBackup or a panic.
+        encrypted[4] = 99;
+
+        let result = decrypt_data(&encrypted, password);
+        assert!(
+            matches!(result, Err(BackupError::VersionMismatch { .. })),
+            "expected VersionMismatch, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn pinned_argon2_params_match_v10_defaults() {
+        // Belt-and-suspenders check: legacy backups were KDF'd with
+        // Argon2::default(). If a future argon2-crate bump changes those
+        // defaults and we don't update the pinned constants, we'd silently
+        // break legacy decryption. This test catches that drift.
+        let default = Params::default();
+        assert_eq!(default.m_cost(), ARGON2_MEMORY_KIB);
+        assert_eq!(default.t_cost(), ARGON2_ITERATIONS);
+        assert_eq!(default.p_cost(), ARGON2_PARALLELISM);
     }
 
     #[test]

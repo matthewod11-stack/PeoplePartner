@@ -1,7 +1,7 @@
 {
   "name": "people-partner",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.4",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,11 +9,12 @@
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "tauri": "tauri",
+    "tauri:dev": "tauri dev --config src-tauri/tauri.conf.dev.json",
+    "tauri:build": "tauri build",
     "generate-test-data": "tsx scripts/generate-test-data.ts --employees",
     "import-test-data": "tsx scripts/import-test-data.ts"
   },
   "dependencies": {
-    "@tailwindcss/typography": "^0.5.19",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-process": "^2.0.0",
@@ -27,6 +28,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@tailwindcss/typography": "^0.5.19",
     "@tauri-apps/cli": "^2.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20.10.0",
@@ -35,7 +37,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.22",
     "better-sqlite3": "^12.5.0",
-    "postcss": "^8.5.6",
+    "postcss": "^8.5.10",
     "tailwindcss": "^3.4.19",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
