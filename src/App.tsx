@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense, Component, type ReactNode } from 'react';
-import { LayoutProvider } from './contexts/LayoutContext';
+import { LayoutProvider, useLayout } from './contexts/LayoutContext';
 import { EmployeeProvider } from './contexts/EmployeeContext';
 import {
   ConversationProvider,
@@ -17,6 +17,7 @@ import { TestDataImporter } from './components/dev/TestDataImporter';
 import { OnboardingProvider, OnboardingFlow, useOnboarding } from './components/onboarding';
 import { useEmployees } from './contexts/EmployeeContext';
 import { useNetwork, useCommandPalette } from './hooks';
+import { RECRUITING_ENABLED } from './lib/featureFlags';
 
 const EmployeeEdit = lazy(() =>
   import('./components/employees/EmployeeEdit').then((module) => ({ default: module.EmployeeEdit }))
@@ -30,6 +31,9 @@ const SettingsPanel = lazy(() =>
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const UpgradePrompt = lazy(() =>
   import('./components/trial/UpgradePrompt').then((module) => ({ default: module.UpgradePrompt }))
+);
+const RecruitingView = lazy(() =>
+  import('./components/recruiting').then((module) => ({ default: module.RecruitingView }))
 );
 
 // Error Boundary to catch React render errors.
@@ -311,6 +315,12 @@ function MainAppContent() {
   const [isTestDataModalOpen, setIsTestDataModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const chatInputRef = useRef<ChatInputHandle>(null);
+  const { sidebarTab } = useLayout();
+
+  // Recruit module (FHR-70) takes over the main content area when its tab is
+  // active. Guarded by RECRUITING_ENABLED so an off flag can never strand the
+  // user on an empty view (the tab can't be selected when the flag is off).
+  const showRecruiting = RECRUITING_ENABLED && sidebarTab === 'recruiting';
 
   // Command palette hook (uses useLayout internally)
   const { isOpen: isPaletteOpen, close: closePalette } = useCommandPalette({
@@ -337,7 +347,13 @@ function MainAppContent() {
         contextPanel={<EmployeeDetail />}
         onSettingsClick={() => setIsSettingsOpen(true)}
       >
-        <ChatArea chatInputRef={chatInputRef} />
+        {showRecruiting ? (
+          <Suspense fallback={null}>
+            <RecruitingView />
+          </Suspense>
+        ) : (
+          <ChatArea chatInputRef={chatInputRef} />
+        )}
       </AppShell>
       <EmployeeEditModal />
       <ImportWizardModal />

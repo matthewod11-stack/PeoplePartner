@@ -279,11 +279,10 @@ export function AppShell({ children, contextPanel, onSettingsClick }: AppShellPr
 
             {/* Tab Content */}
             <div className="flex-1 overflow-hidden">
-              {sidebarTab === 'conversations' ? (
-                <ConversationSidebar />
-              ) : (
-                <EmployeePanel />
-              )}
+              {sidebarTab === 'conversations' && <ConversationSidebar />}
+              {sidebarTab === 'employees' && <EmployeePanel />}
+              {/* recruiting: sidebar intentionally empty in the S0.1 skeleton —
+                  the empty Recruiting view renders in the main content area. */}
             </div>
           </div>
         </aside>
