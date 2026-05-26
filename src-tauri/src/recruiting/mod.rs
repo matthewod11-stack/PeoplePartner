@@ -12,9 +12,16 @@
 //!     `chat`, `employees`, `documents` are organized).
 //!   - The migration that backs this module is `013_recruiting.sql`.
 
+pub mod adapters;
+
 use crate::db::DbPool;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+/// Keyring provider ID for the Exa search API key. Used by the recruiting
+/// search command to look up the user's BYOK Exa key:
+/// `keyring::get_provider_api_key(EXA_PROVIDER_ID)`.
+pub const EXA_PROVIDER_ID: &str = "exa";
 
 #[derive(Debug, Clone, sqlx::FromRow, Serialize, Deserialize)]
 pub struct RecruitingSearch {

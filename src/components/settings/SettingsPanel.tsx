@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Modal } from '../shared/Modal';
 import { Button } from '../ui/Button';
 import { ApiKeyInput } from './ApiKeyInput';
+import { ExaKeyInput } from './ExaKeyInput';
 import { ProviderPicker } from './ProviderPicker';
 import { CompanySetup } from '../company/CompanySetup';
 import { BackupRestore } from './BackupRestore';
@@ -25,6 +26,7 @@ import {
 import { useTrial } from '../../contexts/TrialContext';
 import { UPGRADE_URL } from '../../lib/constants';
 import { PROVIDER_ORDER } from '../../lib/provider-config';
+import { RECRUITING_ENABLED } from '../../lib/featureFlags';
 
 interface SettingsPanelProps {
   /** Whether the panel is open */
@@ -346,6 +348,18 @@ export function SettingsPanel({ isOpen, onClose }: SettingsPanelProps) {
               />
             </div>
           </section>
+
+          {/* Recruiting Section (FHR-72) — gated on RECRUITING_ENABLED so the
+              section tree-shakes out when the module is off. Keeps Settings
+              uncluttered until the Recruit tab is enabled. */}
+          {RECRUITING_ENABLED && (
+            <section>
+              <h3 className="text-sm font-medium text-stone-500 uppercase tracking-wider mb-3">
+                Recruiting
+              </h3>
+              <ExaKeyInput />
+            </section>
+          )}
 
           {/* Documents Section (V3.0) */}
           <section>
