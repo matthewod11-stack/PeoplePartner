@@ -28,6 +28,8 @@ import type {
   // V3.0 - Document Ingestion
   DocumentFolderStats,
   DocumentStats,
+  // FHR-71 - Recruiting (Sourcerer module)
+  RecruitingSearch,
 } from './types';
 
 /**
@@ -2105,4 +2107,27 @@ export async function rescanDocuments(): Promise<DocumentFolderStats> {
 /** Get document indexing stats */
 export async function getDocumentStats(): Promise<DocumentStats> {
   return invoke('get_document_stats');
+}
+
+// =============================================================================
+// Recruiting (Sourcerer module) — FHR-71 (S0.2)
+// =============================================================================
+
+/**
+ * Create a new recruiting search. Returns the generated row ID (UUID).
+ *
+ * `seedEmployeeId`, when provided, points at an existing employee whose
+ * profile seeds context-aware discovery ("find people like Sarah"). The
+ * underlying FK is ON DELETE SET NULL.
+ */
+export async function createRecruitingSearch(
+  query: string,
+  seedEmployeeId: string | null = null,
+): Promise<string> {
+  return invoke('recruiting_create_search', { query, seedEmployeeId });
+}
+
+/** List all recruiting searches, newest first. */
+export async function listRecruitingSearches(): Promise<RecruitingSearch[]> {
+  return invoke('recruiting_list_searches');
 }

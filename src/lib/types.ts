@@ -650,3 +650,25 @@ export interface DocumentStats {
   files_by_type: Record<string, number>;
   last_scanned_at: string | null;
 }
+
+// ============================================================================
+// Recruiting (Sourcerer module) — FHR-71 (S0.2)
+// ============================================================================
+
+/**
+ * One row in `recruiting_searches`. Fields are snake_case because they
+ * come straight from the Rust serde-serialized struct.
+ *
+ * `seed_employee_id` is the context-aware sourcing seam: when set, the
+ * search seeds discovery off that employee's profile ("find people like
+ * this person"). Nullable + ON DELETE SET NULL — deleting the seed
+ * employee never destroys recruiting history.
+ */
+export interface RecruitingSearch {
+  id: string;
+  query: string;
+  status: string;
+  seed_employee_id: string | null;
+  created_at: string;
+  updated_at: string;
+}

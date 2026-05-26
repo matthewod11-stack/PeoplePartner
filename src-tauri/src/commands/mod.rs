@@ -14,4 +14,5 @@ pub(crate) mod enps;
 pub(crate) mod import;
 pub(crate) mod license;
 pub(crate) mod performance;
+pub(crate) mod recruiting;
 pub(crate) mod system;
