@@ -30,6 +30,10 @@ import type {
   DocumentStats,
   // FHR-71 - Recruiting (Sourcerer module)
   RecruitingSearch,
+  // FHR-72 - Recruiting Exa search round-trip
+  ExaSearchResponse,
+  RecruitingSearchError,
+  RecruitingSearchResult,
 } from './types';
 
 /**
@@ -2130,4 +2134,59 @@ export async function createRecruitingSearch(
 /** List all recruiting searches, newest first. */
 export async function listRecruitingSearches(): Promise<RecruitingSearch[]> {
   return invoke('recruiting_list_searches');
+}
+
+/**
+ * Execute an Exa search using the user's BYOK Exa key from Keychain (FHR-72).
+ *
+ * Returns a discriminated {@link RecruitingSearchResult} instead of throwing.
+ * Call-sites typically need to branch on the error `kind` (`MissingKey`
+ * triggers the Settings banner; other kinds are soft toasts), so the
+ * Result shape is more ergonomic than try/catch here.
+ *
+ * ```ts
+ * const result = await recruitingSearchExa('rust engineers berlin');
+ * if (!result.ok) {
+ *   if (result.error.kind === 'MissingKey') showBanner();
+ *   else showToast(result.error);
+ * } else {
+ *   render(result.data.results);
+ * }
+ * ```
+ */
+export async function recruitingSearchExa(
+  query: string,
+): Promise<RecruitingSearchResult> {
+  try {
+    const data = await invoke<ExaSearchResponse>('recruiting_search_exa', { query });
+    return { ok: true, data };
+  } catch (raw) {
+    // Tauri serializes Rust `Err(E: Serialize)` as JSON. If raw has `.kind`,
+    // it's our RecruitingSearchError; otherwise wrap unknowns as Internal.
+    if (typeof raw === 'object' && raw !== null && 'kind' in raw) {
+      return { ok: false, error: raw as RecruitingSearchError };
+    }
+    return { ok: false, error: { kind: 'Internal', message: String(raw) } };
+  }
+}
+
+/**
+ * Check whether an Exa API key is stored in macOS Keychain.
+ *
+ * Recruit-namespaced because the generic {@link hasProviderApiKey} gates on
+ * the LLM-provider registry (Exa is a data source, not an LLM). This bypasses
+ * that gate while sharing the same Keychain storage account (`exa_api_key`).
+ */
+export async function hasExaApiKey(): Promise<boolean> {
+  return invoke('recruiting_has_exa_key');
+}
+
+/** Store the Exa API key in macOS Keychain. Format-validate client-side first. */
+export async function storeExaApiKey(apiKey: string): Promise<void> {
+  return invoke('recruiting_store_exa_key', { apiKey });
+}
+
+/** Remove the Exa API key from macOS Keychain. Idempotent. */
+export async function deleteExaApiKey(): Promise<void> {
+  return invoke('recruiting_delete_exa_key');
 }

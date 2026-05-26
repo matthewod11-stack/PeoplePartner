@@ -268,5 +268,6 @@ mod tests {
         assert_eq!(keychain_account_for_provider("anthropic"), "anthropic_api_key");
         assert_eq!(keychain_account_for_provider("openai"), "openai_api_key");
         assert_eq!(keychain_account_for_provider("gemini"), "gemini_api_key");
+        assert_eq!(keychain_account_for_provider("exa"), "exa_api_key");
     }
 }

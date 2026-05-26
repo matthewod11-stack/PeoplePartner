@@ -349,7 +349,7 @@ function MainAppContent() {
       >
         {showRecruiting ? (
           <Suspense fallback={null}>
-            <RecruitingView />
+            <RecruitingView onOpenSettings={() => setIsSettingsOpen(true)} />
           </Suspense>
         ) : (
           <ChatArea chatInputRef={chatInputRef} />

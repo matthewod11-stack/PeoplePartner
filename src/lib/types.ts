@@ -672,3 +672,64 @@ export interface RecruitingSearch {
   created_at: string;
   updated_at: string;
 }
+
+// ============================================================================
+// Recruiting (Sourcerer module) — FHR-72 (S0.3): Exa search round-trip
+// ============================================================================
+
+/**
+ * One Exa search hit. `id` and `url` are always present; everything else is
+ * opt-in depending on Exa search params (Exa returns them inconsistently).
+ *
+ * Field names are camelCase to match Exa's wire format — the Rust adapter
+ * uses `#[serde(rename_all = "camelCase")]` so the bytes cross the Tauri
+ * IPC boundary unchanged.
+ */
+export interface ExaHit {
+  id: string;
+  url: string;
+  title: string | null;
+  /** Relevance score in [0.0, 1.0] — higher is better. */
+  score: number | null;
+  /** Raw publication date. Format varies (ISO 8601 / YYYY-MM-DD / null). */
+  publishedDate: string | null;
+  author: string | null;
+  /** Full text — only populated when fetched via getContents (S1.1+). */
+  text: string | null;
+  /** Matched snippets — only when highlights=true was requested. */
+  highlights: string[] | null;
+  /** LLM-generated summary — only when summary=true was requested. */
+  summary: string | null;
+}
+
+/** Top-level response from Exa's /search endpoint. */
+export interface ExaSearchResponse {
+  results: ExaHit[];
+  /** Exa's rewrite of the user query — present for neural/auto search modes. */
+  autopromptString: string | null;
+  /** Exa request ID — quote this when filing support tickets. */
+  requestId: string | null;
+}
+
+/**
+ * Discriminated error type for {@link recruitingSearchExa}. Pattern-match
+ * on `kind`:
+ *   - `MissingKey` → render the "Recruiting needs your Exa API key" banner.
+ *   - `InvalidKey` → same banner; Exa rejected the stored key.
+ *   - `RateLimit`  → soft toast with the Exa-supplied message.
+ *   - `Network`    → soft toast ("couldn't reach Exa").
+ *   - `ExaApi`     → surface status + body for debugging.
+ *   - `Internal`   → unexpected (Keychain read failed, parse failed, ...).
+ */
+export type RecruitingSearchError =
+  | { kind: 'MissingKey' }
+  | { kind: 'InvalidKey' }
+  | { kind: 'RateLimit'; message: string }
+  | { kind: 'Network'; message: string }
+  | { kind: 'ExaApi'; status: number; body: string }
+  | { kind: 'Internal'; message: string };
+
+/** Result of {@link recruitingSearchExa} — pattern-match on `ok`. */
+export type RecruitingSearchResult =
+  | { ok: true; data: ExaSearchResponse }
+  | { ok: false; error: RecruitingSearchError };

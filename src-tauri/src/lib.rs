@@ -229,9 +229,13 @@ pub fn run() {
             commands::documents::get_document_folder,
             commands::documents::rescan_documents,
             commands::documents::get_document_stats,
-            // Recruiting (Sourcerer module) — FHR-71
+            // Recruiting (Sourcerer module) — FHR-71, FHR-72
             commands::recruiting::recruiting_create_search,
             commands::recruiting::recruiting_list_searches,
+            commands::recruiting::recruiting_search_exa,
+            commands::recruiting::recruiting_has_exa_key,
+            commands::recruiting::recruiting_store_exa_key,
+            commands::recruiting::recruiting_delete_exa_key,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases
