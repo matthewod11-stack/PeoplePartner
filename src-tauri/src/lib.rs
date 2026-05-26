@@ -33,6 +33,7 @@ mod network;
 mod performance_ratings;
 mod performance_reviews;
 mod pii;
+mod recruiting;
 mod review_cycles;
 mod settings;
 mod provider;
@@ -228,6 +229,9 @@ pub fn run() {
             commands::documents::get_document_folder,
             commands::documents::rescan_documents,
             commands::documents::get_document_stats,
+            // Recruiting (Sourcerer module) — FHR-71
+            commands::recruiting::recruiting_create_search,
+            commands::recruiting::recruiting_list_searches,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases

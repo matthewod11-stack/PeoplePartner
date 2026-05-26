@@ -237,6 +237,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (10, "schema_migrations", include_str!("../migrations/010_schema_migrations.sql")),
     (11, "audit_log_append_only", include_str!("../migrations/011_audit_log_append_only.sql")),
     (12, "license_signed_token", include_str!("../migrations/012_license_signed_token.sql")),
+    (13, "recruiting", include_str!("../migrations/013_recruiting.sql")),
 ];
 
 /// Highest version that the pre-versioning runner may have applied. Used only
