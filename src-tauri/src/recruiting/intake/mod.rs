@@ -21,5 +21,6 @@ pub mod deps;
 pub mod engine;
 pub mod node;
 pub mod phases;
+pub mod prod;
 pub mod runner;
 pub mod schemas;
