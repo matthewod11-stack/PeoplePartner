@@ -43,7 +43,7 @@ impl IntakeNode for RoleJdInput {
         if let Some(desc) = &ctx.role_description {
             format!(
                 "I see you've already provided some role information. Would you like to add more detail, or shall we proceed with what we have?\n\nCurrent info: {}...",
-                &desc[..desc.len().min(200)]
+                desc.chars().take(200).collect::<String>()
             )
         } else {
             "Let's start by understanding the role you're hiring for.\n\nYou can:\n1. Paste a job description (JD)\n2. Describe the role in your own words\n3. Share a link to the job posting\n\nWhat do you have?".into()
@@ -201,5 +201,17 @@ mod tests {
             serde_json::from_value(role_json()).unwrap()), ..Default::default() };
         let parsed = node.parse("make it principal", &ctx, &deps).await.unwrap();
         assert_eq!(node.next(&parsed, &ctx), NodeId::RoleParseConfirm);
+    }
+
+    /// Regression: the "already provided" prompt truncates `role_description`
+    /// to 200 chars. A byte-slice (`&desc[..200]`) panics when byte 200 lands
+    /// inside a multi-byte UTF-8 char; char-based truncation must not.
+    #[tokio::test]
+    async fn jd_prompt_truncates_multibyte_without_panicking() {
+        let node = RoleJdInput;
+        // 300 multi-byte chars (900 bytes) — byte 200 is mid-codepoint.
+        let ctx = IntakeContext { role_description: Some("あ".repeat(300)), ..Default::default() };
+        let prompt = node.prompt(&ctx).await; // must not panic
+        assert!(prompt.contains("Current info:"));
     }
 }

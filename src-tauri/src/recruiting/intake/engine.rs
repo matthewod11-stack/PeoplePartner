@@ -88,10 +88,15 @@ impl ConversationEngine {
     }
 
     pub fn save_state(&self, now: String) -> ConversationState {
+        // Sort for a deterministic serialized blob (the set's iteration order
+        // is not stable across runs). Restore re-collects into a HashSet, so
+        // ordering is cosmetic — but stable output enables snapshot testing.
+        let mut completed_nodes: Vec<NodeId> = self.completed.iter().copied().collect();
+        completed_nodes.sort();
         ConversationState {
             current_node_id: self.current,
             context: self.context.clone(),
-            completed_nodes: self.completed.iter().copied().collect(),
+            completed_nodes,
             saved_at: now,
             version: 1,
         }

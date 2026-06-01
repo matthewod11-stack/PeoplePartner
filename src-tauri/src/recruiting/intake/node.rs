@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::context::{IntakeContext, IntakeContextUpdates};
 use super::deps::{IntakeDeps, IntakeError};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum NodeId {
     RoleJdInput, RoleParseConfirm, RoleRefine,
     CompanyUrlInput, CompanyAnalysis, CompanyConfirm,
