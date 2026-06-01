@@ -4,9 +4,12 @@
 //! hiring conversation into a structured `IntakeContext` -> `SearchConfig`.
 //! Headless: no UI. The only dep-touching method is `IntakeNode::parse`,
 //! behind the `IntakeProvider` / `ContentResearch` traits; tests inject fakes.
-//!
-//! NOTE: `pub use` re-exports are intentionally omitted until the modules
-//! they reference are implemented (added in a later task).
+
+//! Public items are reachable via their submodule paths (e.g.
+//! `recruiting::intake::engine::ConversationEngine`,
+//! `recruiting::intake::runner::create_intake_engine`). Crate-level `pub use`
+//! re-exports are intentionally deferred to the S4.2 consumer so this
+//! still-internal module doesn't carry an unused public surface.
 
 pub mod context;
 pub mod deps;
