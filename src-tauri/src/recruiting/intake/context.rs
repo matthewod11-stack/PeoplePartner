@@ -1,0 +1,1 @@
+//! IntakeContext accumulator. (stub)

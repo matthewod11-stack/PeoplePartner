@@ -13,6 +13,7 @@
 //!   - The migration that backs this module is `013_recruiting.sql`.
 
 pub mod adapters;
+pub mod intake;
 
 use crate::db::DbPool;
 use serde::{Deserialize, Serialize};

@@ -32,6 +32,7 @@ tokio-util = "0.7"  # CancellationToken for streaming cancellation (issue #25)
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
+async-trait = "0.1"
 
 # HTTP client for Claude API
 reqwest = { version = "0.12", features = ["json", "stream"] }
