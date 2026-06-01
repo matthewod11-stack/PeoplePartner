@@ -16,10 +16,16 @@
 //!     summary, contents are opt-in).
 
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use thiserror::Error;
 
 const EXA_SEARCH_URL: &str = "https://api.exa.ai/search";
+/// `/contents` fetches the full text/title for already-known URLs — the
+/// `crawl_url` half of the intake `ContentResearch` trait (FHR-95).
+const EXA_CONTENTS_URL: &str = "https://api.exa.ai/contents";
+/// `/findSimilar` powers team-seeded discovery (`findSimilar` trait method,
+/// roadmap S1.1) — "find people like these URLs".
+const EXA_FIND_SIMILAR_URL: &str = "https://api.exa.ai/findSimilar";
 const DEFAULT_NUM_RESULTS: u32 = 10;
 /// Exa search mode: "neural" (semantic), "keyword" (lexical), "auto" (Exa picks).
 /// "auto" is the right default for v1 — it lets Exa decide and removes a
@@ -37,6 +43,25 @@ struct ExaSearchRequest<'a> {
     num_results: u32,
     #[serde(rename = "type")]
     search_type: &'a str,
+}
+
+/// `/contents` request. `text: true` asks Exa to return the full document text
+/// for each URL (the field `crawl_url` reads). `urls` is borrowed from the
+/// caller's seed list.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExaContentsRequest<'a> {
+    urls: &'a [String],
+    text: bool,
+}
+
+/// `/findSimilar` request — Exa takes a single seed URL and returns pages
+/// similar to it.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExaFindSimilarRequest<'a> {
+    url: &'a str,
+    num_results: u32,
 }
 
 // ============================================================================
@@ -105,24 +130,25 @@ pub enum ExaError {
 // Search
 // ============================================================================
 
-/// Execute a search against Exa's `/search` endpoint.
+/// POST a JSON body to an Exa endpoint and deserialize the response.
 ///
+/// Shared by `search` / `get_contents` / `find_similar` — all three are the
+/// same request shape (x-api-key header, JSON body) and the same status
+/// handling (401 → `InvalidKey`, 429 → `RateLimit`, other non-2xx → `Api`).
 /// The caller fetches `api_key` from the Keychain (typically via
 /// `keyring::get_provider_api_key(EXA_PROVIDER_ID)`) and is responsible for
 /// translating `KeyringError::NotFound` into a higher-level "missing key"
 /// condition — this function only sees the key as an opaque `&str`.
-pub async fn search(query: &str, api_key: &str) -> Result<ExaSearchResponse, ExaError> {
-    let body = ExaSearchRequest {
-        query,
-        num_results: DEFAULT_NUM_RESULTS,
-        search_type: DEFAULT_SEARCH_TYPE,
-    };
-
+async fn exa_post<B, R>(url: &str, api_key: &str, body: &B) -> Result<R, ExaError>
+where
+    B: Serialize,
+    R: DeserializeOwned,
+{
     let response = Client::new()
-        .post(EXA_SEARCH_URL)
+        .post(url)
         .header("x-api-key", api_key)
         .header("content-type", "application/json")
-        .json(&body)
+        .json(body)
         .send()
         .await?;
 
@@ -143,6 +169,34 @@ pub async fn search(query: &str, api_key: &str) -> Result<ExaSearchResponse, Exa
             body,
         },
     })
+}
+
+/// Execute a search against Exa's `/search` endpoint.
+pub async fn search(query: &str, api_key: &str) -> Result<ExaSearchResponse, ExaError> {
+    let body = ExaSearchRequest {
+        query,
+        num_results: DEFAULT_NUM_RESULTS,
+        search_type: DEFAULT_SEARCH_TYPE,
+    };
+    exa_post(EXA_SEARCH_URL, api_key, &body).await
+}
+
+/// Fetch full document text for the given URLs via Exa's `/contents` endpoint.
+/// Backs the intake `crawl_url` step — the caller hands us a URL it already
+/// has (e.g. a company website the user pasted) and we return its text.
+pub async fn get_contents(urls: &[String], api_key: &str) -> Result<ExaSearchResponse, ExaError> {
+    let body = ExaContentsRequest { urls, text: true };
+    exa_post(EXA_CONTENTS_URL, api_key, &body).await
+}
+
+/// Find pages similar to a seed URL via Exa's `/findSimilar` endpoint. Feeds
+/// team-seeded candidate discovery ("find people like these team members").
+pub async fn find_similar(url: &str, api_key: &str) -> Result<ExaSearchResponse, ExaError> {
+    let body = ExaFindSimilarRequest {
+        url,
+        num_results: DEFAULT_NUM_RESULTS,
+    };
+    exa_post(EXA_FIND_SIMILAR_URL, api_key, &body).await
 }
 
 // ============================================================================
@@ -212,5 +266,77 @@ mod tests {
         assert!(hit.published_date.is_none(), "publishedDate is Option");
         assert!(parsed.autoprompt_string.is_none(), "autoprompt is Option");
         assert!(parsed.request_id.is_none(), "requestId is Option");
+    }
+
+    /// `/contents` response — same `{results: [...]}` envelope as `/search`,
+    /// but the hit carries populated `text` (the whole reason to call it).
+    /// `crawl_url` reads `results[0].text`.
+    const FIXTURE_CONTENTS: &str = r#"{
+        "results": [
+            {
+                "id": "https://acme.com",
+                "url": "https://acme.com",
+                "title": "Acme — Developer Infrastructure",
+                "text": "Acme builds developer infrastructure. We use Rust and Go."
+            }
+        ],
+        "requestId": "req_contents_1"
+    }"#;
+
+    /// `/findSimilar` response — identical envelope to `/search`; hits carry a
+    /// relevance `score` used as the similarity value downstream.
+    const FIXTURE_FIND_SIMILAR: &str = r#"{
+        "results": [
+            {
+                "id": "https://github.com/similar-dev",
+                "url": "https://github.com/similar-dev",
+                "title": "Similar Dev",
+                "score": 0.91
+            }
+        ]
+    }"#;
+
+    #[test]
+    fn deserializes_contents_response_with_text() {
+        let parsed: ExaSearchResponse =
+            serde_json::from_str(FIXTURE_CONTENTS).expect("parse contents fixture");
+        assert_eq!(parsed.results.len(), 1);
+        let hit = &parsed.results[0];
+        assert_eq!(hit.url, "https://acme.com");
+        assert_eq!(hit.title.as_deref(), Some("Acme — Developer Infrastructure"));
+        assert!(
+            hit.text.as_deref().unwrap().contains("Rust and Go"),
+            "contents must populate the document text crawl_url reads"
+        );
+    }
+
+    #[test]
+    fn deserializes_find_similar_response() {
+        let parsed: ExaSearchResponse =
+            serde_json::from_str(FIXTURE_FIND_SIMILAR).expect("parse findSimilar fixture");
+        assert_eq!(parsed.results.len(), 1);
+        let hit = &parsed.results[0];
+        assert_eq!(hit.url, "https://github.com/similar-dev");
+        assert_eq!(hit.score, Some(0.91), "similarity score drives SimilarResult");
+    }
+
+    #[test]
+    fn contents_request_serializes_urls_and_text_flag() {
+        // Wire-shape guard: Exa expects camelCase `text` + a `urls` array.
+        let body = ExaContentsRequest {
+            urls: &["https://acme.com".to_string()],
+            text: true,
+        };
+        let v = serde_json::to_value(&body).unwrap();
+        assert_eq!(v["urls"][0], "https://acme.com");
+        assert_eq!(v["text"], true);
+    }
+
+    #[test]
+    fn find_similar_request_serializes_camelcase_num_results() {
+        let body = ExaFindSimilarRequest { url: "https://x.com", num_results: 10 };
+        let v = serde_json::to_value(&body).unwrap();
+        assert_eq!(v["url"], "https://x.com");
+        assert_eq!(v["numResults"], 10, "num_results must serialize as numResults");
     }
 }
