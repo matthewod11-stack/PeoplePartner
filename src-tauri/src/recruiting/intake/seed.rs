@@ -6,7 +6,8 @@
 
 use serde::Deserialize;
 use super::context::IntakeContext;
-use super::schemas::{CompanyIntel, CompositeProfile, RoleParameters};
+use super::deps::{IntakeDeps, IntakeError};
+use super::schemas::{CompanyIntel, CompositeProfile, Message, MessageRole, RoleParameters};
 
 /// Company fields an LLM can pull from prose. Excludes `url`/`analyzedAt`
 /// (no crawl happened) — `build_seeded_context` stamps those.
@@ -60,9 +61,28 @@ pub fn build_seeded_context(seed: SeedExtraction, role_description: String, now:
     }
 }
 
+const SEED_EXTRACTION_SYSTEM: &str = r#"You are a recruiter's assistant. The user provides a job description (JD) OR a transcript of a hiring conversation. Extract a structured intake seed as a JSON object. Include ONLY the keys the text actually supports — omit any you cannot ground in the text. Schema:
+- role: { title, level (junior|mid|senior|staff|principal|lead|director), scope (one sentence), location?, remotePolicy? (remote|hybrid|in_person|negotiable), compensationRange? {currency (required), min?, max?}, mustHaveSkills: string[], niceToHaveSkills: string[], teamSize?, reportingTo? }
+- company: { name, techStack: string[], teamSize?, fundingStage?, productCategory?, cultureSignals: string[], pitch?, competitors?: string[] }
+- successProfile: { skillSignatures: string[], seniorityCalibration (e.g. "6-9 yrs, owns subsystems"), cultureSignals: string[], careerTrajectories: [] }
+- antiPatterns: string[]  (red flags / disqualifiers mentioned)
+
+A bare JD will usually yield only `role` (and maybe `antiPatterns`). A hiring-call transcript may yield all four. Never invent a company name, competitors, or anti-patterns that aren't in the text."#;
+
+/// Run one structured extraction over the (already redacted) text.
+pub async fn extract_seed(text: &str, deps: &IntakeDeps) -> Result<SeedExtraction, IntakeError> {
+    let messages = vec![
+        Message { role: MessageRole::System, content: SEED_EXTRACTION_SYSTEM.to_string() },
+        Message { role: MessageRole::User, content: text.to_string() },
+    ];
+    let v = deps.provider.structured_output(messages, "SeedExtraction").await?;
+    serde_json::from_value(v).map_err(|e| IntakeError::Deserialize(e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::deps::testing::{FakeProvider, FakeResearch, fake_deps};
 
     fn role() -> RoleParameters {
         serde_json::from_value(serde_json::json!({
@@ -113,5 +133,28 @@ mod tests {
         assert!(ctx.company_intel.is_none());
         assert!(ctx.composite_profile.is_none());
         assert!(ctx.anti_patterns.is_empty());
+    }
+
+    #[tokio::test]
+    async fn extract_seed_parses_provider_json() {
+        let deps = fake_deps(FakeProvider::new(vec![serde_json::json!({
+            "role": {"title":"Eng","level":"senior","scope":"x","mustHaveSkills":[],"niceToHaveSkills":[]},
+            "antiPatterns": ["no public code"]
+        })]), FakeResearch::default());
+
+        let seed = extract_seed("some JD text", &deps).await.unwrap();
+        assert_eq!(seed.role.as_ref().unwrap().title, "Eng");
+        assert_eq!(seed.anti_patterns, vec!["no public code".to_string()]);
+        assert!(seed.company.is_none());          // omitted field → None
+    }
+
+    #[tokio::test]
+    async fn extract_seed_empty_object_is_all_none() {
+        let deps = fake_deps(FakeProvider::new(vec![serde_json::json!({})]), FakeResearch::default());
+        let seed = extract_seed("text with nothing useful", &deps).await.unwrap();
+        assert!(seed.role.is_none()
+            && seed.company.is_none()
+            && seed.success_profile.is_none()
+            && seed.anti_patterns.is_empty());
     }
 }
