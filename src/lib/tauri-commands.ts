@@ -37,6 +37,8 @@ import type {
   // FHR-86 - Recruit intake conversation
   IntakeTurn,
   IntakeResult,
+  // FHR-93 - Recruit intake seed from file/text
+  IntakeSeedInput,
 } from './types';
 
 /**
@@ -2223,4 +2225,14 @@ export async function recruitingIntakeExtract(
   conversationState: string,
 ): Promise<IntakeResult> {
   return invoke('recruiting_intake_extract', { conversationState });
+}
+
+/**
+ * Start the intake conversation seeded from an existing file or text snippet.
+ * Pass `{ filePath }` for a file on disk (the backend reads it) or `{ seedText }`
+ * for inline text. Returns the first prompt + opaque state blob, same shape as
+ * {@link recruitingIntakeStart}.
+ */
+export async function recruitingIntakeStartFromSeed(seed: IntakeSeedInput): Promise<IntakeTurn> {
+  return invoke('recruiting_intake_start_from_seed', { seed });
 }
