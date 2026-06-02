@@ -131,6 +131,7 @@ use crate::recruiting::intake::runner::{
     create_intake_engine, extract_intake_result, restore_intake_engine,
 };
 use crate::recruiting::intake::schemas::{SearchConfig, TalentProfile};
+use crate::recruiting::intake::seed::{build_seeded_context, extract_seed};
 use crate::settings;
 
 /// One turn of the intake conversation. `state` is the opaque serialized
@@ -198,6 +199,56 @@ async fn deps_from_env(pool: &crate::db::DbPool) -> Result<IntakeDeps, IntakeCom
     };
 
     Ok(production_intake_deps(&provider_id, model_id, exa_key))
+}
+
+/// Seed input for `recruiting_intake_start_from_seed`. Exactly one of
+/// `file_path` (read + parsed via the document pipeline) or `seed_text` (pasted).
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntakeSeedInput {
+    pub file_path: Option<String>,
+    pub seed_text: Option<String>,
+}
+
+/// Resolve the seed input to raw text. Reuses the document pipeline's
+/// `parse_file` (md/txt/pdf/docx) for files; pasted text passes through.
+fn resolve_seed_text(input: &IntakeSeedInput) -> Result<String, IntakeCommandError> {
+    match (&input.file_path, &input.seed_text) {
+        (Some(path), None) => {
+            let chunks = crate::documents::parse_file(std::path::Path::new(path))
+                .map_err(|e| IntakeCommandError::Internal { message: format!("Couldn't read {path}: {e}") })?;
+            let text = chunks.iter().map(|c| c.content.as_str()).collect::<Vec<_>>().join("\n\n");
+            if text.trim().is_empty() {
+                return Err(IntakeCommandError::Internal { message: format!("{path} had no readable text") });
+            }
+            Ok(text)
+        }
+        (None, Some(t)) if !t.trim().is_empty() => Ok(t.clone()),
+        (Some(_), Some(_)) => Err(IntakeCommandError::Internal {
+            message: "provide only one of filePath or seedText, not both".into(),
+        }),
+        _ => Err(IntakeCommandError::Internal {
+            message: "provide exactly one non-empty of filePath or seedText".into(),
+        }),
+    }
+}
+
+/// Start an intake conversation seeded from a JD/transcript. Parses + redacts
+/// the input, runs one structured extraction, pre-seeds the context, and returns
+/// the first prompt (which lands on a confirm turn for whatever was extracted).
+#[tauri::command]
+pub(crate) async fn recruiting_intake_start_from_seed(
+    state: tauri::State<'_, Database>,
+    seed: IntakeSeedInput,
+) -> Result<IntakeTurn, IntakeCommandError> {
+    let deps = deps_from_env(&state.pool).await?;          // preflight LLM/Exa keys
+    let text = resolve_seed_text(&seed)?;
+    let redacted = crate::pii::scan_and_redact(&text).redacted_text;  // financial-scope (names/emails = FHR-90)
+    let extraction = extract_seed(&redacted, &deps).await?;
+    let ctx = build_seeded_context(extraction, redacted, &deps.clock.now_iso8601());
+    let mut engine = create_intake_engine(&deps, Some(ctx));
+    let prompt = engine.get_prompt().await;
+    Ok(IntakeTurn { done: engine.is_done(), state: engine.serialize_state(), prompt })
 }
 
 /// Start an intake conversation. Returns the first prompt + opaque state blob.
@@ -269,5 +320,30 @@ mod tests {
         assert_eq!(v["prompt"], "hi");
         assert_eq!(v["done"], false);
         assert_eq!(v["state"], "{}");
+    }
+
+    #[test]
+    fn resolve_seed_text_accepts_nonempty_paste() {
+        let input = IntakeSeedInput { file_path: None, seed_text: Some("a JD".into()) };
+        assert_eq!(resolve_seed_text(&input).unwrap(), "a JD");
+    }
+
+    #[test]
+    fn resolve_seed_text_rejects_both_empty() {
+        let input = IntakeSeedInput { file_path: None, seed_text: None };
+        assert!(matches!(resolve_seed_text(&input), Err(IntakeCommandError::Internal { .. })));
+    }
+
+    #[test]
+    fn resolve_seed_text_rejects_both_set() {
+        let input = IntakeSeedInput { file_path: Some("/x".into()), seed_text: Some("y".into()) };
+        let Err(IntakeCommandError::Internal { message }) = resolve_seed_text(&input) else { panic!("expected Internal error") };
+        assert!(message.contains("both"), "both-set error should mention both: {message}");
+    }
+
+    #[test]
+    fn resolve_seed_text_rejects_blank_paste() {
+        let input = IntakeSeedInput { file_path: None, seed_text: Some("   ".into()) };
+        assert!(matches!(resolve_seed_text(&input), Err(IntakeCommandError::Internal { .. })));
     }
 }
