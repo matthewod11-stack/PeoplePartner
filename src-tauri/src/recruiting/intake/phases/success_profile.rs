@@ -20,6 +20,17 @@ fn is_skip(resp: &str) -> bool {
     let n = resp.trim().to_lowercase();
     SKIP_PHRASES.iter().any(|p| n.contains(p))
 }
+
+const CONFIRM_PHRASES: &[&str] = &["yes", "looks good", "correct", "confirmed", "proceed", "lgtm", "looks right"];
+
+// `contains`-based: a reply like "yes but also add X" reads as a pure confirm.
+// Accepted trade-off (same as search_config.rs); revisit with a leading-token
+// heuristic if user testing shows it matters.
+fn is_confirm(resp: &str) -> bool {
+    let n = resp.trim().to_lowercase();
+    CONFIRM_PHRASES.iter().any(|p| n.contains(p)) || n == "y"
+}
+
 fn user_msg(c: &str) -> Message { Message { role: MessageRole::User, content: c.into() } }
 fn system_msg(c: &str) -> Message { Message { role: MessageRole::System, content: c.into() } }
 
@@ -205,11 +216,21 @@ impl IntakeNode for AntiPatterns {
     fn id(&self) -> NodeId { NodeId::AntiPatterns }
     fn phase(&self) -> Phase { Phase::SuccessProfile }
     async fn prompt(&self, ctx: &IntakeContext) -> String {
-        let _ = ctx;
+        if !ctx.anti_patterns.is_empty() {
+            return format!(
+                "From what you shared, I noted these red flags: {}.\n\nAnything to add? (Or say \"looks good\" to proceed.)",
+                ctx.anti_patterns.join(", ")
+            );
+        }
         "What are some red flags or anti-patterns for this role? What would make someone a bad fit?\n\n(e.g., \"no public code\", \"job-hopping\", \"only large-company experience\", \"no distributed systems experience\")".into()
     }
-    async fn parse(&self, response: &str, _ctx: &IntakeContext, deps: &IntakeDeps)
+    async fn parse(&self, response: &str, ctx: &IntakeContext, deps: &IntakeDeps)
         -> Result<ParsedResponse, IntakeError> {
+        // FHR-93: seeded patterns + a confirm/skip reply → keep them (no LLM, no
+        // concat-duplication). A substantive reply still extracts + appends.
+        if !ctx.anti_patterns.is_empty() && (is_confirm(response) || is_skip(response)) {
+            return Ok(ParsedResponse { structured: serde_json::json!({ "confirmed": true }), ..Default::default() });
+        }
         if is_skip(response) {
             return Ok(ParsedResponse { structured: serde_json::json!({ "skipped": true }), ..Default::default() });
         }
@@ -336,5 +357,35 @@ mod tests {
         let parsed = node.parse("looks good", &ctx, &deps).await.unwrap();
         let cp = parsed.context_updates.composite_profile.expect("rebuilt from real profiles");
         assert_eq!(cp.skill_signatures, vec!["go".to_string()]); // rebuilt ("go"), not the seeded "rust"
+    }
+
+    #[tokio::test]
+    async fn anti_patterns_seeded_confirm_keeps_without_duplicating() {
+        let node = AntiPatterns;
+        // Empty queue: a confirm on seeded patterns must not call the LLM.
+        let deps = fake_deps(FakeProvider::new(vec![]), FakeResearch::default());
+        let ctx = IntakeContext { anti_patterns: vec!["job hopper".into()], ..Default::default() };
+        let parsed = node.parse("looks good", &ctx, &deps).await.unwrap();
+        assert!(parsed.context_updates.anti_patterns.is_none(), "confirm keeps seeded patterns as-is");
+        assert_eq!(node.next(&parsed, &ctx), NodeId::ConfigGenerate);
+    }
+
+    #[tokio::test]
+    async fn anti_patterns_seeded_addition_appends() {
+        let node = AntiPatterns;
+        let deps = fake_deps(FakeProvider::new(vec![serde_json::json!(["no public code"])]), FakeResearch::default());
+        let ctx = IntakeContext { anti_patterns: vec!["job hopper".into()], ..Default::default() };
+        let parsed = node.parse("also avoid people with no public code", &ctx, &deps).await.unwrap();
+        // Returns ONLY the new pattern; merge_context_updates appends it onto
+        // ctx.anti_patterns (the concat itself is tested in context.rs).
+        assert_eq!(parsed.context_updates.anti_patterns, Some(vec!["no public code".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn anti_patterns_seeded_prompt_lists_them() {
+        let node = AntiPatterns;
+        let ctx = IntakeContext { anti_patterns: vec!["job hopper".into()], ..Default::default() };
+        let prompt = node.prompt(&ctx).await;
+        assert!(prompt.contains("job hopper"));
     }
 }
