@@ -61,7 +61,7 @@ mod tests {
     use super::*;
     use crate::recruiting::intake::deps::testing::{FakeProvider, FakeResearch, fake_deps};
     use crate::recruiting::intake::node::NodeId;
-    use crate::recruiting::intake::schemas::{CompanyIntel, ProfileAnalysis};
+    use crate::recruiting::intake::schemas::{CompanyIntel, CompositeProfile, ProfileAnalysis, RoleParameters};
 
     fn company() -> CompanyIntel {
         CompanyIntel { name:"Acme".into(), url:"https://acme.com".into(), tech_stack:vec![],
@@ -127,6 +127,68 @@ mod tests {
 
         let result = extract_intake_result(ctx, &deps).await.unwrap();
         assert_eq!(result.search_config.role_name, "Eng");
+    }
+
+    fn seeded_ctx() -> IntakeContext {
+        IntakeContext {
+            role_description: Some("seed".into()),
+            role_parameters: Some(RoleParameters {
+                title: "Staff Eng".into(), level: "staff".into(), scope: "infra".into(),
+                location: None, remote_policy: None, compensation_range: None,
+                must_have_skills: vec!["rust".into()], nice_to_have_skills: vec![],
+                team_size: None, reporting_to: None }),
+            company_intel: Some(CompanyIntel {
+                name: "Acme".into(), url: String::new(), tech_stack: vec![], team_size: None,
+                funding_stage: None, product_category: None, culture_signals: vec![],
+                pitch: None, competitors: Some(vec!["Stripe".into()]), analyzed_at: "t".into() }),
+            composite_profile: Some(CompositeProfile {
+                career_trajectories: vec![], skill_signatures: vec!["rust".into()],
+                seniority_calibration: "senior".into(), culture_signals: vec![] }),
+            anti_patterns: vec!["job hopper".into()],
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn seeded_intake_confirms_through_to_done_without_clobbering_seeds() {
+        // Only the Strategy phase calls the LLM (role/company/success/anti are seeded):
+        //  [0] generate_search_queries  [1] propose_scoring_weights
+        let provider = FakeProvider::new(vec![
+            serde_json::json!([{"priority":1,"queries":[{"text":"q"}]}]),
+            serde_json::json!({"technicalDepth":1.0}),
+        ]);
+        let deps = fake_deps(provider, FakeResearch::default());
+        let mut e = create_intake_engine(&deps, Some(seeded_ctx()));
+
+        // First prompt must be the ROLE CONFIRM (RoleJdInput skipped), not the JD ask.
+        let first = e.get_prompt().await.expect("a prompt");
+        assert!(first.contains("Here's what I extracted"), "landed on RoleParseConfirm, got: {first}");
+
+        let script = [
+            "yes",          // role confirm        -> company (CompanyUrlInput skips)
+            "yes accurate", // company analysis    -> company confirm
+            "looks good",   // company confirm     -> team (TeamInput skips)
+            "looks good",   // team analysis (keep seeded composite) -> anti-patterns
+            "looks good",   // anti-patterns (keep seeded) -> config generate
+            "yes proceed",  // config generate     -> config review
+            "looks good",   // config review       -> Done
+        ];
+        for resp in script {
+            assert!(e.get_prompt().await.is_some(), "expected a prompt before `{resp}`");
+            let step = e.submit_response(resp, &deps).await.unwrap();
+            if step.done { break; }
+        }
+        assert!(e.is_done());
+
+        let ctx = e.context();
+        // Seeds survived end to end.
+        assert_eq!(ctx.role_parameters.as_ref().unwrap().title, "Staff Eng");
+        assert_eq!(ctx.company_intel.as_ref().unwrap().name, "Acme");
+        assert_eq!(ctx.composite_profile.as_ref().unwrap().skill_signatures, vec!["rust".to_string()]);
+        assert_eq!(ctx.anti_patterns, vec!["job hopper".to_string()]); // not duplicated
+
+        let result = extract_intake_result(ctx, &deps).await.unwrap();
+        assert_eq!(result.search_config.role_name, "Staff Eng");
     }
 
     #[tokio::test]
