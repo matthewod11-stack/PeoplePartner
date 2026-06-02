@@ -120,3 +120,154 @@ pub(crate) async fn recruiting_search_exa(
 
     exa::search(&query, &api_key).await.map_err(Into::into)
 }
+
+// ============================================================================
+// Intake conversation commands (FHR-86 S4.2) — state-passing boundary
+// ============================================================================
+
+use crate::recruiting::intake::deps::{IntakeDeps, IntakeError};
+use crate::recruiting::intake::prod::production_intake_deps;
+use crate::recruiting::intake::runner::{
+    create_intake_engine, extract_intake_result, restore_intake_engine,
+};
+use crate::recruiting::intake::schemas::{SearchConfig, TalentProfile};
+use crate::settings;
+
+/// One turn of the intake conversation. `state` is the opaque serialized
+/// `ConversationState` the frontend round-trips; `prompt` is `None` when done.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntakeTurn {
+    pub prompt: Option<String>,
+    pub state: String,
+    pub done: bool,
+}
+
+/// The extracted intake result: the runnable `SearchConfig` plus artifacts.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntakeResultDto {
+    pub search_config: SearchConfig,
+    pub talent_profile: TalentProfile,
+    pub similarity_seeds: Vec<String>,
+}
+
+/// Discriminated error for the intake commands. The frontend matches on `kind`.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind")]
+pub enum IntakeCommandError {
+    MissingLlmKey,
+    MissingExaKey,
+    Provider { message: String },
+    Research { message: String },
+    Internal { message: String },
+}
+
+impl From<IntakeError> for IntakeCommandError {
+    fn from(e: IntakeError) -> Self {
+        match e {
+            IntakeError::Provider(m) => IntakeCommandError::Provider { message: m },
+            IntakeError::Research(m) => IntakeCommandError::Research { message: m },
+            other => IntakeCommandError::Internal { message: other.to_string() },
+        }
+    }
+}
+
+/// Assemble production intake deps from settings (LLM provider + model) and the
+/// Keychain (Exa key). Returns typed missing-key errors so the UI can route the
+/// user to Settings. This is the one piece of new wireable logic.
+async fn deps_from_env(pool: &crate::db::DbPool) -> Result<IntakeDeps, IntakeCommandError> {
+    let provider_id = settings::get_setting(pool, "active_provider")
+        .await
+        .map_err(|e| IntakeCommandError::Internal { message: e.to_string() })?
+        .unwrap_or_else(|| "anthropic".to_string());
+
+    if !keyring::has_provider_api_key(&provider_id) {
+        return Err(IntakeCommandError::MissingLlmKey);
+    }
+
+    let model_key = format!("active_model_{}", provider_id);
+    let model_id = settings::get_setting(pool, &model_key)
+        .await
+        .map_err(|e| IntakeCommandError::Internal { message: e.to_string() })?;
+
+    let exa_key = match keyring::get_provider_api_key(EXA_PROVIDER_ID) {
+        Ok(k) => k,
+        Err(KeyringError::NotFound) => return Err(IntakeCommandError::MissingExaKey),
+        Err(other) => return Err(IntakeCommandError::Internal { message: other.to_string() }),
+    };
+
+    Ok(production_intake_deps(&provider_id, model_id, exa_key))
+}
+
+/// Start an intake conversation. Returns the first prompt + opaque state blob.
+#[tauri::command]
+pub(crate) async fn recruiting_intake_start(
+    state: tauri::State<'_, Database>,
+) -> Result<IntakeTurn, IntakeCommandError> {
+    // Fail fast on missing LLM/Exa keys before creating any conversation state.
+    let deps = deps_from_env(&state.pool).await?;
+    let mut engine = create_intake_engine(&deps, None);
+    let prompt = engine.get_prompt().await;
+    Ok(IntakeTurn { done: engine.is_done(), state: engine.serialize_state(), prompt })
+}
+
+/// Submit one user response. Restores the engine from `conversation_state`,
+/// steps once, returns the next prompt + new state. On a `submit_response`
+/// error the frontend keeps its prior (unchanged) state blob and can safely
+/// retry the same turn — the failed step never re-serializes. (A malformed
+/// `conversation_state` instead fails at restore and maps to `Internal`,
+/// which is not retryable with the same blob.)
+#[tauri::command]
+pub(crate) async fn recruiting_intake_step(
+    state: tauri::State<'_, Database>,
+    conversation_state: String,
+    response: String,
+) -> Result<IntakeTurn, IntakeCommandError> {
+    let deps = deps_from_env(&state.pool).await?;
+    let mut engine = restore_intake_engine(&conversation_state)?;
+    engine.submit_response(&response, &deps).await?;
+    let prompt = engine.get_prompt().await;
+    Ok(IntakeTurn { done: engine.is_done(), state: engine.serialize_state(), prompt })
+}
+
+/// Extract the final result (runnable `SearchConfig` + artifacts) once done.
+#[tauri::command]
+pub(crate) async fn recruiting_intake_extract(
+    state: tauri::State<'_, Database>,
+    conversation_state: String,
+) -> Result<IntakeResultDto, IntakeCommandError> {
+    let deps = deps_from_env(&state.pool).await?;
+    let engine = restore_intake_engine(&conversation_state)?;
+    let result = extract_intake_result(engine.context(), &deps).await?;
+    Ok(IntakeResultDto {
+        search_config: result.search_config,
+        talent_profile: result.talent_profile,
+        similarity_seeds: result.similarity_seeds,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::recruiting::intake::deps::IntakeError;
+
+    #[test]
+    fn intake_error_maps_to_command_error_kinds() {
+        let p: IntakeCommandError = IntakeError::Provider("boom".into()).into();
+        assert!(matches!(p, IntakeCommandError::Provider { .. }));
+        let r: IntakeCommandError = IntakeError::Research("net".into()).into();
+        assert!(matches!(r, IntakeCommandError::Research { .. }));
+        let i: IntakeCommandError = IntakeError::SubmitAfterDone.into();
+        assert!(matches!(i, IntakeCommandError::Internal { .. }));
+    }
+
+    #[test]
+    fn intake_turn_serializes_camel_case() {
+        let t = IntakeTurn { prompt: Some("hi".into()), state: "{}".into(), done: false };
+        let v = serde_json::to_value(&t).unwrap();
+        assert_eq!(v["prompt"], "hi");
+        assert_eq!(v["done"], false);
+        assert_eq!(v["state"], "{}");
+    }
+}
