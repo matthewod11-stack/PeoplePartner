@@ -239,6 +239,7 @@ pub fn run() {
             commands::recruiting::recruiting_intake_start,
             commands::recruiting::recruiting_intake_step,
             commands::recruiting::recruiting_intake_extract,
+            commands::recruiting::recruiting_intake_start_from_seed,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases

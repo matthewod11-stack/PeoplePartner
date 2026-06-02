@@ -20,6 +20,17 @@ fn is_skip(resp: &str) -> bool {
     let n = resp.trim().to_lowercase();
     SKIP_PHRASES.iter().any(|p| n.contains(p))
 }
+
+const CONFIRM_PHRASES: &[&str] = &["yes", "looks good", "correct", "confirmed", "proceed", "lgtm", "looks right"];
+
+// `contains`-based: a reply like "yes but also add X" reads as a pure confirm.
+// Accepted trade-off (same as search_config.rs); revisit with a leading-token
+// heuristic if user testing shows it matters.
+fn is_confirm(resp: &str) -> bool {
+    let n = resp.trim().to_lowercase();
+    CONFIRM_PHRASES.iter().any(|p| n.contains(p)) || n == "y"
+}
+
 fn user_msg(c: &str) -> Message { Message { role: MessageRole::User, content: c.into() } }
 fn system_msg(c: &str) -> Message { Message { role: MessageRole::System, content: c.into() } }
 
@@ -87,6 +98,9 @@ pub struct TeamInput;
 impl IntakeNode for TeamInput {
     fn id(&self) -> NodeId { NodeId::TeamInput }
     fn phase(&self) -> Phase { Phase::SuccessProfile }
+    /// FHR-93: a transcript seeds `composite_profile` directly (it describes the
+    /// ideal candidate in prose, not reference-person URLs), so skip URL collection.
+    fn skip_if(&self, ctx: &IntakeContext) -> bool { ctx.composite_profile.is_some() }
     async fn prompt(&self, ctx: &IntakeContext) -> String {
         let role_name = ctx.role_parameters.as_ref().map(|r| r.title.as_str()).unwrap_or("this role");
         format!(
@@ -138,6 +152,15 @@ impl IntakeNode for TeamAnalysis {
     async fn prompt(&self, ctx: &IntakeContext) -> String {
         let profiles = &ctx.team_profiles;
         if profiles.is_empty() {
+            // FHR-93: seeded-from-transcript success profile — show it for confirmation.
+            if let Some(cp) = &ctx.composite_profile {
+                let mut lines = vec!["Here's the success profile I built from what you shared:\n".to_string()];
+                if !cp.skill_signatures.is_empty() { lines.push(format!("**Key skills:** {}", cp.skill_signatures.join(", "))); }
+                if !cp.seniority_calibration.is_empty() { lines.push(format!("**Seniority:** {}", cp.seniority_calibration)); }
+                if !cp.culture_signals.is_empty() { lines.push(format!("**Culture signals:** {}", cp.culture_signals.join(", "))); }
+                lines.push("\nDoes this capture the ideal candidate? Anything to add or correct?".into());
+                return lines.join("\n");
+            }
             return "No team profiles to analyze. Let's move on to anti-patterns.".into();
         }
 
@@ -173,6 +196,11 @@ impl IntakeNode for TeamAnalysis {
     }
     async fn parse(&self, _response: &str, ctx: &IntakeContext, deps: &IntakeDeps)
         -> Result<ParsedResponse, IntakeError> {
+        // FHR-93: a seeded composite with no analyzed team members must not be
+        // rebuilt into an empty "unknown" composite. Keep it.
+        if ctx.team_profiles.is_empty() && ctx.composite_profile.is_some() {
+            return Ok(ParsedResponse::default());
+        }
         let composite = build_composite_profile(&ctx.team_profiles, deps).await?;
         Ok(ParsedResponse {
             context_updates: IntakeContextUpdates { composite_profile: Some(composite), ..Default::default() },
@@ -188,11 +216,21 @@ impl IntakeNode for AntiPatterns {
     fn id(&self) -> NodeId { NodeId::AntiPatterns }
     fn phase(&self) -> Phase { Phase::SuccessProfile }
     async fn prompt(&self, ctx: &IntakeContext) -> String {
-        let _ = ctx;
+        if !ctx.anti_patterns.is_empty() {
+            return format!(
+                "From what you shared, I noted these red flags: {}.\n\nAnything to add? (Or say \"looks good\" to proceed.)",
+                ctx.anti_patterns.join(", ")
+            );
+        }
         "What are some red flags or anti-patterns for this role? What would make someone a bad fit?\n\n(e.g., \"no public code\", \"job-hopping\", \"only large-company experience\", \"no distributed systems experience\")".into()
     }
-    async fn parse(&self, response: &str, _ctx: &IntakeContext, deps: &IntakeDeps)
+    async fn parse(&self, response: &str, ctx: &IntakeContext, deps: &IntakeDeps)
         -> Result<ParsedResponse, IntakeError> {
+        // FHR-93: seeded patterns + a confirm/skip reply → keep them (no LLM, no
+        // concat-duplication). A substantive reply still extracts + appends.
+        if !ctx.anti_patterns.is_empty() && (is_confirm(response) || is_skip(response)) {
+            return Ok(ParsedResponse { structured: serde_json::json!({ "confirmed": true }), ..Default::default() });
+        }
         if is_skip(response) {
             return Ok(ParsedResponse { structured: serde_json::json!({ "skipped": true }), ..Default::default() });
         }
@@ -216,7 +254,7 @@ mod tests {
     use crate::recruiting::intake::context::IntakeContext;
     use crate::recruiting::intake::deps::testing::{FakeProvider, FakeResearch, fake_deps};
     use crate::recruiting::intake::node::{IntakeNode, NodeId};
-    use crate::recruiting::intake::schemas::{ProfileAnalysis, ProfileInput};
+    use crate::recruiting::intake::schemas::{CompositeProfile, ProfileAnalysis, ProfileInput};
 
     #[test]
     fn parses_github_linkedin_namecompany_and_text() {
@@ -268,5 +306,86 @@ mod tests {
         let ctx = IntakeContext::default();
         let parsed = node.parse("skip", &ctx, &deps).await.unwrap();
         assert_eq!(node.next(&parsed, &ctx), NodeId::ConfigGenerate);
+    }
+
+    fn composite() -> CompositeProfile {
+        CompositeProfile { career_trajectories: vec![], skill_signatures: vec!["rust".into()],
+            seniority_calibration: "senior".into(), culture_signals: vec![] }
+    }
+
+    #[test]
+    fn team_input_skips_when_composite_seeded() {
+        let node = TeamInput;
+        let seeded = IntakeContext { composite_profile: Some(composite()), ..Default::default() };
+        assert!(node.skip_if(&seeded));
+        assert!(!node.skip_if(&IntakeContext::default()));
+    }
+
+    #[tokio::test]
+    async fn team_analysis_keeps_seeded_composite_without_rebuilding() {
+        let node = TeamAnalysis;
+        // No provider values queued: if parse tried to rebuild via the LLM it would error.
+        let deps = fake_deps(FakeProvider::new(vec![]), FakeResearch::default());
+        let ctx = IntakeContext { composite_profile: Some(composite()), ..Default::default() }; // team_profiles empty
+        let parsed = node.parse("looks accurate", &ctx, &deps).await.unwrap();
+        assert!(parsed.context_updates.composite_profile.is_none(), "must NOT overwrite the seeded composite");
+        assert_eq!(node.next(&parsed, &ctx), NodeId::AntiPatterns);
+    }
+
+    #[tokio::test]
+    async fn team_analysis_prompt_shows_seeded_composite() {
+        let node = TeamAnalysis;
+        let ctx = IntakeContext { composite_profile: Some(composite()), ..Default::default() };
+        let prompt = node.prompt(&ctx).await;
+        assert!(prompt.contains("rust"), "seeded skills surfaced for confirmation");
+    }
+
+    #[tokio::test]
+    async fn team_analysis_rebuilds_when_real_profiles_present_even_if_composite_seeded() {
+        // Real team_profiles → guard must NOT fire → composite is rebuilt from them (overwrites the seed).
+        let node = TeamAnalysis;
+        let rebuilt = serde_json::json!({
+            "careerTrajectories": [], "skillSignatures": ["go"],
+            "seniorityCalibration": "staff", "cultureSignals": []
+        });
+        let deps = fake_deps(FakeProvider::new(vec![rebuilt]), FakeResearch::default());
+        let profile = ProfileAnalysis {
+            input_type: "github_url".into(), name: Some("T".into()), career_trajectory: vec![],
+            skill_signatures: vec!["go".into()], seniority_level: None, culture_signals: vec![],
+            urls: vec!["https://github.com/t".into()], analyzed_at: "t".into() };
+        let ctx = IntakeContext { team_profiles: vec![profile], composite_profile: Some(composite()), ..Default::default() };
+        let parsed = node.parse("looks good", &ctx, &deps).await.unwrap();
+        let cp = parsed.context_updates.composite_profile.expect("rebuilt from real profiles");
+        assert_eq!(cp.skill_signatures, vec!["go".to_string()]); // rebuilt ("go"), not the seeded "rust"
+    }
+
+    #[tokio::test]
+    async fn anti_patterns_seeded_confirm_keeps_without_duplicating() {
+        let node = AntiPatterns;
+        // Empty queue: a confirm on seeded patterns must not call the LLM.
+        let deps = fake_deps(FakeProvider::new(vec![]), FakeResearch::default());
+        let ctx = IntakeContext { anti_patterns: vec!["job hopper".into()], ..Default::default() };
+        let parsed = node.parse("looks good", &ctx, &deps).await.unwrap();
+        assert!(parsed.context_updates.anti_patterns.is_none(), "confirm keeps seeded patterns as-is");
+        assert_eq!(node.next(&parsed, &ctx), NodeId::ConfigGenerate);
+    }
+
+    #[tokio::test]
+    async fn anti_patterns_seeded_addition_appends() {
+        let node = AntiPatterns;
+        let deps = fake_deps(FakeProvider::new(vec![serde_json::json!(["no public code"])]), FakeResearch::default());
+        let ctx = IntakeContext { anti_patterns: vec!["job hopper".into()], ..Default::default() };
+        let parsed = node.parse("also avoid people with no public code", &ctx, &deps).await.unwrap();
+        // Returns ONLY the new pattern; merge_context_updates appends it onto
+        // ctx.anti_patterns (the concat itself is tested in context.rs).
+        assert_eq!(parsed.context_updates.anti_patterns, Some(vec!["no public code".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn anti_patterns_seeded_prompt_lists_them() {
+        let node = AntiPatterns;
+        let ctx = IntakeContext { anti_patterns: vec!["job hopper".into()], ..Default::default() };
+        let prompt = node.prompt(&ctx).await;
+        assert!(prompt.contains("job hopper"));
     }
 }

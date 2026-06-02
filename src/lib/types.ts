@@ -782,6 +782,12 @@ export interface SearchConfig {
   version: number;
 }
 
+/** Seed input for starting an intake from an existing file or text. */
+export interface IntakeSeedInput {
+  filePath?: string;
+  seedText?: string;
+}
+
 /** One turn of the intake conversation. `state` is opaque — never parse it. */
 export interface IntakeTurn {
   prompt: string | null;

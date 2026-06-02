@@ -7,9 +7,11 @@
 // continuity between the two modules.
 
 import { useState, useRef } from 'react';
+import { open } from '@tauri-apps/plugin-dialog';
 import { MessageList, ChatInput } from '../chat';
 import {
   recruitingIntakeStart,
+  recruitingIntakeStartFromSeed,
   recruitingIntakeStep,
   recruitingIntakeExtract,
   recruitingSearchExa,
@@ -69,6 +71,27 @@ export function RecruitingView({ onOpenSettings }: RecruitingViewProps = {}) {
     }
   }
 
+  async function handleAttachSeed() {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    try {
+      const path = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: 'JD or transcript', extensions: ['md', 'txt', 'pdf', 'docx'] }],
+      });
+      if (typeof path !== 'string') return; // cancelled (null) or unexpected array
+      setView({ kind: 'starting' });
+      const turn = await recruitingIntakeStartFromSeed({ filePath: path });
+      const messages = turn.prompt ? [newMessage('assistant', turn.prompt)] : [];
+      setView({ kind: 'conversing', messages, state: turn.state, stepping: false });
+    } catch (e) {
+      routeIntakeError(e);
+    } finally {
+      pendingRef.current = false;
+    }
+  }
+
   async function submitTurn(response: string) {
     if (view.kind !== 'conversing' || view.stepping || pendingRef.current) return;
     pendingRef.current = true;
@@ -122,7 +145,7 @@ export function RecruitingView({ onOpenSettings }: RecruitingViewProps = {}) {
 
   return (
     <div className="h-full flex flex-col">
-      {view.kind === 'idle' && <EmptyState onStart={startIntake} />}
+      {view.kind === 'idle' && <EmptyState onStart={startIntake} onAttach={handleAttachSeed} />}
       {view.kind === 'starting' && <CenterNote text="Starting intake…" />}
 
       {view.kind === 'conversing' && (
@@ -206,7 +229,7 @@ export function RecruitingView({ onOpenSettings }: RecruitingViewProps = {}) {
 // Sub-components
 // ============================================================================
 
-function EmptyState({ onStart }: { onStart: () => void }) {
+function EmptyState({ onStart, onAttach }: { onStart: () => void; onAttach: () => void }) {
   return (
     <div className="h-full flex flex-col items-center justify-center text-center px-6 py-16">
       <div className="w-14 h-14 rounded-full bg-primary-100 flex items-center justify-center mb-4">
@@ -219,13 +242,22 @@ function EmptyState({ onStart }: { onStart: () => void }) {
         A short guided intake turns a role into a precise candidate search — seeded
         by the team you're hiring for. Answer a few questions and we'll run it.
       </p>
-      <button
-        type="button"
-        onClick={onStart}
-        className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-md hover:bg-primary-700 transition-colors"
-      >
-        Start intake
-      </button>
+      <div className="flex flex-col items-center gap-2">
+        <button
+          type="button"
+          onClick={onStart}
+          className="px-4 py-2 bg-primary-600 text-white text-sm font-medium rounded-md hover:bg-primary-700 transition-colors"
+        >
+          Start intake
+        </button>
+        <button
+          type="button"
+          onClick={onAttach}
+          className="px-4 py-2 text-sm font-medium text-stone-600 hover:text-stone-800 hover:bg-stone-100 rounded-md transition-colors"
+        >
+          Attach JD or transcript
+        </button>
+      </div>
     </div>
   );
 }

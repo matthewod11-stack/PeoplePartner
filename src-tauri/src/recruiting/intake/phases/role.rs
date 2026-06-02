@@ -64,6 +64,10 @@ impl IntakeNode for RoleJdInput {
             ..Default::default()
         })
     }
+    /// FHR-93: when a JD/transcript already produced role params, skip the
+    /// collection node (whose `parse` would re-send the user's "proceed" to the
+    /// LLM and overwrite the seed) and land on `RoleParseConfirm`.
+    fn skip_if(&self, ctx: &IntakeContext) -> bool { ctx.role_parameters.is_some() }
     fn next(&self, _p: &ParsedResponse, _c: &IntakeContext) -> NodeId { NodeId::RoleParseConfirm }
 }
 
@@ -213,5 +217,13 @@ mod tests {
         let ctx = IntakeContext { role_description: Some("あ".repeat(300)), ..Default::default() };
         let prompt = node.prompt(&ctx).await; // must not panic
         assert!(prompt.contains("Current info:"));
+    }
+
+    #[test]
+    fn role_jd_input_skips_when_role_already_parsed() {
+        let node = RoleJdInput;
+        let seeded = IntakeContext { role_parameters: Some(serde_json::from_value(role_json()).unwrap()), ..Default::default() };
+        assert!(node.skip_if(&seeded), "must skip collection when role is pre-seeded");
+        assert!(!node.skip_if(&IntakeContext::default()), "must NOT skip a fresh intake");
     }
 }
