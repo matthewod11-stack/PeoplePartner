@@ -109,8 +109,9 @@ mod tests {
             "looks good",            // company_confirm -> team
             "https://github.com/t",  // team_input -> analysis
             "looks accurate",        // team_analysis -> anti_patterns
-            "job hopping",           // anti_patterns -> config
-            "yes proceed",           // config_generate -> Done
+            "job hopping",           // anti_patterns -> config_generate
+            "yes proceed",           // config_generate: builds config -> ConfigReview
+            "looks good",            // config_review: confirm -> Done
         ];
         for resp in script {
             assert!(e.get_prompt().await.is_some(), "expected a prompt before submitting `{resp}`");
