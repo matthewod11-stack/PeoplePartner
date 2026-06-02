@@ -79,6 +79,43 @@ pub fn generate_anti_filters(ctx: &IntakeContext) -> Vec<AntiFilter> {
     filters
 }
 
+/// Apply a parsed `Adjustments` object (from `ConfigReview`) directly to a
+/// `SearchConfig`. Pure — no LLM, no context. Mutates only the fields the user
+/// can tweak: candidate cap, budget, a single scoring weight, and exclude-signal
+/// anti-filters (add is deduped, remove is by value). Unknown keys / `other`
+/// free-text are ignored (acknowledged in-conversation, not structurally applied).
+pub fn apply_adjustments(mut config: SearchConfig, adj: &serde_json::Value) -> SearchConfig {
+    if let Some(n) = adj.get("maxCandidates").and_then(|x| x.as_u64()) {
+        config.max_candidates = n.min(u32::MAX as u64) as u32;
+    }
+    if let Some(n) = adj.get("maxCostUsd").and_then(|x| x.as_f64()) {
+        config.max_cost_usd = n;
+    }
+    if let Some(aw) = adj.get("adjustWeight").and_then(|x| x.as_object()) {
+        if let (Some(dim), Some(w)) = (
+            aw.get("dimension").and_then(|d| d.as_str()),
+            aw.get("weight").and_then(|w| w.as_f64()),
+        ) {
+            config.scoring_weights.insert(dim.to_string(), w);
+        }
+    }
+    if let Some(ap) = adj.get("addAntiPattern").and_then(|x| x.as_str()) {
+        let exists = config.anti_filters.iter()
+            .any(|f| f.kind == "exclude_signal" && f.value == ap);
+        if !exists {
+            config.anti_filters.push(AntiFilter {
+                kind: "exclude_signal".into(),
+                value: ap.to_string(),
+                reason: "Anti-pattern identified during intake".into(),
+            });
+        }
+    }
+    if let Some(ap) = adj.get("removeAntiPattern").and_then(|x| x.as_str()) {
+        config.anti_filters.retain(|f| !(f.kind == "exclude_signal" && f.value == ap));
+    }
+    config
+}
+
 pub fn build_talent_profile(ctx: &IntakeContext, created_at: &str) -> Result<TalentProfile, IntakeError> {
     let role = ctx.role_parameters.clone().ok_or_else(|| IntakeError::Provider("cannot build talent profile without role parameters".into()))?;
     let company = ctx.company_intel.clone().ok_or_else(|| IntakeError::Provider("cannot build talent profile without company intel".into()))?;
@@ -311,5 +348,83 @@ mod tests {
             FakeResearch::default());
         let parsed = node.parse("only 50 candidates", &full_ctx(), &deps).await.unwrap();
         assert_eq!(node.next(&parsed, &full_ctx()), NodeId::ConfigGenerate);
+    }
+
+    #[test]
+    fn apply_adjustments_sets_max_candidates_and_budget() {
+        let cfg = base_config();
+        let adj = serde_json::json!({ "maxCandidates": 50, "maxCostUsd": 12.5 });
+        let out = apply_adjustments(cfg, &adj);
+        assert_eq!(out.max_candidates, 50);
+        assert_eq!(out.max_cost_usd, 12.5);
+    }
+
+    #[test]
+    fn apply_adjustments_sets_scoring_weight() {
+        let cfg = base_config();
+        let adj = serde_json::json!({ "adjustWeight": { "dimension": "technicalDepth", "weight": 0.42 } });
+        let out = apply_adjustments(cfg, &adj);
+        assert_eq!(out.scoring_weights.get("technicalDepth").copied(), Some(0.42));
+    }
+
+    #[test]
+    fn apply_adjustments_adds_and_dedupes_anti_pattern() {
+        let cfg = base_config();
+        let adj = serde_json::json!({ "addAntiPattern": "frequent job changes" });
+        let out = apply_adjustments(cfg, &adj);
+        let count = out.anti_filters.iter()
+            .filter(|f| f.kind == "exclude_signal" && f.value == "frequent job changes")
+            .count();
+        assert_eq!(count, 1);
+        let out2 = apply_adjustments(out, &adj);
+        let count2 = out2.anti_filters.iter()
+            .filter(|f| f.kind == "exclude_signal" && f.value == "frequent job changes")
+            .count();
+        assert_eq!(count2, 1);
+    }
+
+    #[test]
+    fn apply_adjustments_removes_anti_pattern() {
+        let mut cfg = base_config();
+        cfg.anti_filters.push(AntiFilter {
+            kind: "exclude_signal".into(), value: "job hopper".into(),
+            reason: "Anti-pattern identified during intake".into(),
+        });
+        // A same-value filter of a different kind must NOT be removed.
+        cfg.anti_filters.push(AntiFilter {
+            kind: "exclude_company".into(), value: "job hopper".into(),
+            reason: "User excluded".into(),
+        });
+        let adj = serde_json::json!({ "removeAntiPattern": "job hopper" });
+        let out = apply_adjustments(cfg, &adj);
+        assert!(!out.anti_filters.iter().any(|f| f.kind == "exclude_signal" && f.value == "job hopper"));
+        assert!(out.anti_filters.iter().any(|f| f.kind == "exclude_company" && f.value == "job hopper"),
+            "remove must only touch exclude_signal filters");
+    }
+
+    #[test]
+    fn apply_adjustments_ignores_unknown_and_other() {
+        let cfg = base_config();
+        let before = (cfg.max_candidates, cfg.max_cost_usd);
+        let adj = serde_json::json!({ "other": "make it better", "bogus": 1 });
+        let out = apply_adjustments(cfg, &adj);
+        assert_eq!((out.max_candidates, out.max_cost_usd), before);
+    }
+
+    // Minimal SearchConfig fixture for the apply_adjustments tests.
+    fn base_config() -> SearchConfig {
+        SearchConfig {
+            role_name: "Eng".into(),
+            tiers: vec![],
+            scoring_weights: Default::default(),
+            tier_thresholds: default_tier_thresholds(),
+            enrichment_priority: default_enrichment_priority(),
+            anti_filters: vec![],
+            similarity_seeds: vec![],
+            max_candidates: 100,
+            max_cost_usd: 5.0,
+            created_at: "2026-06-01T00:00:00Z".into(),
+            version: 1,
+        }
     }
 }
