@@ -733,3 +733,73 @@ export type RecruitingSearchError =
 export type RecruitingSearchResult =
   | { ok: true; data: ExaSearchResponse }
   | { ok: false; error: RecruitingSearchError };
+
+// =============================================================================
+// FHR-86 — Recruit intake conversation → runnable SearchConfig
+// =============================================================================
+
+export interface SearchQuery {
+  text: string;
+  targetCompanies?: string[];
+  includeDomains?: string[];
+  excludeDomains?: string[];
+  maxResults?: number;
+}
+
+export interface SearchQueryTier {
+  priority: number;
+  queries: SearchQuery[];
+}
+
+export interface AntiFilter {
+  type: string; // Rust field is `kind`, serialized as `type`
+  value: string;
+  reason: string;
+}
+
+export interface TierThresholds {
+  tier1MinScore: number;
+  tier2MinScore: number;
+}
+
+export interface EnrichmentPriority {
+  adapter: string;
+  required: boolean;
+  runCondition: string;
+}
+
+export interface SearchConfig {
+  roleName: string;
+  tiers: SearchQueryTier[];
+  scoringWeights: Record<string, number>;
+  tierThresholds: TierThresholds;
+  enrichmentPriority: EnrichmentPriority[];
+  antiFilters: AntiFilter[];
+  similaritySeeds: string[];
+  maxCandidates: number;
+  maxCostUsd: number;
+  createdAt: string;
+  version: number;
+}
+
+/** One turn of the intake conversation. `state` is opaque — never parse it. */
+export interface IntakeTurn {
+  prompt: string | null;
+  state: string;
+  done: boolean;
+}
+
+/** Extracted intake result. `talentProfile` is not rendered in FHR-86. */
+export interface IntakeResult {
+  searchConfig: SearchConfig;
+  talentProfile: unknown;
+  similaritySeeds: string[];
+}
+
+/** Discriminated error from the intake commands (mirrors RecruitingSearchError). */
+export type IntakeCommandError =
+  | { kind: 'MissingLlmKey' }
+  | { kind: 'MissingExaKey' }
+  | { kind: 'Provider'; message: string }
+  | { kind: 'Research'; message: string }
+  | { kind: 'Internal'; message: string };
