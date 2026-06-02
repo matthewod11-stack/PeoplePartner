@@ -34,6 +34,9 @@ import type {
   ExaSearchResponse,
   RecruitingSearchError,
   RecruitingSearchResult,
+  // FHR-86 - Recruit intake conversation
+  IntakeTurn,
+  IntakeResult,
 } from './types';
 
 /**
@@ -2189,4 +2192,35 @@ export async function storeExaApiKey(apiKey: string): Promise<void> {
 /** Remove the Exa API key from macOS Keychain. Idempotent. */
 export async function deleteExaApiKey(): Promise<void> {
   return invoke('recruiting_delete_exa_key');
+}
+
+// =============================================================================
+// Recruiting intake conversation — FHR-86 (S4.2)
+// =============================================================================
+
+/**
+ * Start the intake conversation. Returns the first prompt + opaque state blob.
+ * Rejects with an {@link IntakeCommandError} (e.g. MissingLlmKey / MissingExaKey).
+ */
+export async function recruitingIntakeStart(): Promise<IntakeTurn> {
+  return invoke('recruiting_intake_start');
+}
+
+/**
+ * Submit one user response. Pass the `state` from the previous turn back in.
+ * On a submit rejection, keep the previous `state` and retry — that failure is
+ * non-destructive on the backend.
+ */
+export async function recruitingIntakeStep(
+  conversationState: string,
+  response: string,
+): Promise<IntakeTurn> {
+  return invoke('recruiting_intake_step', { conversationState, response });
+}
+
+/** Extract the runnable SearchConfig once the conversation is done. */
+export async function recruitingIntakeExtract(
+  conversationState: string,
+): Promise<IntakeResult> {
+  return invoke('recruiting_intake_extract', { conversationState });
 }

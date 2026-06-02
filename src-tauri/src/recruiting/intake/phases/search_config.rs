@@ -79,6 +79,43 @@ pub fn generate_anti_filters(ctx: &IntakeContext) -> Vec<AntiFilter> {
     filters
 }
 
+/// Apply a parsed `Adjustments` object (from `ConfigReview`) directly to a
+/// `SearchConfig`. Pure — no LLM, no context. Mutates only the fields the user
+/// can tweak: candidate cap, budget, a single scoring weight, and exclude-signal
+/// anti-filters (add is deduped, remove is by value). Unknown keys / `other`
+/// free-text are ignored (acknowledged in-conversation, not structurally applied).
+pub fn apply_adjustments(mut config: SearchConfig, adj: &serde_json::Value) -> SearchConfig {
+    if let Some(n) = adj.get("maxCandidates").and_then(|x| x.as_u64()) {
+        config.max_candidates = n.min(u32::MAX as u64) as u32;
+    }
+    if let Some(n) = adj.get("maxCostUsd").and_then(|x| x.as_f64()) {
+        config.max_cost_usd = n;
+    }
+    if let Some(aw) = adj.get("adjustWeight").and_then(|x| x.as_object()) {
+        if let (Some(dim), Some(w)) = (
+            aw.get("dimension").and_then(|d| d.as_str()),
+            aw.get("weight").and_then(|w| w.as_f64()),
+        ) {
+            config.scoring_weights.insert(dim.to_string(), w);
+        }
+    }
+    if let Some(ap) = adj.get("addAntiPattern").and_then(|x| x.as_str()) {
+        let exists = config.anti_filters.iter()
+            .any(|f| f.kind == "exclude_signal" && f.value == ap);
+        if !exists {
+            config.anti_filters.push(AntiFilter {
+                kind: "exclude_signal".into(),
+                value: ap.to_string(),
+                reason: "Anti-pattern identified during intake".into(),
+            });
+        }
+    }
+    if let Some(ap) = adj.get("removeAntiPattern").and_then(|x| x.as_str()) {
+        config.anti_filters.retain(|f| !(f.kind == "exclude_signal" && f.value == ap));
+    }
+    config
+}
+
 pub fn build_talent_profile(ctx: &IntakeContext, created_at: &str) -> Result<TalentProfile, IntakeError> {
     let role = ctx.role_parameters.clone().ok_or_else(|| IntakeError::Provider("cannot build talent profile without role parameters".into()))?;
     let company = ctx.company_intel.clone().ok_or_else(|| IntakeError::Provider("cannot build talent profile without company intel".into()))?;
@@ -148,41 +185,20 @@ impl IntakeNode for ConfigGenerate {
     fn id(&self) -> NodeId { NodeId::ConfigGenerate }
     fn phase(&self) -> Phase { Phase::Strategy }
 
-    async fn prompt(&self, ctx: &IntakeContext) -> String {
-        if let Some(config) = &ctx.pending_search_config {
-            let mut lines = vec![
-                format!("I've generated your search configuration:\n"),
-                format!("**Role:** {}", config.role_name),
-                format!("**Search tiers:** {} tiers, {} queries total",
-                    config.tiers.len(),
-                    config.tiers.iter().map(|t| t.queries.len()).sum::<usize>()),
-                "**Scoring weights:**".to_string(),
-            ];
-            for (dim, weight) in &config.scoring_weights {
-                lines.push(format!("  - {}: {:.0}%", dim, weight * 100.0));
-            }
-            lines.push(format!("**Anti-filters:** {}", config.anti_filters.len()));
-            if !config.similarity_seeds.is_empty() {
-                lines.push(format!("**Similarity seeds:** {} URLs", config.similarity_seeds.len()));
-            }
-            lines.push(format!("**Max candidates:** {}", config.max_candidates));
-            lines.push(format!("**Budget cap:** ${}", config.max_cost_usd));
-            lines.push("\nWould you like to adjust anything, or shall we proceed?".to_string());
-            lines.join("\n")
-        } else {
-            "I'm ready to generate your search configuration. Based on everything we've discussed — the role, company, team profiles, and anti-patterns — shall I proceed?".to_string()
-        }
+    async fn prompt(&self, _ctx: &IntakeContext) -> String {
+        "I'm ready to generate your search configuration. Based on everything we've \
+         discussed — the role, company, team profiles, and anti-patterns — shall I proceed?"
+            .to_string()
     }
 
     async fn parse(&self, response: &str, ctx: &IntakeContext, deps: &IntakeDeps)
         -> Result<ParsedResponse, IntakeError>
     {
-        let confirmed = matches_any(response, CONFIRM_PHRASES);
-        if confirmed {
+        if matches_any(response, CONFIRM_PHRASES) {
             let config = build_search_config(ctx, deps).await?;
             let profile = build_talent_profile(ctx, &deps.clock.now_iso8601())?;
             return Ok(ParsedResponse {
-                structured: serde_json::json!({ "confirmed": true }),
+                structured: serde_json::json!({ "generated": true }),
                 context_updates: IntakeContextUpdates {
                     talent_profile: Some(profile),
                     pending_search_config: Some(config),
@@ -192,18 +208,18 @@ impl IntakeNode for ConfigGenerate {
             });
         }
         Ok(ParsedResponse {
-            structured: serde_json::json!({ "confirmed": false }),
+            structured: serde_json::json!({ "generated": false }),
             follow_up_needed: true,
-            follow_up_reason: Some("User wants to adjust search config".into()),
+            follow_up_reason: Some("Awaiting confirmation to generate the search config".into()),
             ..Default::default()
         })
     }
 
     fn next(&self, parsed: &ParsedResponse, _c: &IntakeContext) -> NodeId {
-        if parsed.structured["confirmed"] == serde_json::Value::Bool(true) {
-            NodeId::Done
-        } else {
+        if parsed.structured["generated"] == serde_json::Value::Bool(true) {
             NodeId::ConfigReview
+        } else {
+            NodeId::ConfigGenerate
         }
     }
 }
@@ -215,25 +231,73 @@ impl IntakeNode for ConfigReview {
     fn id(&self) -> NodeId { NodeId::ConfigReview }
     fn phase(&self) -> Phase { Phase::Strategy }
 
-    async fn prompt(&self, _ctx: &IntakeContext) -> String {
-        "What would you like to adjust? I can change scoring weights, add/remove queries, adjust filters, or change the budget.".into()
+    async fn prompt(&self, ctx: &IntakeContext) -> String {
+        let Some(config) = &ctx.pending_search_config else {
+            return "Preparing your configuration…".to_string();
+        };
+        let mut lines = vec![
+            "Here's your search configuration:\n".to_string(),
+            format!("**Role:** {}", config.role_name),
+            format!(
+                "**Search tiers:** {} tiers, {} queries total",
+                config.tiers.len(),
+                config.tiers.iter().map(|t| t.queries.len()).sum::<usize>()
+            ),
+            "**Scoring weights:**".to_string(),
+        ];
+        for (dim, weight) in &config.scoring_weights {
+            lines.push(format!("  - {}: {:.0}%", dim, weight * 100.0));
+        }
+        lines.push(format!("**Anti-filters:** {}", config.anti_filters.len()));
+        if !config.similarity_seeds.is_empty() {
+            lines.push(format!("**Similarity seeds:** {} URLs", config.similarity_seeds.len()));
+        }
+        lines.push(format!("**Max candidates:** {}", config.max_candidates));
+        lines.push(format!("**Budget cap:** ${}", config.max_cost_usd));
+        lines.push(
+            "\nProceed with this, or adjust anything (budget, candidate count, scoring \
+             weights, anti-patterns)?"
+                .to_string(),
+        );
+        lines.join("\n")
     }
 
-    async fn parse(&self, response: &str, _ctx: &IntakeContext, deps: &IntakeDeps)
+    async fn parse(&self, response: &str, ctx: &IntakeContext, deps: &IntakeDeps)
         -> Result<ParsedResponse, IntakeError>
     {
-        let v = deps.provider.structured_output(vec![
+        // Confirm-phrase check FIRST — avoids a wasted LLM round-trip on "yes proceed".
+        // TODO(FHR-86 follow-up): `matches_any` uses substring `contains`, so a mixed
+        // input like "yes but only 50 candidates" is read as a pure confirm and the
+        // adjustment is dropped. Revisit once the intake flow is user-tested (may want
+        // to require a leading confirm token, or split confirm-vs-adjust intent).
+        if matches_any(response, CONFIRM_PHRASES) {
+            return Ok(ParsedResponse {
+                structured: serde_json::json!({ "confirmed": true }),
+                ..Default::default()
+            });
+        }
+        let adj = deps.provider.structured_output(vec![
             system_msg("Parse the user's search-config adjustment request into a JSON object. Valid keys: maxCandidates (number), maxCostUsd (number), addAntiPattern (string), removeAntiPattern (string), adjustWeight ({dimension, weight}), other (string)."),
             user_msg(response.to_string()),
         ], "Adjustments").await?;
-        let mut updates = IntakeContextUpdates::default();
-        if let Some(ap) = v.get("addAntiPattern").and_then(|x| x.as_str()) {
-            updates.anti_patterns = Some(vec![ap.to_string()]);
-        }
-        Ok(ParsedResponse { structured: v, context_updates: updates, ..Default::default() })
+        let updated = ctx.pending_search_config.clone().map(|c| apply_adjustments(c, &adj));
+        Ok(ParsedResponse {
+            structured: serde_json::json!({ "confirmed": false }),
+            context_updates: IntakeContextUpdates {
+                pending_search_config: updated,
+                ..Default::default()
+            },
+            ..Default::default()
+        })
     }
 
-    fn next(&self, _p: &ParsedResponse, _c: &IntakeContext) -> NodeId { NodeId::ConfigGenerate }
+    fn next(&self, parsed: &ParsedResponse, _c: &IntakeContext) -> NodeId {
+        if parsed.structured["confirmed"] == serde_json::Value::Bool(true) {
+            NodeId::Done
+        } else {
+            NodeId::ConfigReview
+        }
+    }
 }
 
 pub fn create_search_config_nodes() -> Vec<Box<dyn IntakeNode>> {
@@ -284,32 +348,127 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn config_generate_confirm_goes_to_done() {
+    async fn config_generate_confirm_builds_and_goes_to_review() {
         let node = ConfigGenerate;
         let deps = fake_deps(FakeProvider::new(vec![
             serde_json::json!([{"priority":1,"queries":[{"text":"q"}]}]),
             serde_json::json!({"technicalDepth":1.0}),
         ]), FakeResearch::default());
         let parsed = node.parse("yes proceed", &full_ctx(), &deps).await.unwrap();
-        assert_eq!(node.next(&parsed, &full_ctx()), NodeId::Done);
+        assert_eq!(node.next(&parsed, &full_ctx()), NodeId::ConfigReview);
         assert!(parsed.context_updates.talent_profile.is_some());
         assert!(parsed.context_updates.pending_search_config.is_some());
     }
 
     #[tokio::test]
-    async fn config_generate_adjust_goes_to_review() {
+    async fn config_generate_non_confirm_reasks() {
         let node = ConfigGenerate;
         let deps = fake_deps(FakeProvider::new(vec![]), FakeResearch::default());
-        let parsed = node.parse("change the budget", &full_ctx(), &deps).await.unwrap();
-        assert_eq!(node.next(&parsed, &full_ctx()), NodeId::ConfigReview);
+        let parsed = node.parse("wait, what will it include?", &full_ctx(), &deps).await.unwrap();
+        assert_eq!(node.next(&parsed, &full_ctx()), NodeId::ConfigGenerate);
+        assert!(parsed.context_updates.pending_search_config.is_none());
     }
 
     #[tokio::test]
-    async fn config_review_loops_back_to_generate() {
+    async fn config_review_confirm_goes_to_done() {
         let node = ConfigReview;
-        let deps = fake_deps(FakeProvider::new(vec![serde_json::json!({"maxCandidates":50})]),
-            FakeResearch::default());
-        let parsed = node.parse("only 50 candidates", &full_ctx(), &deps).await.unwrap();
-        assert_eq!(node.next(&parsed, &full_ctx()), NodeId::ConfigGenerate);
+        let deps = fake_deps(FakeProvider::new(vec![]), FakeResearch::default());
+        let mut ctx = full_ctx();
+        ctx.pending_search_config = Some(base_config());
+        let parsed = node.parse("looks good", &ctx, &deps).await.unwrap();
+        assert_eq!(node.next(&parsed, &ctx), NodeId::Done);
+    }
+
+    #[tokio::test]
+    async fn config_review_adjust_applies_and_re_previews() {
+        let node = ConfigReview;
+        let deps = fake_deps(
+            FakeProvider::new(vec![serde_json::json!({"maxCandidates": 50})]),
+            FakeResearch::default(),
+        );
+        let mut ctx = full_ctx();
+        ctx.pending_search_config = Some(base_config());
+        let parsed = node.parse("only 50 candidates", &ctx, &deps).await.unwrap();
+        assert_eq!(node.next(&parsed, &ctx), NodeId::ConfigReview);
+        let updated = parsed.context_updates.pending_search_config.expect("config updated");
+        assert_eq!(updated.max_candidates, 50);
+    }
+
+    #[test]
+    fn apply_adjustments_sets_max_candidates_and_budget() {
+        let cfg = base_config();
+        let adj = serde_json::json!({ "maxCandidates": 50, "maxCostUsd": 12.5 });
+        let out = apply_adjustments(cfg, &adj);
+        assert_eq!(out.max_candidates, 50);
+        assert_eq!(out.max_cost_usd, 12.5);
+    }
+
+    #[test]
+    fn apply_adjustments_sets_scoring_weight() {
+        let cfg = base_config();
+        let adj = serde_json::json!({ "adjustWeight": { "dimension": "technicalDepth", "weight": 0.42 } });
+        let out = apply_adjustments(cfg, &adj);
+        assert_eq!(out.scoring_weights.get("technicalDepth").copied(), Some(0.42));
+    }
+
+    #[test]
+    fn apply_adjustments_adds_and_dedupes_anti_pattern() {
+        let cfg = base_config();
+        let adj = serde_json::json!({ "addAntiPattern": "frequent job changes" });
+        let out = apply_adjustments(cfg, &adj);
+        let count = out.anti_filters.iter()
+            .filter(|f| f.kind == "exclude_signal" && f.value == "frequent job changes")
+            .count();
+        assert_eq!(count, 1);
+        let out2 = apply_adjustments(out, &adj);
+        let count2 = out2.anti_filters.iter()
+            .filter(|f| f.kind == "exclude_signal" && f.value == "frequent job changes")
+            .count();
+        assert_eq!(count2, 1);
+    }
+
+    #[test]
+    fn apply_adjustments_removes_anti_pattern() {
+        let mut cfg = base_config();
+        cfg.anti_filters.push(AntiFilter {
+            kind: "exclude_signal".into(), value: "job hopper".into(),
+            reason: "Anti-pattern identified during intake".into(),
+        });
+        // A same-value filter of a different kind must NOT be removed.
+        cfg.anti_filters.push(AntiFilter {
+            kind: "exclude_company".into(), value: "job hopper".into(),
+            reason: "User excluded".into(),
+        });
+        let adj = serde_json::json!({ "removeAntiPattern": "job hopper" });
+        let out = apply_adjustments(cfg, &adj);
+        assert!(!out.anti_filters.iter().any(|f| f.kind == "exclude_signal" && f.value == "job hopper"));
+        assert!(out.anti_filters.iter().any(|f| f.kind == "exclude_company" && f.value == "job hopper"),
+            "remove must only touch exclude_signal filters");
+    }
+
+    #[test]
+    fn apply_adjustments_ignores_unknown_and_other() {
+        let cfg = base_config();
+        let before = (cfg.max_candidates, cfg.max_cost_usd);
+        let adj = serde_json::json!({ "other": "make it better", "bogus": 1 });
+        let out = apply_adjustments(cfg, &adj);
+        assert_eq!((out.max_candidates, out.max_cost_usd), before);
+    }
+
+    // Minimal SearchConfig fixture for the apply_adjustments tests.
+    fn base_config() -> SearchConfig {
+        SearchConfig {
+            role_name: "Eng".into(),
+            tiers: vec![],
+            scoring_weights: Default::default(),
+            tier_thresholds: default_tier_thresholds(),
+            enrichment_priority: default_enrichment_priority(),
+            anti_filters: vec![],
+            similarity_seeds: vec![],
+            max_candidates: 100,
+            max_cost_usd: 5.0,
+            created_at: "2026-06-01T00:00:00Z".into(),
+            version: 1,
+        }
     }
 }

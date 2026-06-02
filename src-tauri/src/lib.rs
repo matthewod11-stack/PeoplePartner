@@ -236,6 +236,9 @@ pub fn run() {
             commands::recruiting::recruiting_has_exa_key,
             commands::recruiting::recruiting_store_exa_key,
             commands::recruiting::recruiting_delete_exa_key,
+            commands::recruiting::recruiting_intake_start,
+            commands::recruiting::recruiting_intake_step,
+            commands::recruiting::recruiting_intake_extract,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases
