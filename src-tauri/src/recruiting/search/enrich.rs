@@ -17,6 +17,7 @@
 //! no URLs in any source are counted in `skipped_no_url` and left untouched.
 
 use async_trait::async_trait;
+use serde::Serialize;
 use thiserror::Error;
 
 use crate::recruiting::{
@@ -246,7 +247,8 @@ impl Default for EnrichConfig {
 // ---------------------------------------------------------------------------
 
 /// One candidate failure from a batch error.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CandidateFailure {
     /// The URL that was being fetched (or `"<no url>"` for edge cases).
     pub url: String,
@@ -255,7 +257,8 @@ pub struct CandidateFailure {
 }
 
 /// Summary returned by `enrich_candidates`.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EnrichmentOutcome {
     /// Number of candidates whose `page_text` was set.
     pub enriched: usize,

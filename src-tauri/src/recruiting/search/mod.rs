@@ -50,7 +50,7 @@ impl DiscoveryPipeline {
     pub async fn run<S: CandidateSource>(
         source: S,
         cfg: &SearchConfig,
-        cost: &mut dyn CostGate,
+        cost: &mut (dyn CostGate + Send),
     ) -> Result<(Vec<RawCandidate>, DiscoveryStats), SearchError> {
         let exec = TieredSearchExecutor::new(source);
         let mut result = exec.run(cfg, cost).await?;

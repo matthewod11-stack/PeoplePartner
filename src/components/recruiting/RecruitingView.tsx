@@ -1,10 +1,9 @@
 // People Partner — Recruit module (talent sourcing)
 //
 // FHR-86 (S4.2): the intake conversation. Drives the headless intake graph via
-// state-passing commands, produces a runnable SearchConfig, and fires a real
-// Exa search (bridged through the existing recruiting_search_exa until the
-// tiered executor lands in S1.1). Reuses the HR Chat view components for
-// continuity between the two modules.
+// state-passing commands, produces a runnable SearchConfig, and fires the full
+// Sourcerer pipeline via recruiting_run_search (FHR-73 S1.1 Task 7). Reuses
+// the HR Chat view components for continuity between the two modules.
 
 import { useState, useRef } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
@@ -14,13 +13,12 @@ import {
   recruitingIntakeStartFromSeed,
   recruitingIntakeStep,
   recruitingIntakeExtract,
-  recruitingSearchExa,
+  recruitingRunSearch,
 } from '../../lib/tauri-commands';
+import type { RunSearchResult, CandidatePreview } from '../../lib/tauri-commands';
 import type {
   Message,
   IntakeCommandError,
-  ExaHit,
-  ExaSearchResponse,
   RecruitingSearchError,
   SearchConfig,
 } from '../../lib/types';
@@ -31,7 +29,7 @@ type ViewState =
   | { kind: 'conversing'; messages: Message[]; state: string; stepping: boolean; stepError?: string }
   | { kind: 'extracting'; messages: Message[] }
   | { kind: 'searching'; config: SearchConfig }
-  | { kind: 'results'; config: SearchConfig; data: ExaSearchResponse }
+  | { kind: 'results'; config: SearchConfig; data: RunSearchResult }
   | { kind: 'configNoQuery'; config: SearchConfig }
   | { kind: 'missingKey'; which: 'llm' | 'exa' }
   | { kind: 'error'; message: string }
@@ -46,6 +44,10 @@ function newMessage(role: 'user' | 'assistant', content: string): Message {
 }
 
 function isIntakeError(e: unknown): e is IntakeCommandError {
+  return typeof e === 'object' && e !== null && 'kind' in e;
+}
+
+function isRecruitingSearchError(e: unknown): e is RecruitingSearchError {
   return typeof e === 'object' && e !== null && 'kind' in e;
 }
 
@@ -129,18 +131,26 @@ export function RecruitingView({ onOpenSettings }: RecruitingViewProps = {}) {
     } catch (e) {
       return routeIntakeError(e);
     }
-    const topQuery = config.tiers[0]?.queries[0]?.text;
-    if (!topQuery) {
+    // Guard: need at least one query tier to run the pipeline.
+    if (!config.tiers[0]?.queries[0]?.text) {
       setView({ kind: 'configNoQuery', config });
       return;
     }
     setView({ kind: 'searching', config });
-    const search = await recruitingSearchExa(topQuery);
-    setView(
-      search.ok
-        ? { kind: 'results', config, data: search.data }
-        : { kind: 'searchError', config, error: search.error },
-    );
+    try {
+      const data = await recruitingRunSearch(config);
+      setView({ kind: 'results', config, data });
+    } catch (raw) {
+      const error: RecruitingSearchError = isRecruitingSearchError(raw)
+        ? raw
+        : { kind: 'Internal', message: String(raw) };
+      // MissingKey / InvalidKey → route to the key banner.
+      if (error.kind === 'MissingKey' || error.kind === 'InvalidKey') {
+        setView({ kind: 'missingKey', which: 'exa' });
+      } else {
+        setView({ kind: 'searchError', config, error });
+      }
+    }
   }
 
   return (
@@ -343,39 +353,66 @@ function ErrorState({ error }: { error: RecruitingSearchError }) {
   );
 }
 
-function ResultsList({ data }: { data: ExaSearchResponse }) {
-  if (data.results.length === 0) {
-    return <div className="px-6 py-8"><p className="text-sm text-stone-500">No results for the generated query.</p></div>;
+/** Renders the full pipeline result (candidates + cost summary). */
+function ResultsList({ data }: { data: RunSearchResult }) {
+  const { candidates, discoveryStats, costReport } = data;
+
+  if (candidates.length === 0) {
+    return (
+      <div className="px-6 py-8">
+        <p className="text-sm text-stone-500">No candidates found for this search.</p>
+        <p className="mt-1 text-xs text-stone-400">
+          {discoveryStats.queryFailures > 0 && `${discoveryStats.queryFailures} queries failed. `}
+          {discoveryStats.stoppedEarly && 'Search stopped early (budget). '}
+        </p>
+      </div>
+    );
   }
+
   return (
     <div className="px-6 py-4">
-      {data.autopromptString && (
-        <p className="mb-3 text-xs text-stone-400">
-          Exa rewrote the query: <span className="italic">&ldquo;{data.autopromptString}&rdquo;</span>
-        </p>
-      )}
-      <ul className="space-y-3">
-        {data.results.map((hit) => <HitCard key={hit.id} hit={hit} />)}
+      <p className="mb-3 text-xs text-stone-400">
+        {candidates.length} candidate{candidates.length !== 1 ? 's' : ''} found
+        {discoveryStats.stoppedEarly && ' (partial — budget reached)'}
+        {' · '}${costReport.snapshot.totalUsd.toFixed(4)} spent
+      </p>
+      <ul className="space-y-2">
+        {candidates.map((c) => (
+          <CandidateCard key={c.id} candidate={c} />
+        ))}
       </ul>
     </div>
   );
 }
 
-function HitCard({ hit }: { hit: ExaHit }) {
+function CandidateCard({ candidate }: { candidate: CandidatePreview }) {
+  const { id, name } = candidate;
+
+  // Primary URL = first URL from the first source that has one.
+  let primaryUrl: string | undefined;
+  for (const src of Object.values(candidate.sources)) {
+    if (src.urls.length > 0) {
+      primaryUrl = src.urls[0];
+      break;
+    }
+  }
+
   return (
     <li className="rounded-lg border border-stone-200 bg-white p-4 hover:border-stone-300 transition-colors">
-      <a href={hit.url} target="_blank" rel="noopener noreferrer" className="block group">
-        <h3 className="text-sm font-medium text-primary-700 group-hover:text-primary-800 group-hover:underline">
-          {hit.title || hit.url}
-        </h3>
-        <p className="mt-0.5 text-xs text-stone-400 truncate">{hit.url}</p>
-      </a>
-      <div className="mt-2 flex flex-wrap gap-3 text-xs text-stone-500">
-        {hit.author && <span>by {hit.author}</span>}
-        {hit.publishedDate && <span>{hit.publishedDate}</span>}
-        {typeof hit.score === 'number' && <span className="text-stone-400">score {hit.score.toFixed(2)}</span>}
-      </div>
-      {hit.summary && <p className="mt-2 text-sm text-stone-600">{hit.summary}</p>}
+      {primaryUrl ? (
+        <a href={primaryUrl} target="_blank" rel="noopener noreferrer" className="block group">
+          <h3 className="text-sm font-medium text-primary-700 group-hover:text-primary-800 group-hover:underline">
+            {name}
+          </h3>
+          <p className="mt-0.5 text-xs text-stone-400 truncate">{primaryUrl}</p>
+        </a>
+      ) : (
+        <div>
+          <h3 className="text-sm font-medium text-stone-800">{name}</h3>
+          <p className="mt-0.5 text-xs text-stone-400 italic">no URL</p>
+        </div>
+      )}
+      <p className="mt-1 text-xs text-stone-400 font-mono truncate">{id}</p>
     </li>
   );
 }

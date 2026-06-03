@@ -37,6 +37,7 @@ import type {
   // FHR-86 - Recruit intake conversation
   IntakeTurn,
   IntakeResult,
+  SearchConfig,
   // FHR-93 - Recruit intake seed from file/text
   IntakeSeedInput,
 } from './types';
@@ -2235,4 +2236,99 @@ export async function recruitingIntakeExtract(
  */
 export async function recruitingIntakeStartFromSeed(seed: IntakeSeedInput): Promise<IntakeTurn> {
   return invoke('recruiting_intake_start_from_seed', { seed });
+}
+
+// =============================================================================
+// recruiting_run_search — full pipeline (FHR-73 S1.1 Task 7)
+// =============================================================================
+
+/** One candidate failure from an enrichment batch error. */
+export interface CandidateFailure {
+  url: string;
+  retryable: boolean;
+}
+
+/** Summary of the enrichment phase. */
+export interface EnrichmentOutcome {
+  enriched: number;
+  skippedNoUrl: number;
+  failures: CandidateFailure[];
+  stoppedEarly: boolean;
+}
+
+/** Point-in-time cost snapshot. */
+export interface CostSnapshot {
+  totalUsd: number;
+  perOp: Record<string, number>;
+  callCount: number;
+  currency: string;
+}
+
+/** Full cost report attached to RunSearchResult. */
+export interface CostReport {
+  snapshot: CostSnapshot;
+  stoppedEarly: boolean;
+  stopReason: string | null;
+}
+
+/** Discovery funnel counters. */
+export interface DiscoveryStats {
+  seedCalls: number;
+  queryCalls: number;
+  hitsBeforeDedup: number;
+  hitsAfterFilter: number;
+  returned: number;
+  queryFailures: number;
+  capped: boolean;
+  stoppedEarly: boolean;
+  skippedFilterKinds: string[];
+}
+
+/** Identity-resolution aggregate counts. */
+export interface ResolveStats {
+  inputCount: number;
+  outputCount: number;
+  highConfidenceMerges: number;
+  mediumConfidenceMerges: number;
+  lowConfidenceMerges: number;
+}
+
+/**
+ * Minimal candidate shape returned by the pipeline (subset of the Rust
+ * `ResolvedCandidate`). MS2 scoring fields (score, tier, evidence) extend
+ * this interface later — keep it additive.
+ */
+export interface CandidatePreview {
+  id: string;
+  name: string;
+  /** Per-adapter provenance: adapter name → discovery URLs. */
+  sources: Record<string, { urls: string[] }>;
+}
+
+/**
+ * Full pipeline result from `recruiting_run_search`.
+ *
+ * Candidates are in-memory only (ruled decision #1 — no SQLite write).
+ */
+export interface RunSearchResult {
+  candidates: CandidatePreview[];
+  discoveryStats: DiscoveryStats;
+  resolveStats: ResolveStats;
+  enrichmentOutcome: EnrichmentOutcome;
+  costReport: CostReport;
+}
+
+/**
+ * Execute the full Sourcerer discovery pipeline (discovery → identity
+ * resolution → enrichment) and return the in-memory result.
+ *
+ * This replaces the FHR-86 shortcut (`recruitingSearchExa`) for the
+ * intake-completion handoff. Returns a discriminated {@link RunSearchResult}
+ * on success, or throws a {@link RecruitingSearchError} (same error union the
+ * old shortcut used, so the existing error-banner logic is unchanged).
+ */
+export async function recruitingRunSearch(
+  searchConfig: SearchConfig,
+): Promise<RunSearchResult> {
+  return invoke('recruiting_run_search', { searchConfig });
 }

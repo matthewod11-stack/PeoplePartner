@@ -50,7 +50,7 @@ pub enum ExaOpKind {
 ///
 /// The no-op impl (`NoopCostGate`) always allows and never charges, which is
 /// the correct behavior for Task 3 (cost tracking arrives in Task 5).
-pub trait CostGate {
+pub trait CostGate: Send {
     fn check_before(&mut self, op: ExaOpKind, units: u32) -> bool;
     fn record(&mut self, op: ExaOpKind, units: u32, actual: Option<f64>);
 }
@@ -124,7 +124,7 @@ impl<S: CandidateSource> TieredSearchExecutor<S> {
     pub async fn run(
         &self,
         cfg: &SearchConfig,
-        cost: &mut dyn CostGate,
+        cost: &mut (dyn CostGate + Send),
     ) -> Result<RawSearchResult, SearchError> {
         let mut candidates: Vec<RawCandidate> = Vec::new();
         let mut stats = DiscoveryStats::default();

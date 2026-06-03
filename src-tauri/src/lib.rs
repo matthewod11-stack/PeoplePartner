@@ -240,6 +240,8 @@ pub fn run() {
             commands::recruiting::recruiting_intake_step,
             commands::recruiting::recruiting_intake_extract,
             commands::recruiting::recruiting_intake_start_from_seed,
+            // Full pipeline command (FHR-73 S1.1 Task 7)
+            commands::recruiting::recruiting_run_search,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases
