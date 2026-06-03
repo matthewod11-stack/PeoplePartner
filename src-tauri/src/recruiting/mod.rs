@@ -13,6 +13,7 @@
 //!   - The migration that backs this module is `013_recruiting.sql`.
 
 pub mod adapters;
+pub mod cost;
 pub mod identity;
 pub mod intake;
 pub mod search;
