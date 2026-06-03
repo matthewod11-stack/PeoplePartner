@@ -16,12 +16,17 @@
 //! - `filters`   — `apply_anti_filters`
 
 pub mod candidate;
+pub mod enrich;
 pub mod executor;
 pub mod filters;
 pub mod source;
 
 // Re-exports for consumers that go through `recruiting::search::*`.
 pub use candidate::{CandidateProvenance, DiscoveryVia, RawCandidate};
+pub use enrich::{
+    enrich_candidates, exa_enrichment_priority, should_run_exa_enrichment, CandidateFailure,
+    ContentEnricher, EnrichConfig, EnrichError, EnrichmentOutcome, ExaContentEnricher, FetchedPage,
+};
 pub use executor::{CostGate, DiscoveryStats, ExaOpKind, NoopCostGate, RawSearchResult, TieredSearchExecutor};
 pub use filters::apply_anti_filters;
 pub use source::{CandidateSource, ExaCandidateSource, SearchError};
