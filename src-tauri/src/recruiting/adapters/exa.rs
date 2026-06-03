@@ -62,11 +62,64 @@ struct ExaContentsRequest<'a> {
 struct ExaFindSimilarRequest<'a> {
     url: &'a str,
     num_results: u32,
+    /// Always `true` for candidate discovery — prevents the seed URL's own
+    /// domain from appearing in results (mirrors TS adapter line ~166).
+    exclude_source_domain: bool,
+}
+
+/// Options for the full-fidelity search variant. Borrowed slices so callers
+/// pass `SearchQuery` fields without cloning.
+#[derive(Debug)]
+pub struct ExaSearchOpts<'a> {
+    pub num_results: u32,
+    pub include_domains: Option<&'a [String]>,
+    pub exclude_domains: Option<&'a [String]>,
+    /// E.g. `"people"` — default applied by the caller, not here.
+    pub category: Option<&'a str>,
+}
+
+/// Full-fidelity search request that carries per-query result caps, domain
+/// filters, and category. The 1-arg `search` function drops all of these;
+/// `search_with` sends them. `skip_serializing_if` keeps the wire compact when
+/// fields are `None`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExaSearchRequestFull<'a> {
+    query: &'a str,
+    num_results: u32,
+    #[serde(rename = "type")]
+    search_type: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    include_domains: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    exclude_domains: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    category: Option<&'a str>,
+}
+
+impl<'a> ExaSearchRequestFull<'a> {
+    fn from_parts(query: &'a str, opts: &ExaSearchOpts<'a>) -> Self {
+        ExaSearchRequestFull {
+            query,
+            num_results: opts.num_results,
+            search_type: DEFAULT_SEARCH_TYPE,
+            include_domains: opts.include_domains,
+            exclude_domains: opts.exclude_domains,
+            category: opts.category,
+        }
+    }
 }
 
 // ============================================================================
 // Wire types — response
 // ============================================================================
+
+/// Cost metadata returned by Exa — present when the account is billed
+/// per-request. Absent on legacy plans / sandbox keys.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExaCostDollars {
+    pub total: f64,
+}
 
 /// Top-level response from Exa's `/search` endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +130,9 @@ pub struct ExaSearchResponse {
     pub autoprompt_string: Option<String>,
     /// Server-side request ID — quote this when filing Exa support tickets.
     pub request_id: Option<String>,
+    /// Per-request billing cost in USD. `None` on plans that don't report it.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cost_dollars: Option<ExaCostDollars>,
 }
 
 /// One search hit. `id` and `url` are guaranteed on every result; every
@@ -132,8 +188,8 @@ pub enum ExaError {
 
 /// POST a JSON body to an Exa endpoint and deserialize the response.
 ///
-/// Shared by `search` / `get_contents` / `find_similar` — all three are the
-/// same request shape (x-api-key header, JSON body) and the same status
+/// Shared by `search` / `search_with` / `get_contents` / `find_similar` — all
+/// are the same request shape (x-api-key header, JSON body) and the same status
 /// handling (401 → `InvalidKey`, 429 → `RateLimit`, other non-2xx → `Api`).
 /// The caller fetches `api_key` from the Keychain (typically via
 /// `keyring::get_provider_api_key(EXA_PROVIDER_ID)`) and is responsible for
@@ -191,12 +247,27 @@ pub async fn get_contents(urls: &[String], api_key: &str) -> Result<ExaSearchRes
 
 /// Find pages similar to a seed URL via Exa's `/findSimilar` endpoint. Feeds
 /// team-seeded candidate discovery ("find people like these team members").
+/// `excludeSourceDomain: true` prevents the seed's own domain from showing up
+/// in results (mirrors the TS adapter fidelity requirement).
 pub async fn find_similar(url: &str, api_key: &str) -> Result<ExaSearchResponse, ExaError> {
     let body = ExaFindSimilarRequest {
         url,
         num_results: DEFAULT_NUM_RESULTS,
+        exclude_source_domain: true,
     };
     exa_post(EXA_FIND_SIMILAR_URL, api_key, &body).await
+}
+
+/// Full-fidelity search: passes per-query result caps + domain filters +
+/// category to the wire (params the 1-arg `search` drops). Used by the
+/// tiered discovery executor (S1.1).
+pub async fn search_with(
+    query: &str,
+    opts: &ExaSearchOpts<'_>,
+    api_key: &str,
+) -> Result<ExaSearchResponse, ExaError> {
+    let body = ExaSearchRequestFull::from_parts(query, opts);
+    exa_post(EXA_SEARCH_URL, api_key, &body).await
 }
 
 // ============================================================================
@@ -334,9 +405,60 @@ mod tests {
 
     #[test]
     fn find_similar_request_serializes_camelcase_num_results() {
-        let body = ExaFindSimilarRequest { url: "https://x.com", num_results: 10 };
+        let body = ExaFindSimilarRequest { url: "https://x.com", num_results: 10, exclude_source_domain: true };
         let v = serde_json::to_value(&body).unwrap();
         assert_eq!(v["url"], "https://x.com");
         assert_eq!(v["numResults"], 10, "num_results must serialize as numResults");
+    }
+
+    #[test]
+    fn search_with_request_serializes_all_optional_params_camelcase() {
+        let domains = vec!["linkedin.com".to_string()];
+        let excl = vec!["pinterest.com".to_string()];
+        let opts = ExaSearchOpts {
+            num_results: 7,
+            include_domains: Some(&domains),
+            exclude_domains: Some(&excl),
+            category: Some("people"),
+        };
+        let body = ExaSearchRequestFull::from_parts("staff rust engineer", &opts);
+        let v = serde_json::to_value(&body).unwrap();
+        assert_eq!(v["query"], "staff rust engineer");
+        assert_eq!(v["numResults"], 7);
+        assert_eq!(v["includeDomains"][0], "linkedin.com");
+        assert_eq!(v["excludeDomains"][0], "pinterest.com");
+        assert_eq!(v["category"], "people");
+        assert_eq!(v["type"], "auto");
+    }
+
+    #[test]
+    fn search_with_omits_none_params() {
+        let opts = ExaSearchOpts { num_results: 10, include_domains: None, exclude_domains: None, category: None };
+        let body = ExaSearchRequestFull::from_parts("q", &opts);
+        let v = serde_json::to_value(&body).unwrap();
+        assert!(v.get("includeDomains").is_none(), "None include_domains must be omitted");
+        assert!(v.get("excludeDomains").is_none());
+        assert!(v.get("category").is_none());
+        assert_eq!(v["numResults"], 10);
+    }
+
+    #[test]
+    fn find_similar_request_carries_exclude_source_domain() {
+        let body = ExaFindSimilarRequest { url: "https://x.com/a", num_results: 10, exclude_source_domain: true };
+        let v = serde_json::to_value(&body).unwrap();
+        assert_eq!(v["excludeSourceDomain"], true, "fidelity: findSimilar must exclude the seed's own domain");
+    }
+
+    #[test]
+    fn response_deserializes_cost_dollars_total() {
+        let json = r#"{"results":[{"id":"a","url":"https://e.com"}],"costDollars":{"total":0.012}}"#;
+        let parsed: ExaSearchResponse = serde_json::from_str(json).expect("parse with costDollars");
+        assert_eq!(parsed.cost_dollars.as_ref().unwrap().total, 0.012);
+    }
+
+    #[test]
+    fn existing_sparse_fixture_still_parses_without_cost_dollars() {
+        let parsed: ExaSearchResponse = serde_json::from_str(FIXTURE_SPARSE).expect("sparse still parses");
+        assert!(parsed.cost_dollars.is_none(), "costDollars is Option, absent in sparse fixture");
     }
 }
