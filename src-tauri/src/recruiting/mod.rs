@@ -15,6 +15,7 @@
 pub mod adapters;
 pub mod identity;
 pub mod intake;
+pub mod search;
 
 use crate::db::DbPool;
 use serde::{Deserialize, Serialize};
