@@ -235,8 +235,7 @@ pub fn extract_name(author: Option<&str>, title: Option<&str>, url: &str) -> Str
     // 5. URL slug — last non-empty path component, dashes → spaces
     if let Some(last) = url
         .split('/')
-        .filter(|s| !s.is_empty() && !s.contains('.'))
-        .last()
+        .rfind(|s| !s.is_empty() && !s.contains('.'))
     {
         if last.len() > 2 && last.contains('-') {
             return last.replace('-', " ");

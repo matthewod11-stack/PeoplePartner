@@ -580,6 +580,6 @@ mod tests {
         // Smoke: the command-boundary constructor wires without panicking and
         // produces usable trait objects.
         let deps = production_intake_deps("anthropic", None, "exa-key".into());
-        assert_eq!(deps.clock.now_iso8601().is_empty(), false);
+        assert!(!deps.clock.now_iso8601().is_empty());
     }
 }

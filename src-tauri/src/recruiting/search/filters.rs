@@ -63,13 +63,10 @@ pub fn apply_anti_filters(
 /// Returns `true` when `candidate` matches any evaluable anti-filter.
 fn is_excluded(candidate: &RawCandidate, filters: &[&AntiFilter]) -> bool {
     for filter in filters {
-        match filter.kind.as_str() {
-            "exclude_company" => {
-                if matches_exclude_company(candidate, &filter.value) {
-                    return true;
-                }
-            }
-            _ => {}
+        if filter.kind.as_str() == "exclude_company"
+            && matches_exclude_company(candidate, &filter.value)
+        {
+            return true;
         }
     }
     false
@@ -230,7 +227,7 @@ mod tests {
                 Some("mentions acme in passing"),
             ),
         ];
-        let (kept, skipped) = apply_anti_filters(cands, &vec![anti("exclude_company", "acme")]);
+        let (kept, skipped) = apply_anti_filters(cands, &[anti("exclude_company", "acme")]);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].url, "https://other.com/bob");
         assert!(skipped.is_empty());
@@ -242,7 +239,7 @@ mod tests {
             cand_with("https://x.com/a", Some("Jane at Acme Corp"), None, None),
             cand_with("https://x.com/b", Some("Bob"), None, None),
         ];
-        let (kept, _) = apply_anti_filters(cands, &vec![anti("exclude_company", "acme")]);
+        let (kept, _) = apply_anti_filters(cands, &[anti("exclude_company", "acme")]);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].url, "https://x.com/b");
     }
@@ -255,7 +252,7 @@ mod tests {
             // "Acme" embedded in a longer word — NOT filtered
             cand_with("https://x.com/b", None, Some("AcmeCorp Engineer"), None),
         ];
-        let (kept, _) = apply_anti_filters(cands, &vec![anti("exclude_company", "acme")]);
+        let (kept, _) = apply_anti_filters(cands, &[anti("exclude_company", "acme")]);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].url, "https://x.com/b");
     }
@@ -271,7 +268,7 @@ mod tests {
             // "Société" — forces the search loop to advance past multibyte chars.
             cand_with("https://x.com/b", None, Some("caféé crémerie résumé"), None),
         ];
-        let (kept, _) = apply_anti_filters(cands, &vec![anti("exclude_company", "Société")]);
+        let (kept, _) = apply_anti_filters(cands, &[anti("exclude_company", "Société")]);
         assert_eq!(kept.len(), 1, "the Société candidate must be filtered out");
         assert_eq!(kept[0].url, "https://x.com/b");
     }
@@ -280,7 +277,7 @@ mod tests {
     fn unsupported_kind_passes_through_and_is_flagged() {
         let (kept, skipped) = apply_anti_filters(
             vec![cand_with("https://x.com/a", None, None, None)],
-            &vec![anti("exclude_seniority", "junior")],
+            &[anti("exclude_seniority", "junior")],
         );
         assert_eq!(kept.len(), 1);
         assert_eq!(skipped, vec!["exclude_seniority".to_string()]);
@@ -290,7 +287,7 @@ mod tests {
     fn unknown_kind_also_flagged() {
         let (kept, skipped) = apply_anti_filters(
             vec![cand_with("https://x.com/a", None, None, None)],
-            &vec![anti("exclude_foo", "bar")],
+            &[anti("exclude_foo", "bar")],
         );
         assert_eq!(kept.len(), 1);
         assert!(skipped.contains(&"exclude_foo".to_string()));
@@ -301,7 +298,7 @@ mod tests {
         // Two filters of the same unsupported kind — should only appear once
         let (_, skipped) = apply_anti_filters(
             vec![cand_with("https://x.com/a", None, None, None)],
-            &vec![
+            &[
                 anti("exclude_seniority", "junior"),
                 anti("exclude_seniority", "entry"),
             ],

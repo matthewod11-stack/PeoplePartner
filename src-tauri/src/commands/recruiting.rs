@@ -49,7 +49,7 @@ pub(crate) async fn recruiting_list_searches(
 ///   - `Network`     → soft toast ("couldn't reach Exa").
 ///   - `ExaApi`      → surface status + body inline (debugging-friendly).
 ///   - `Internal`    → unexpected path: Keychain read failure, response
-///                     parse failure, etc.
+///     parse failure, etc.
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind")]
 pub enum RecruitingSearchError {
