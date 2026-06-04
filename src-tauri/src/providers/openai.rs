@@ -25,6 +25,8 @@ struct ChatCompletionRequest {
     messages: Vec<OpenAIMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +152,7 @@ impl OpenAIProvider {
         messages: &[ProviderMessage],
         system_prompt: &Option<String>,
         stream: bool,
+        temperature: Option<f32>,
     ) -> ChatCompletionRequest {
         let mut openai_messages: Vec<OpenAIMessage> = Vec::new();
 
@@ -174,6 +177,7 @@ impl OpenAIProvider {
             max_tokens: self.config.max_tokens,
             messages: openai_messages,
             stream: if stream { Some(true) } else { None },
+            temperature,
         }
     }
 }
@@ -205,8 +209,9 @@ impl Provider for OpenAIProvider {
         messages: &[ProviderMessage],
         system_prompt: &Option<String>,
         api_key: &str,
+        temperature: Option<f32>,
     ) -> reqwest::RequestBuilder {
-        let body = self.build_chat_request(messages, system_prompt, false);
+        let body = self.build_chat_request(messages, system_prompt, false, temperature);
         client
             .post(&self.config.api_url)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -221,7 +226,7 @@ impl Provider for OpenAIProvider {
         system_prompt: &Option<String>,
         api_key: &str,
     ) -> reqwest::RequestBuilder {
-        let body = self.build_chat_request(messages, system_prompt, true);
+        let body = self.build_chat_request(messages, system_prompt, true, None);
         client
             .post(&self.config.api_url)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -444,7 +449,7 @@ mod tests {
         ];
         let system = Some("You are helpful.".to_string());
 
-        let req = provider.build_chat_request(&messages, &system, true);
+        let req = provider.build_chat_request(&messages, &system, true, None);
         assert_eq!(req.model, "gpt-4o");
         assert_eq!(req.max_tokens, 4096);
         // System prompt becomes messages[0]
@@ -454,5 +459,24 @@ mod tests {
         assert_eq!(req.messages[1].role, "user");
         assert_eq!(req.messages[1].content, "Hello");
         assert_eq!(req.stream, Some(true));
+    }
+
+    #[test]
+    fn test_chat_request_includes_temperature_when_set() {
+        let p = OpenAIProvider::new();
+        let msgs = vec![ProviderMessage { role: "user".into(), content: "hi".into() }];
+        let body = p.build_chat_request(&msgs, &None, false, Some(0.2));
+        let json = serde_json::to_value(&body).unwrap();
+        let t = json["temperature"].as_f64().expect("temperature should be a number");
+        assert!((t - 0.2).abs() < 1e-5, "temperature should be ~0.2, got {t}");
+    }
+
+    #[test]
+    fn test_chat_request_omits_temperature_when_none() {
+        let p = OpenAIProvider::new();
+        let msgs = vec![ProviderMessage { role: "user".into(), content: "hi".into() }];
+        let body = p.build_chat_request(&msgs, &None, false, None);
+        let json = serde_json::to_value(&body).unwrap();
+        assert!(json.get("temperature").is_none(), "no temperature field when None");
     }
 }

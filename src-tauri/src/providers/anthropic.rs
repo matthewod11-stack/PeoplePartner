@@ -30,6 +30,8 @@ pub struct MessageRequest {
     pub system: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
 }
 
 /// A single message in the Anthropic format.
@@ -190,6 +192,7 @@ impl AnthropicProvider {
         messages: &[ProviderMessage],
         system_prompt: &Option<String>,
         stream: bool,
+        temperature: Option<f32>,
     ) -> MessageRequest {
         MessageRequest {
             model: self.config.model.clone(),
@@ -203,6 +206,7 @@ impl AnthropicProvider {
                 .collect(),
             system: system_prompt.clone(),
             stream: if stream { Some(true) } else { None },
+            temperature,
         }
     }
 }
@@ -234,8 +238,9 @@ impl Provider for AnthropicProvider {
         messages: &[ProviderMessage],
         system_prompt: &Option<String>,
         api_key: &str,
+        temperature: Option<f32>,
     ) -> reqwest::RequestBuilder {
-        let body = self.build_message_request(messages, system_prompt, false);
+        let body = self.build_message_request(messages, system_prompt, false, temperature);
         client
             .post(&self.config.api_url)
             .header("x-api-key", api_key)
@@ -251,7 +256,7 @@ impl Provider for AnthropicProvider {
         system_prompt: &Option<String>,
         api_key: &str,
     ) -> reqwest::RequestBuilder {
-        let body = self.build_message_request(messages, system_prompt, true);
+        let body = self.build_message_request(messages, system_prompt, true, None);
         client
             .post(&self.config.api_url)
             .header("x-api-key", api_key)
@@ -439,7 +444,7 @@ mod tests {
         ];
         let system = Some("You are helpful.".to_string());
 
-        let req = provider.build_message_request(&messages, &system, true);
+        let req = provider.build_message_request(&messages, &system, true, None);
         assert_eq!(req.model, "claude-sonnet-4-6");
         assert_eq!(req.max_tokens, 8192);
         assert_eq!(req.messages.len(), 1);
@@ -459,9 +464,28 @@ mod tests {
             },
         ];
 
-        let req = provider.build_message_request(&messages, &None, false);
+        let req = provider.build_message_request(&messages, &None, false, None);
         assert!(req.stream.is_none());
         assert!(req.system.is_none());
+    }
+
+    #[test]
+    fn test_message_request_includes_temperature_when_set() {
+        let p = AnthropicProvider::new();
+        let msgs = vec![ProviderMessage { role: "user".into(), content: "hi".into() }];
+        let body = p.build_message_request(&msgs, &None, false, Some(0.2));
+        let json = serde_json::to_value(&body).unwrap();
+        let t = json["temperature"].as_f64().expect("temperature should be a number");
+        assert!((t - 0.2).abs() < 1e-5, "temperature should be ~0.2, got {t}");
+    }
+
+    #[test]
+    fn test_message_request_omits_temperature_when_none() {
+        let p = AnthropicProvider::new();
+        let msgs = vec![ProviderMessage { role: "user".into(), content: "hi".into() }];
+        let body = p.build_message_request(&msgs, &None, false, None);
+        let json = serde_json::to_value(&body).unwrap();
+        assert!(json.get("temperature").is_none(), "no temperature field when None");
     }
 
     #[test]

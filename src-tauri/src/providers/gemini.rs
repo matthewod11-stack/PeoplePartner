@@ -48,6 +48,8 @@ struct SystemInstruction {
 #[serde(rename_all = "camelCase")]
 struct GenerationConfig {
     max_output_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
 }
 
 // ============================================================================
@@ -151,6 +153,7 @@ impl GeminiProvider {
         &self,
         messages: &[ProviderMessage],
         system_prompt: &Option<String>,
+        temperature: Option<f32>,
     ) -> GenerateContentRequest {
         let contents: Vec<GeminiContent> = messages
             .iter()
@@ -174,6 +177,7 @@ impl GeminiProvider {
             system_instruction,
             generation_config: GenerationConfig {
                 max_output_tokens: self.config.max_tokens,
+                temperature,
             },
         }
     }
@@ -206,8 +210,9 @@ impl Provider for GeminiProvider {
         messages: &[ProviderMessage],
         system_prompt: &Option<String>,
         api_key: &str,
+        temperature: Option<f32>,
     ) -> reqwest::RequestBuilder {
-        let body = self.build_generate_request(messages, system_prompt);
+        let body = self.build_generate_request(messages, system_prompt, temperature);
         client
             .post(self.generate_url())
             .header("x-goog-api-key", api_key)
@@ -222,7 +227,7 @@ impl Provider for GeminiProvider {
         system_prompt: &Option<String>,
         api_key: &str,
     ) -> reqwest::RequestBuilder {
-        let body = self.build_generate_request(messages, system_prompt);
+        let body = self.build_generate_request(messages, system_prompt, None);
         client
             .post(self.stream_url())
             .header("x-goog-api-key", api_key)
@@ -526,7 +531,7 @@ mod tests {
         ];
         let system = Some("You are helpful.".to_string());
 
-        let req = provider.build_generate_request(&messages, &system);
+        let req = provider.build_generate_request(&messages, &system, None);
 
         // "assistant" should be mapped to "model"
         assert_eq!(req.contents.len(), 3);
@@ -549,8 +554,27 @@ mod tests {
             content: "Hello".to_string(),
         }];
 
-        let req = provider.build_generate_request(&messages, &None);
+        let req = provider.build_generate_request(&messages, &None, None);
         assert!(req.system_instruction.is_none());
         assert_eq!(req.contents.len(), 1);
+    }
+
+    #[test]
+    fn test_generate_request_includes_temperature_when_set() {
+        let p = GeminiProvider::new();
+        let msgs = vec![ProviderMessage { role: "user".into(), content: "hi".into() }];
+        let body = p.build_generate_request(&msgs, &None, Some(0.2));
+        let json = serde_json::to_value(&body).unwrap();
+        let t = json["generationConfig"]["temperature"].as_f64().expect("temperature should be a number");
+        assert!((t - 0.2).abs() < 1e-5, "temperature should be ~0.2, got {t}");
+    }
+
+    #[test]
+    fn test_generate_request_omits_temperature_when_none() {
+        let p = GeminiProvider::new();
+        let msgs = vec![ProviderMessage { role: "user".into(), content: "hi".into() }];
+        let body = p.build_generate_request(&msgs, &None, None);
+        let json = serde_json::to_value(&body).unwrap();
+        assert!(json["generationConfig"].get("temperature").is_none(), "no temperature field when None");
     }
 }

@@ -26,23 +26,39 @@ pub enum IntakeError {
 
 #[async_trait]
 pub trait IntakeProvider: Send + Sync {
-    /// Structured JSON output from the LLM. Returns raw `Value`; callers
-    /// deserialize into their concrete type. `Value` (not generic `<T>`) keeps
-    /// the trait object-safe.
-    async fn structured_output(&self, messages: Vec<Message>, schema_name: &str)
+    /// Structured JSON output with an explicit temperature override. Returns raw
+    /// `Value`; callers deserialize into their concrete type. `Value` (not
+    /// generic `<T>`) keeps the trait object-safe. `temperature` overrides the
+    /// provider's configured default for this call.
+    async fn structured_output_temp(&self, messages: Vec<Message>, schema_name: &str, temperature: Option<f32>)
         -> Result<serde_json::Value, IntakeError>;
+
+    /// Structured JSON output at the provider's default temperature.
+    async fn structured_output(&self, messages: Vec<Message>, schema_name: &str)
+        -> Result<serde_json::Value, IntakeError> {
+        self.structured_output_temp(messages, schema_name, None).await
+    }
 
     /// Free-text completion from the LLM — the raw assistant text, with no
     /// JSON-extraction post-processing. Scoring's narrative generator (S2.3)
-    /// rides on this; signal/score extraction use `structured_output`. `model`
-    /// optionally overrides the provider's default model for this call.
+    /// rides on this; signal/score extraction use `structured_output`.
     ///
     /// (This trait is shared by intake and scoring — it is the recruiting
     /// module's single LLM seam, kept under the `IntakeProvider` name to scope
     /// the FHR-77 diff; a rename to a neutral `RecruitingLlm` is a clean
     /// follow-up.)
-    async fn chat(&self, messages: Vec<Message>, model: Option<&str>)
+    ///
+    /// `model` overrides the provider's configured default model for this call.
+    /// `temperature` overrides the provider's configured default for this call.
+    async fn chat_temp(&self, messages: Vec<Message>, model: Option<&str>, temperature: Option<f32>)
         -> Result<String, IntakeError>;
+
+    /// Free-text completion at the provider's default temperature.
+    /// `model` overrides the provider's configured default for this call.
+    async fn chat(&self, messages: Vec<Message>, model: Option<&str>)
+        -> Result<String, IntakeError> {
+        self.chat_temp(messages, model, None).await
+    }
 }
 
 #[async_trait]
@@ -98,12 +114,12 @@ pub mod testing {
     }
     #[async_trait]
     impl IntakeProvider for FakeProvider {
-        async fn structured_output(&self, _m: Vec<Message>, _s: &str)
+        async fn structured_output_temp(&self, _m: Vec<Message>, _s: &str, _t: Option<f32>)
             -> Result<serde_json::Value, IntakeError> {
             self.queue.lock().unwrap().pop_front()
                 .ok_or_else(|| IntakeError::Provider("FakeProvider exhausted".into()))
         }
-        async fn chat(&self, _m: Vec<Message>, _model: Option<&str>)
+        async fn chat_temp(&self, _m: Vec<Message>, _model: Option<&str>, _t: Option<f32>)
             -> Result<String, IntakeError> {
             self.text_queue.lock().unwrap().pop_front()
                 .ok_or_else(|| IntakeError::Provider("FakeProvider text queue exhausted".into()))

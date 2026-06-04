@@ -391,12 +391,25 @@ pub fn trim_conversation_to_budget(
 // API Client
 // ============================================================================
 
-/// Send a message to an AI provider and get a response (non-streaming)
+/// Send a message to an AI provider and get a response (non-streaming).
+/// Uses the provider's default temperature.
 pub async fn send_message(
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
     provider_id: &str,
     model_id: Option<&str>,
+) -> Result<ChatResponse, ChatError> {
+    send_message_with_temperature(messages, system_prompt, provider_id, model_id, None).await
+}
+
+/// Send a message to an AI provider with an explicit generation temperature.
+/// `None` defers to the provider's configured default.
+pub async fn send_message_with_temperature(
+    messages: Vec<ChatMessage>,
+    system_prompt: Option<String>,
+    provider_id: &str,
+    model_id: Option<&str>,
+    temperature: Option<f32>,
 ) -> Result<ChatResponse, ChatError> {
     let provider = resolve_provider(provider_id, model_id);
     let api_key = get_api_key_for_provider(provider_id)?;
@@ -412,7 +425,7 @@ pub async fn send_message(
 
     // Build and send the request via the provider
     let client = SHARED_CLIENT.clone();
-    let request_builder = provider.build_request(&client, &provider_messages, &system_prompt, &api_key);
+    let request_builder = provider.build_request(&client, &provider_messages, &system_prompt, &api_key, temperature);
     let response = request_builder.send().await?;
 
     // Check for HTTP errors
@@ -664,8 +677,8 @@ pub async fn send_message_streaming_trial(
     let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
     let provider_messages = to_provider_messages(trimmed_messages);
 
-    // Build the serializable request body for the proxy
-    let request = anthropic.build_message_request(&provider_messages, &system_prompt, true);
+    // Build the serializable request body for the proxy (trial always uses default temperature)
+    let request = anthropic.build_message_request(&provider_messages, &system_prompt, true, None);
     let body_json = serde_json::to_string(&request)
         .map_err(|e| ChatError::ParseError(e.to_string()))?;
 

@@ -164,19 +164,21 @@ impl AppIntakeProvider {
 
 #[async_trait]
 impl IntakeProvider for AppIntakeProvider {
-    async fn structured_output(
+    async fn structured_output_temp(
         &self,
         messages: Vec<Message>,
         schema_name: &str,
+        temperature: Option<f32>,
     ) -> Result<serde_json::Value, IntakeError> {
         let (system_prompt, chat_messages) = split_messages(messages);
         let system_prompt = Some(format!("{system_prompt}{JSON_ONLY_INSTRUCTION}"));
 
-        let response = crate::chat::send_message(
+        let response = crate::chat::send_message_with_temperature(
             chat_messages,
             system_prompt,
             &self.provider_id,
             self.model_id.as_deref(),
+            temperature,
         )
         .await
         .map_err(|e| IntakeError::Provider(format!("{schema_name}: {e}")))?;
@@ -184,10 +186,11 @@ impl IntakeProvider for AppIntakeProvider {
         extract_json(&response.content)
     }
 
-    async fn chat(
+    async fn chat_temp(
         &self,
         messages: Vec<Message>,
         model: Option<&str>,
+        temperature: Option<f32>,
     ) -> Result<String, IntakeError> {
         // Free-text path (scoring narratives): same shared provider layer as
         // `structured_output` — key lookup, PII redaction, trimming, routing —
@@ -198,11 +201,12 @@ impl IntakeProvider for AppIntakeProvider {
         let (system_prompt, chat_messages) = split_messages(messages);
         let system_prompt = (!system_prompt.is_empty()).then_some(system_prompt);
 
-        let response = crate::chat::send_message(
+        let response = crate::chat::send_message_with_temperature(
             chat_messages,
             system_prompt,
             &self.provider_id,
             model.or(self.model_id.as_deref()),
+            temperature,
         )
         .await
         .map_err(|e| IntakeError::Provider(e.to_string()))?;

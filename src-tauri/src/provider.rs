@@ -58,6 +58,7 @@ pub trait Provider: Send + Sync {
         messages: &[ProviderMessage],
         system_prompt: &Option<String>,
         api_key: &str,
+        temperature: Option<f32>,
     ) -> reqwest::RequestBuilder;
 
     /// Build an HTTP request for a streaming message
