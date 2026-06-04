@@ -183,6 +183,32 @@ impl IntakeProvider for AppIntakeProvider {
 
         extract_json(&response.content)
     }
+
+    async fn chat(
+        &self,
+        messages: Vec<Message>,
+        model: Option<&str>,
+    ) -> Result<String, IntakeError> {
+        // Free-text path (scoring narratives): same shared provider layer as
+        // `structured_output` — key lookup, PII redaction, trimming, routing —
+        // but WITHOUT the JSON-only nudge or `extract_json`, so prose with
+        // inline `(ev-id)` citations survives intact. `model` overrides this
+        // provider's default when supplied (e.g. narrative temperature/model
+        // tuning lands in S2.3).
+        let (system_prompt, chat_messages) = split_messages(messages);
+        let system_prompt = (!system_prompt.is_empty()).then_some(system_prompt);
+
+        let response = crate::chat::send_message(
+            chat_messages,
+            system_prompt,
+            &self.provider_id,
+            model.or(self.model_id.as_deref()),
+        )
+        .await
+        .map_err(|e| IntakeError::Provider(e.to_string()))?;
+
+        Ok(response.content)
+    }
 }
 
 // ============================================================================

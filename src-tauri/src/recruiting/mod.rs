@@ -16,6 +16,7 @@ pub mod adapters;
 pub mod cost;
 pub mod identity;
 pub mod intake;
+pub mod scoring;
 pub mod search;
 
 use crate::db::DbPool;

@@ -31,6 +31,18 @@ pub trait IntakeProvider: Send + Sync {
     /// the trait object-safe.
     async fn structured_output(&self, messages: Vec<Message>, schema_name: &str)
         -> Result<serde_json::Value, IntakeError>;
+
+    /// Free-text completion from the LLM — the raw assistant text, with no
+    /// JSON-extraction post-processing. Scoring's narrative generator (S2.3)
+    /// rides on this; signal/score extraction use `structured_output`. `model`
+    /// optionally overrides the provider's default model for this call.
+    ///
+    /// (This trait is shared by intake and scoring — it is the recruiting
+    /// module's single LLM seam, kept under the `IntakeProvider` name to scope
+    /// the FHR-77 diff; a rename to a neutral `RecruitingLlm` is a clean
+    /// follow-up.)
+    async fn chat(&self, messages: Vec<Message>, model: Option<&str>)
+        -> Result<String, IntakeError>;
 }
 
 #[async_trait]
@@ -63,11 +75,25 @@ pub mod testing {
     use super::*;
     use std::sync::Mutex;
 
-    /// Returns scripted JSON values in order; errors when exhausted.
-    pub struct FakeProvider { queue: Mutex<std::collections::VecDeque<serde_json::Value>> }
+    /// Returns scripted JSON values (for `structured_output`) and scripted
+    /// free text (for `chat`) in order; errors when the relevant queue is empty.
+    pub struct FakeProvider {
+        queue: Mutex<std::collections::VecDeque<serde_json::Value>>,
+        text_queue: Mutex<std::collections::VecDeque<String>>,
+    }
     impl FakeProvider {
         pub fn new(values: Vec<serde_json::Value>) -> Self {
-            Self { queue: Mutex::new(values.into_iter().collect()) }
+            Self {
+                queue: Mutex::new(values.into_iter().collect()),
+                text_queue: Mutex::new(std::collections::VecDeque::new()),
+            }
+        }
+        /// Script the free-text responses returned by `chat`, in order.
+        pub fn with_texts(self, texts: Vec<String>) -> Self {
+            Self {
+                text_queue: Mutex::new(texts.into_iter().collect()),
+                ..self
+            }
         }
     }
     #[async_trait]
@@ -76,6 +102,11 @@ pub mod testing {
             -> Result<serde_json::Value, IntakeError> {
             self.queue.lock().unwrap().pop_front()
                 .ok_or_else(|| IntakeError::Provider("FakeProvider exhausted".into()))
+        }
+        async fn chat(&self, _m: Vec<Message>, _model: Option<&str>)
+            -> Result<String, IntakeError> {
+            self.text_queue.lock().unwrap().pop_front()
+                .ok_or_else(|| IntakeError::Provider("FakeProvider text queue exhausted".into()))
         }
     }
 
@@ -133,6 +164,13 @@ pub mod testing {
         async fn fake_provider_errors_when_exhausted() {
             let p = FakeProvider::new(vec![]);
             assert!(p.structured_output(vec![], "X").await.is_err());
+        }
+
+        #[tokio::test]
+        async fn fake_provider_returns_scripted_text_from_chat() {
+            let p = FakeProvider::new(vec![]).with_texts(vec!["a candidate narrative".into()]);
+            let out = p.chat(vec![], None).await.unwrap();
+            assert_eq!(out, "a candidate narrative");
         }
 
         #[test]
