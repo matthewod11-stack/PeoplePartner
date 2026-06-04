@@ -15,7 +15,7 @@ pub struct Message {
 #[serde(rename_all = "lowercase")]
 pub enum MessageRole { System, User, Assistant }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RoleParameters {
     pub title: String,
@@ -50,7 +50,7 @@ pub struct CompensationRange {
     pub currency: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompanyIntel {
     pub name: String,
@@ -113,7 +113,7 @@ pub struct ProfileAnalysis {
     pub analyzed_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositeProfile {
     #[serde(default)]
@@ -126,7 +126,7 @@ pub struct CompositeProfile {
     pub culture_signals: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CompetitorMap {
     #[serde(default)]

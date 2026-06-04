@@ -25,4 +25,5 @@ pub mod evidence;
 pub mod grounding;
 pub mod sanitize;
 pub mod schemas;
+pub mod signal_extract;
 pub mod templates;
