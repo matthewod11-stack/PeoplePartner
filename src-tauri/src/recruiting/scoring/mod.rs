@@ -21,4 +21,5 @@
 // `recruiting/intake/mod.rs`, which carries the same allow for the same reason.
 #![allow(dead_code)]
 
+pub mod sanitize;
 pub mod templates;
