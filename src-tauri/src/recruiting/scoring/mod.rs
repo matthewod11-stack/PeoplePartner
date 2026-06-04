@@ -23,4 +23,5 @@
 
 pub mod evidence;
 pub mod sanitize;
+pub mod schemas;
 pub mod templates;
