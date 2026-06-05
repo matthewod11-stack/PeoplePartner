@@ -63,7 +63,11 @@ ROADMAP.md
 DECISIONS.md
 features.json
 docs/
-prompts/
+# Root-only: ignore the top-level ./prompts scratch dir, NOT nested source dirs.
+# A bare `prompts/` also swallowed src-tauri/src/recruiting/scoring/prompts/, whose
+# vendored *.md templates are include_str!'d — that broke CI (files absent on fresh
+# checkout) while passing locally. Anchored to repo root to keep the templates tracked.
+/prompts/
 test-data/
 # scripts/ is local-only EXCEPT the generated synthetic test-data JSONs,
 # which release CI imports at build time via Vite (no generator in CI).
