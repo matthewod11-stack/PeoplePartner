@@ -9,13 +9,16 @@ use crate::recruiting::identity::{
     resolver::resolve,
     types::{ResolveStats, ResolvedCandidate},
 };
+use crate::recruiting::intake::schemas::SearchConfig;
 use crate::recruiting::search::{
-    enrich::{enrich_candidates, exa_enrichment_priority, should_run_exa_enrichment, ContentEnricher, EnrichConfig, EnrichError, EnrichmentOutcome, ExaContentEnricher},
+    enrich::{
+        enrich_candidates, exa_enrichment_priority, should_run_exa_enrichment, ContentEnricher,
+        EnrichConfig, EnrichError, EnrichmentOutcome, ExaContentEnricher,
+    },
     executor::DiscoveryStats,
     source::{CandidateSource, ExaCandidateSource, SearchError},
     DiscoveryPipeline,
 };
-use crate::recruiting::intake::schemas::SearchConfig;
 use crate::recruiting::{self, RecruitingSearch, EXA_PROVIDER_ID};
 use serde::Serialize;
 
@@ -145,6 +148,10 @@ use crate::recruiting::intake::runner::{
 };
 use crate::recruiting::intake::schemas::TalentProfile;
 use crate::recruiting::intake::seed::{build_seeded_context, extract_seed};
+use crate::recruiting::scoring::narrative::NarrativeOptions;
+use crate::recruiting::scoring::orchestrator::{score_candidates, ScoredCandidate};
+use crate::recruiting::scoring::score::ScoringConfig;
+use crate::recruiting::scoring::signal_extract::ScoringError;
 use crate::settings;
 
 /// One turn of the intake conversation. `state` is the opaque serialized
@@ -182,7 +189,9 @@ impl From<IntakeError> for IntakeCommandError {
         match e {
             IntakeError::Provider(m) => IntakeCommandError::Provider { message: m },
             IntakeError::Research(m) => IntakeCommandError::Research { message: m },
-            other => IntakeCommandError::Internal { message: other.to_string() },
+            other => IntakeCommandError::Internal {
+                message: other.to_string(),
+            },
         }
     }
 }
@@ -193,7 +202,9 @@ impl From<IntakeError> for IntakeCommandError {
 async fn deps_from_env(pool: &crate::db::DbPool) -> Result<IntakeDeps, IntakeCommandError> {
     let provider_id = settings::get_setting(pool, "active_provider")
         .await
-        .map_err(|e| IntakeCommandError::Internal { message: e.to_string() })?
+        .map_err(|e| IntakeCommandError::Internal {
+            message: e.to_string(),
+        })?
         .unwrap_or_else(|| "anthropic".to_string());
 
     if !keyring::has_provider_api_key(&provider_id) {
@@ -201,14 +212,20 @@ async fn deps_from_env(pool: &crate::db::DbPool) -> Result<IntakeDeps, IntakeCom
     }
 
     let model_key = format!("active_model_{}", provider_id);
-    let model_id = settings::get_setting(pool, &model_key)
-        .await
-        .map_err(|e| IntakeCommandError::Internal { message: e.to_string() })?;
+    let model_id = settings::get_setting(pool, &model_key).await.map_err(|e| {
+        IntakeCommandError::Internal {
+            message: e.to_string(),
+        }
+    })?;
 
     let exa_key = match keyring::get_provider_api_key(EXA_PROVIDER_ID) {
         Ok(k) => k,
         Err(KeyringError::NotFound) => return Err(IntakeCommandError::MissingExaKey),
-        Err(other) => return Err(IntakeCommandError::Internal { message: other.to_string() }),
+        Err(other) => {
+            return Err(IntakeCommandError::Internal {
+                message: other.to_string(),
+            })
+        }
     };
 
     Ok(production_intake_deps(&provider_id, model_id, exa_key))
@@ -228,11 +245,20 @@ pub struct IntakeSeedInput {
 fn resolve_seed_text(input: &IntakeSeedInput) -> Result<String, IntakeCommandError> {
     match (&input.file_path, &input.seed_text) {
         (Some(path), None) => {
-            let chunks = crate::documents::parse_file(std::path::Path::new(path))
-                .map_err(|e| IntakeCommandError::Internal { message: format!("Couldn't read {path}: {e}") })?;
-            let text = chunks.iter().map(|c| c.content.as_str()).collect::<Vec<_>>().join("\n\n");
+            let chunks = crate::documents::parse_file(std::path::Path::new(path)).map_err(|e| {
+                IntakeCommandError::Internal {
+                    message: format!("Couldn't read {path}: {e}"),
+                }
+            })?;
+            let text = chunks
+                .iter()
+                .map(|c| c.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n\n");
             if text.trim().is_empty() {
-                return Err(IntakeCommandError::Internal { message: format!("{path} had no readable text") });
+                return Err(IntakeCommandError::Internal {
+                    message: format!("{path} had no readable text"),
+                });
             }
             Ok(text)
         }
@@ -254,14 +280,18 @@ pub(crate) async fn recruiting_intake_start_from_seed(
     state: tauri::State<'_, Database>,
     seed: IntakeSeedInput,
 ) -> Result<IntakeTurn, IntakeCommandError> {
-    let deps = deps_from_env(&state.pool).await?;          // preflight LLM/Exa keys
+    let deps = deps_from_env(&state.pool).await?; // preflight LLM/Exa keys
     let text = resolve_seed_text(&seed)?;
-    let redacted = crate::pii::scan_and_redact(&text).redacted_text;  // financial-scope (names/emails = FHR-90)
+    let redacted = crate::pii::scan_and_redact(&text).redacted_text; // financial-scope (names/emails = FHR-90)
     let extraction = extract_seed(&redacted, &deps).await?;
     let ctx = build_seeded_context(extraction, redacted, &deps.clock.now_iso8601());
     let mut engine = create_intake_engine(&deps, Some(ctx));
     let prompt = engine.get_prompt().await;
-    Ok(IntakeTurn { done: engine.is_done(), state: engine.serialize_state(), prompt })
+    Ok(IntakeTurn {
+        done: engine.is_done(),
+        state: engine.serialize_state(),
+        prompt,
+    })
 }
 
 /// Start an intake conversation. Returns the first prompt + opaque state blob.
@@ -273,7 +303,11 @@ pub(crate) async fn recruiting_intake_start(
     let deps = deps_from_env(&state.pool).await?;
     let mut engine = create_intake_engine(&deps, None);
     let prompt = engine.get_prompt().await;
-    Ok(IntakeTurn { done: engine.is_done(), state: engine.serialize_state(), prompt })
+    Ok(IntakeTurn {
+        done: engine.is_done(),
+        state: engine.serialize_state(),
+        prompt,
+    })
 }
 
 /// Submit one user response. Restores the engine from `conversation_state`,
@@ -292,7 +326,11 @@ pub(crate) async fn recruiting_intake_step(
     let mut engine = restore_intake_engine(&conversation_state)?;
     engine.submit_response(&response, &deps).await?;
     let prompt = engine.get_prompt().await;
-    Ok(IntakeTurn { done: engine.is_done(), state: engine.serialize_state(), prompt })
+    Ok(IntakeTurn {
+        done: engine.is_done(),
+        state: engine.serialize_state(),
+        prompt,
+    })
 }
 
 /// Extract the final result (runnable `SearchConfig` + artifacts) once done.
@@ -309,6 +347,46 @@ pub(crate) async fn recruiting_intake_extract(
         talent_profile: result.talent_profile,
         similarity_seeds: result.similarity_seeds,
     })
+}
+
+impl From<ScoringError> for IntakeCommandError {
+    fn from(e: ScoringError) -> Self {
+        match e {
+            // Provider errors carry an IntakeError → reuse its mapping.
+            ScoringError::Provider(inner) => inner.into(),
+            other => IntakeCommandError::Internal {
+                message: other.to_string(),
+            },
+        }
+    }
+}
+
+/// Score a batch of resolved candidates into a ranked, explained shortlist.
+///
+/// Composes after `recruiting_run_search`: pass `result.candidates` plus the
+/// intake's `talentProfile`. Reuses `deps_from_env` for the LLM provider + clock
+/// (so it needs the Anthropic key; the Exa key is also required by that helper,
+/// which is already true post-search). `config` defaults to `ScoringConfig::default()`.
+#[tauri::command]
+pub(crate) async fn recruiting_score_candidates(
+    state: tauri::State<'_, Database>,
+    candidates: Vec<ResolvedCandidate>,
+    talent_profile: TalentProfile,
+    config: Option<ScoringConfig>,
+) -> Result<Vec<ScoredCandidate>, IntakeCommandError> {
+    let deps = deps_from_env(&state.pool).await?;
+    let cfg = config.unwrap_or_default();
+    let retrieved_at = deps.clock.now_iso8601();
+    score_candidates(
+        candidates,
+        &talent_profile,
+        deps.provider.clone(),
+        &cfg,
+        &NarrativeOptions::default(),
+        &retrieved_at,
+    )
+    .await
+    .map_err(IntakeCommandError::from)
 }
 
 // ============================================================================
@@ -384,15 +462,16 @@ pub(crate) async fn run_search_inner<S: CandidateSource>(
     let mut cost = CostTracker::new(CostModel::default(), cfg.max_cost_usd);
 
     // --- Phase 1: discovery ---
-    let (raw, discovery_stats) =
-        DiscoveryPipeline::run(source, cfg, &mut cost)
-            .await
-            .map_err(RecruitingSearchError::from)?;
+    let (raw, discovery_stats) = DiscoveryPipeline::run(source, cfg, &mut cost)
+        .await
+        .map_err(RecruitingSearchError::from)?;
 
     // --- Phase 2: identity resolution ---
     let resolved = resolve(raw, arbiter)
         .await
-        .map_err(|e| RecruitingSearchError::Internal { message: e.to_string() })?;
+        .map_err(|e| RecruitingSearchError::Internal {
+            message: e.to_string(),
+        })?;
 
     let mut candidates = resolved.candidates;
     let resolve_stats = resolved.stats;
@@ -449,7 +528,9 @@ pub(crate) async fn recruiting_run_search(
 
     // source takes the clone; enricher moves the original — both own a copy.
     let source = ExaCandidateSource::new(api_key.clone());
-    let enricher = ExaContentEnricher { exa_api_key: api_key };
+    let enricher = ExaContentEnricher {
+        exa_api_key: api_key,
+    };
     let arbiter = NoopArbiter;
 
     run_search_inner(&search_config, source, &enricher, &arbiter).await
@@ -476,7 +557,11 @@ mod tests {
 
     #[test]
     fn intake_turn_serializes_camel_case() {
-        let t = IntakeTurn { prompt: Some("hi".into()), state: "{}".into(), done: false };
+        let t = IntakeTurn {
+            prompt: Some("hi".into()),
+            state: "{}".into(),
+            done: false,
+        };
         let v = serde_json::to_value(&t).unwrap();
         assert_eq!(v["prompt"], "hi");
         assert_eq!(v["done"], false);
@@ -485,27 +570,50 @@ mod tests {
 
     #[test]
     fn resolve_seed_text_accepts_nonempty_paste() {
-        let input = IntakeSeedInput { file_path: None, seed_text: Some("a JD".into()) };
+        let input = IntakeSeedInput {
+            file_path: None,
+            seed_text: Some("a JD".into()),
+        };
         assert_eq!(resolve_seed_text(&input).unwrap(), "a JD");
     }
 
     #[test]
     fn resolve_seed_text_rejects_both_empty() {
-        let input = IntakeSeedInput { file_path: None, seed_text: None };
-        assert!(matches!(resolve_seed_text(&input), Err(IntakeCommandError::Internal { .. })));
+        let input = IntakeSeedInput {
+            file_path: None,
+            seed_text: None,
+        };
+        assert!(matches!(
+            resolve_seed_text(&input),
+            Err(IntakeCommandError::Internal { .. })
+        ));
     }
 
     #[test]
     fn resolve_seed_text_rejects_both_set() {
-        let input = IntakeSeedInput { file_path: Some("/x".into()), seed_text: Some("y".into()) };
-        let Err(IntakeCommandError::Internal { message }) = resolve_seed_text(&input) else { panic!("expected Internal error") };
-        assert!(message.contains("both"), "both-set error should mention both: {message}");
+        let input = IntakeSeedInput {
+            file_path: Some("/x".into()),
+            seed_text: Some("y".into()),
+        };
+        let Err(IntakeCommandError::Internal { message }) = resolve_seed_text(&input) else {
+            panic!("expected Internal error")
+        };
+        assert!(
+            message.contains("both"),
+            "both-set error should mention both: {message}"
+        );
     }
 
     #[test]
     fn resolve_seed_text_rejects_blank_paste() {
-        let input = IntakeSeedInput { file_path: None, seed_text: Some("   ".into()) };
-        assert!(matches!(resolve_seed_text(&input), Err(IntakeCommandError::Internal { .. })));
+        let input = IntakeSeedInput {
+            file_path: None,
+            seed_text: Some("   ".into()),
+        };
+        assert!(matches!(
+            resolve_seed_text(&input),
+            Err(IntakeCommandError::Internal { .. })
+        ));
     }
 
     // -------------------------------------------------------------------------
@@ -620,8 +728,10 @@ mod tests {
     #[test]
     fn search_error_rate_limit_maps_correctly() {
         use crate::recruiting::adapters::exa::ExaError;
-        let mapped: RecruitingSearchError =
-            SearchError::Source(ExaError::RateLimit { message: "slow down".into() }).into();
+        let mapped: RecruitingSearchError = SearchError::Source(ExaError::RateLimit {
+            message: "slow down".into(),
+        })
+        .into();
         assert!(matches!(mapped, RecruitingSearchError::RateLimit { .. }));
     }
 
@@ -642,6 +752,22 @@ mod tests {
     }
 
     #[test]
+    fn scoring_error_provider_maps_via_intake_error() {
+        use crate::recruiting::intake::deps::IntakeError;
+        let mapped: IntakeCommandError =
+            ScoringError::Provider(IntakeError::Provider("boom".into())).into();
+        assert!(matches!(mapped, IntakeCommandError::Provider { .. }));
+    }
+
+    #[test]
+    fn scoring_error_template_maps_to_internal() {
+        use crate::recruiting::scoring::templates::TemplateError;
+        let mapped: IntakeCommandError =
+            ScoringError::Template(TemplateError::MissingChangelog("x".into())).into();
+        assert!(matches!(mapped, IntakeCommandError::Internal { .. }));
+    }
+
+    #[test]
     fn run_search_result_serializes_camel_case() {
         use crate::recruiting::cost::{CostModel, CostTracker};
         let tracker = CostTracker::new(CostModel::default(), 10.0);
@@ -654,9 +780,21 @@ mod tests {
         };
         let v = serde_json::to_value(&result).unwrap();
         assert!(v.get("candidates").is_some(), "candidates field must exist");
-        assert!(v.get("discoveryStats").is_some(), "discoveryStats must be camelCase");
-        assert!(v.get("resolveStats").is_some(), "resolveStats must be camelCase");
-        assert!(v.get("enrichmentOutcome").is_some(), "enrichmentOutcome must be camelCase");
-        assert!(v.get("costReport").is_some(), "costReport must be camelCase");
+        assert!(
+            v.get("discoveryStats").is_some(),
+            "discoveryStats must be camelCase"
+        );
+        assert!(
+            v.get("resolveStats").is_some(),
+            "resolveStats must be camelCase"
+        );
+        assert!(
+            v.get("enrichmentOutcome").is_some(),
+            "enrichmentOutcome must be camelCase"
+        );
+        assert!(
+            v.get("costReport").is_some(),
+            "costReport must be camelCase"
+        );
     }
 }

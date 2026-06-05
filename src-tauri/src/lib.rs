@@ -17,8 +17,8 @@ mod conversations;
 mod data_quality;
 mod db;
 mod dei;
-mod documents;
 mod device_id;
+mod documents;
 mod employees;
 mod enps;
 mod file_parser;
@@ -33,11 +33,11 @@ mod network;
 mod performance_ratings;
 mod performance_reviews;
 mod pii;
+mod provider;
+mod providers;
 mod recruiting;
 mod review_cycles;
 mod settings;
-mod provider;
-mod providers;
 mod signals;
 mod trial;
 
@@ -242,11 +242,13 @@ pub fn run() {
             commands::recruiting::recruiting_intake_start_from_seed,
             // Full pipeline command (FHR-73 S1.1 Task 7)
             commands::recruiting::recruiting_run_search,
+            commands::recruiting::recruiting_score_candidates,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases
             #[cfg(desktop)]
-            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
 
             let handle = app.handle().clone();
 
@@ -257,7 +259,8 @@ pub fn run() {
                         // Start document folder watcher (V3.0). Async since
                         // issue #38 — safe to await inside the existing
                         // tauri::async_runtime::block_on(async move { ... }).
-                        let watcher_state = documents::start_watcher(pool.clone(), handle.clone()).await;
+                        let watcher_state =
+                            documents::start_watcher(pool.clone(), handle.clone()).await;
                         handle.manage(watcher_state);
 
                         // Store database pool in app state
