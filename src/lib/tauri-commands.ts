@@ -2332,3 +2332,59 @@ export async function recruitingRunSearch(
 ): Promise<RunSearchResult> {
   return invoke('recruiting_run_search', { searchConfig });
 }
+
+/** Tier is the integer 1 | 2 | 3 (matches the Rust `Tier` wire form). */
+export type Tier = 1 | 2 | 3;
+
+export interface ScoreComponent {
+  dimension: string;
+  raw: number;
+  weight: number;
+  weighted: number;
+  evidenceIds: string[];
+  confidence: number;
+  hallucinationPenalty?: {
+    hallucinatedCount: number;
+    totalCitedCount: number;
+    penaltyApplied: number;
+    rawScoreBeforePenalty: number;
+  };
+}
+
+export interface Score {
+  total: number;
+  breakdown: ScoreComponent[];
+  weights: Record<string, number>;
+  redFlags: Array<{ signal: string; evidenceId: string; severity: 'low' | 'medium' | 'high' }>;
+  promptVersions?: Record<string, number>;
+}
+
+/** A candidate scored into the ranked shortlist (Rust `ScoredCandidate`). */
+export interface ScoredCandidate {
+  candidate: CandidatePreview;
+  signals: unknown; // ExtractedSignals — opaque until a scoring UI consumes it
+  score: Score;
+  tier: Tier;
+  narrative: string;
+}
+
+/** Optional scoring config; omit to use the Rust benchmark defaults. */
+export interface ScoringConfig {
+  weights?: Record<string, number>;
+  tierThresholds?: { tier1MinScore: number; tier2MinScore: number };
+  redFlagPenalties?: { low: number; medium: number; high: number };
+}
+
+/**
+ * Score resolved candidates into a ranked, explained shortlist. Pass the
+ * `candidates` returned by {@link recruitingRunSearch} (they round-trip with
+ * full provenance at runtime) and the intake's talent profile. Throws an
+ * `IntakeCommandError` discriminated union on failure.
+ */
+export async function recruitingScoreCandidates(
+  candidates: CandidatePreview[],
+  talentProfile: unknown,
+  config?: ScoringConfig,
+): Promise<ScoredCandidate[]> {
+  return invoke('recruiting_score_candidates', { candidates, talentProfile, config });
+}
