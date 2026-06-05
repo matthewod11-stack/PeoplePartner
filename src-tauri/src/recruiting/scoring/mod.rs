@@ -24,6 +24,7 @@
 pub mod evidence;
 pub mod grounding;
 pub mod narrative;
+pub mod orchestrator;
 pub mod sanitize;
 pub mod schemas;
 pub mod score;
