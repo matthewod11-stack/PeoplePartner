@@ -1,8 +1,16 @@
 //! Narrative generator (TS `narrative-generator.ts`): score breakdown text +
 //! LLM prose with evidence citations, over the shared `chat_temp` seam @ 0.3.
 
-use super::schemas::Severity;
+use std::sync::Arc;
+
+use super::evidence::EvidenceItem;
+use super::schemas::{ExtractedSignals, Severity};
 use super::score::Score;
+use super::signal_extract::{format_evidence, format_talent_profile, ScoringError};
+use super::templates::{PromptMetadata, ScoringPrompt, TemplateContext};
+use crate::recruiting::identity::types::ResolvedCandidate;
+use crate::recruiting::intake::deps::IntakeProvider;
+use crate::recruiting::intake::schemas::{Message, MessageRole, TalentProfile};
 
 /// Render a `Score` into the breakdown text the narrative prompt consumes.
 /// Faithful port of TS `formatScoreBreakdown` (weights `{:.2}`, weighted `{:.1}`,
@@ -49,11 +57,86 @@ fn severity_label(s: Severity) -> &'static str {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct NarrativeOptions {
+    pub model: Option<String>,
+    pub temperature: Option<f32>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NarrativeResult {
+    pub narrative: String,
+    pub prompt: PromptMetadata,
+    // NOTE: TS exposes `usage: TokenUsage`; omitted — the Rust chat_temp seam returns only String.
+}
+
+/// Generate a candidate narrative via the LLM. Grounding is prompt-only
+/// (faithful to TS): the vendored `scoring-narrative.md` template carries the
+/// cite-only-canonical-IDs + injection-defense constraints. Temperature defaults
+/// to 0.3 (TS `?? 0.3`).
+pub async fn generate_narrative(
+    candidate: &ResolvedCandidate,
+    talent_profile: &TalentProfile,
+    signals: &ExtractedSignals,
+    score: &Score,
+    evidence: &[EvidenceItem],
+    provider: Arc<dyn IntakeProvider>,
+    options: &NarrativeOptions,
+) -> Result<NarrativeResult, ScoringError> {
+    let mut ctx = TemplateContext::new();
+    ctx.insert(
+        "talentProfile".into(),
+        format_talent_profile(talent_profile),
+    );
+    ctx.insert("candidateName".into(), candidate.name.clone());
+    ctx.insert("evidence".into(), format_evidence(evidence));
+    ctx.insert(
+        "signals".into(),
+        serde_json::to_string_pretty(signals).unwrap_or_default(),
+    );
+    ctx.insert("scoreBreakdown".into(), format_score_breakdown(score));
+    ctx.insert(
+        "evidenceIds".into(),
+        evidence
+            .iter()
+            .map(|e| e.id.as_str())
+            .collect::<Vec<_>>()
+            .join("\n"),
+    );
+
+    let rendered = ScoringPrompt::Narrative.render(&ctx)?;
+    let messages = vec![Message {
+        role: MessageRole::User,
+        content: rendered.content,
+    }];
+    let temperature = options.temperature.unwrap_or(0.3);
+    let narrative = provider
+        .chat_temp(messages, options.model.as_deref(), Some(temperature))
+        .await
+        .map_err(ScoringError::Provider)?;
+
+    Ok(NarrativeResult {
+        narrative,
+        prompt: rendered.metadata,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::schemas::{HallucinationPenalty, RedFlag, Severity};
     use super::super::score::{ScoreComponent, ScoringWeights};
     use super::*;
+
+    use super::super::evidence::{Confidence, EvidenceItem};
+    use super::super::score::ScoringConfig;
+    use crate::recruiting::identity::types::{PersonIdentity, ResolvedCandidate, SourceData};
+    use crate::recruiting::intake::deps::testing::FakeProvider;
+    use crate::recruiting::intake::deps::IntakeProvider;
+    use crate::recruiting::intake::schemas::{
+        CompanyIntel, CompetitorMap, CompositeProfile, RoleParameters, TalentProfile,
+    };
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
 
     fn comp(dim: &str, raw: f64, weight: f64, weighted: f64, conf: f64) -> ScoreComponent {
         ScoreComponent {
@@ -127,5 +210,85 @@ mod tests {
             out.ends_with("Red flags: 1 (medium: \"job hopper\")"),
             "got:\n{out}"
         );
+    }
+
+    fn fixture_candidate() -> ResolvedCandidate {
+        let mut sources = BTreeMap::new();
+        sources.insert(
+            "exa".to_string(),
+            SourceData {
+                adapter: "exa".into(),
+                urls: vec!["https://github.com/jane".into()],
+            },
+        );
+        ResolvedCandidate {
+            id: "person-1".into(),
+            identity: PersonIdentity {
+                canonical_id: "person-1".into(),
+                observed_identifiers: vec![],
+                merged_from: None,
+                merge_confidence: 1.0,
+                low_confidence_merge: false,
+            },
+            name: "Jane Dev".into(),
+            sources,
+            page_text: None,
+        }
+    }
+
+    fn fixture_profile() -> TalentProfile {
+        TalentProfile {
+            role: RoleParameters::default(),
+            company: CompanyIntel::default(),
+            success_patterns: CompositeProfile::default(),
+            anti_patterns: vec![],
+            competitor_map: CompetitorMap::default(),
+            created_at: "t".into(),
+        }
+    }
+
+    fn fixture_evidence() -> Vec<EvidenceItem> {
+        vec![EvidenceItem {
+            id: "ev-1".into(),
+            claim: "built a ledger".into(),
+            source: "https://x".into(),
+            adapter: "exa".into(),
+            retrieved_at: "t".into(),
+            confidence: Confidence::Medium,
+            url: None,
+        }]
+    }
+
+    #[tokio::test]
+    async fn generate_narrative_returns_scripted_prose_and_metadata() {
+        let provider: Arc<dyn IntakeProvider> = Arc::new(
+            FakeProvider::new(vec![]).with_texts(vec!["Strong fit. Built a ledger (ev-1).".into()]),
+        );
+        // Build fixtures locally (don't reach into another module's #[cfg(test)] mod).
+        let signals: ExtractedSignals = serde_json::from_value(serde_json::json!({
+            "technicalDepth": {"score": 80, "evidenceIds": [], "confidence": 0.9},
+            "domainRelevance": {"score": 0, "evidenceIds": [], "confidence": 1.0},
+            "trajectoryMatch": {"score": 0, "evidenceIds": [], "confidence": 1.0},
+            "cultureFit": {"score": 0, "evidenceIds": [], "confidence": 1.0},
+            "reachability": {"score": 0, "evidenceIds": [], "confidence": 1.0},
+            "redFlags": []
+        }))
+        .unwrap();
+        let score =
+            crate::recruiting::scoring::score::score_candidate(&signals, &ScoringConfig::default());
+        let result = generate_narrative(
+            &fixture_candidate(),
+            &fixture_profile(),
+            &signals,
+            &score,
+            &fixture_evidence(),
+            provider,
+            &NarrativeOptions::default(),
+        )
+        .await
+        .expect("narrative succeeds");
+        assert_eq!(result.narrative, "Strong fit. Built a ledger (ev-1).");
+        assert_eq!(result.prompt.name, "scoring-narrative");
+        assert_eq!(result.prompt.version, 2);
     }
 }
