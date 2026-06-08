@@ -31,7 +31,6 @@ struct Meta {
 #[serde(rename_all = "camelCase")]
 struct GoldenEntry {
     id: String,
-    #[allow(dead_code)]
     name: String,
     evidence: Vec<super::evidence::EvidenceItem>,
     expected_signals: ExtractedSignals,
@@ -72,6 +71,20 @@ struct TsTotalTier {
     total: f64,
     tier: u8,
 }
+
+// ── Real-LLM narrative grounding (the "no phantom IDs" acceptance check).
+// #[ignore]d: hits the live LLM, needs an Anthropic key in the keyring, costs
+// tokens, and is non-deterministic — NOT a CI gate. Run manually:
+//   cargo test --manifest-path src-tauri/Cargo.toml -- --ignored narrative_grounding
+use std::sync::Arc;
+
+use super::narrative::{generate_narrative, scan_phantom_citations, NarrativeOptions};
+use crate::recruiting::identity::types::{PersonIdentity, ResolvedCandidate};
+use crate::recruiting::intake::deps::IntakeProvider;
+use crate::recruiting::intake::prod::AppIntakeProvider;
+use crate::recruiting::intake::schemas::{
+    CompanyIntel, CompetitorMap, CompositeProfile, RoleParameters, TalentProfile,
+};
 
 fn load_fixture() -> Fixture {
     let raw = include_str!("fixtures/golden-ts-reference.json");
@@ -142,4 +155,77 @@ fn adversarial_vectors_match_ts_reference() {
         let tier = u8::from(assign_tier(out.total, &a.config.tier_thresholds));
         assert_eq!(tier, a.ts.tier, "{}: tier {} vs ts {}", a.name, tier, a.ts.tier);
     }
+}
+
+fn eval_talent_profile() -> TalentProfile {
+    // Mirrors the golden set's role; defaults for the rest — the grounding check
+    // turns on evidence citations, not profile fidelity, and a sparse profile is
+    // a stricter wander test for the model.
+    TalentProfile {
+        role: RoleParameters::default(),
+        company: CompanyIntel::default(),
+        success_patterns: CompositeProfile::default(),
+        anti_patterns: vec![],
+        competitor_map: CompetitorMap::default(),
+        created_at: "2026-05-01T00:00:00.000Z".into(),
+    }
+}
+
+fn resolved_from(id: &str, name: &str) -> ResolvedCandidate {
+    ResolvedCandidate {
+        id: id.into(),
+        identity: PersonIdentity {
+            canonical_id: id.into(),
+            observed_identifiers: vec![],
+            merged_from: None,
+            merge_confidence: 1.0,
+            low_confidence_merge: false,
+        },
+        name: name.into(),
+        sources: std::collections::BTreeMap::new(),
+        page_text: None,
+    }
+}
+
+#[tokio::test]
+#[ignore = "hits the real LLM; needs anthropic key in keyring; run manually for FHR-80 acceptance"]
+async fn narrative_grounding_cites_only_real_evidence() {
+    if !crate::keyring::has_provider_api_key("anthropic") {
+        eprintln!("SKIP narrative_grounding: no anthropic key in keyring");
+        return;
+    }
+    let fx = load_fixture();
+    let provider: Arc<dyn IntakeProvider> = Arc::new(AppIntakeProvider::new("anthropic", None));
+    let profile = eval_talent_profile();
+
+    let mut failures: Vec<String> = Vec::new();
+    for g in &fx.golden {
+        let candidate = resolved_from(&g.id, &g.name);
+        let real_ids: Vec<String> = g.evidence.iter().map(|e| e.id.clone()).collect();
+        let score = score_candidate(&g.expected_signals, &fx.meta.config);
+        let result = generate_narrative(
+            &candidate,
+            &profile,
+            &g.expected_signals,
+            &score,
+            &g.evidence,
+            provider.clone(),
+            &NarrativeOptions::default(),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{}: narrative generation failed: {e:?}", g.id));
+
+        let phantoms = scan_phantom_citations(&result.narrative, &real_ids);
+        if !phantoms.is_empty() {
+            failures.push(format!(
+                "{}: phantom citations {:?}\n  narrative: {}",
+                g.id, phantoms, result.narrative
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "phantom-citation failures:\n{}",
+        failures.join("\n")
+    );
 }
