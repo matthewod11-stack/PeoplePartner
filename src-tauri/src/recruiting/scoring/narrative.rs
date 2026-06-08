@@ -57,6 +57,27 @@ fn severity_label(s: Severity) -> &'static str {
     }
 }
 
+/// Extract `ev-…` citation tokens from narrative prose and return those NOT in
+/// `real_ids` (deduped, in first-seen order). The narrative prompt instructs the
+/// model to cite only canonical evidence IDs; this is the verification side
+/// (FHR-80). Prod grounding stays prompt-only (FHR-79) — this is used by the eval
+/// harness, not the runtime path.
+pub(crate) fn scan_phantom_citations(narrative: &str, real_ids: &[String]) -> Vec<String> {
+    use std::collections::HashSet;
+    // ev- followed by alphanumerics: matches golden `ev-ml00101` and djb2 `ev-7f7a0b`.
+    let re = regex::Regex::new(r"ev-[A-Za-z0-9]+").expect("valid regex");
+    let real: HashSet<&str> = real_ids.iter().map(|s| s.as_str()).collect();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut phantom = Vec::new();
+    for m in re.find_iter(narrative) {
+        let id = m.as_str();
+        if !real.contains(id) && seen.insert(id.to_string()) {
+            phantom.push(id.to_string());
+        }
+    }
+    phantom
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NarrativeOptions {
     pub model: Option<String>,
@@ -290,5 +311,19 @@ mod tests {
         assert_eq!(result.narrative, "Strong fit. Built a ledger (ev-1).");
         assert_eq!(result.prompt.name, "scoring-narrative");
         assert_eq!(result.prompt.version, 2);
+    }
+
+    #[test]
+    fn scan_phantom_citations_flags_unknown_ids_only() {
+        let real = vec!["ev-1".to_string(), "ev-ml00101".to_string()];
+        let narrative = "Strong (ev-1). Also cites (ev-999) and ev-ml00101 again, plus ev-1.";
+        let phantoms = scan_phantom_citations(narrative, &real);
+        assert_eq!(phantoms, vec!["ev-999".to_string()], "only the unknown id, deduped");
+    }
+
+    #[test]
+    fn scan_phantom_citations_empty_when_all_real() {
+        let real = vec!["ev-1".to_string()];
+        assert!(scan_phantom_citations("Built a ledger (ev-1).", &real).is_empty());
     }
 }
