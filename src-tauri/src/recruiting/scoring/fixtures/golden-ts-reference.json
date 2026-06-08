@@ -1,0 +1,2616 @@
+{
+  "meta": {
+    "capturedAt": "2026-06-08T15:13:51.588Z",
+    "sourcererCommit": "e3b9f18",
+    "config": {
+      "weights": {
+        "technicalDepth": 0.3,
+        "domainRelevance": 0.25,
+        "trajectoryMatch": 0.2,
+        "cultureFit": 0.15,
+        "reachability": 0.1
+      },
+      "tierThresholds": {
+        "tier1MinScore": 72,
+        "tier2MinScore": 48
+      },
+      "redFlagPenalties": {
+        "low": 2,
+        "medium": 5,
+        "high": 10
+      }
+    }
+  },
+  "golden": [
+    {
+      "id": "golden-ml001",
+      "name": "Asha Raman",
+      "evidence": [
+        {
+          "id": "ev-ml00101",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Led Kubernetes GPU scheduler work for multi-node PyTorch training.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00101"
+        },
+        {
+          "id": "ev-ml00102",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Reduced model-serving p95 latency by 38% through batching and cache tuning.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00102"
+        },
+        {
+          "id": "ev-ml00103",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Authored incident reviews and production runbooks for inference outages.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00103"
+        },
+        {
+          "id": "ev-ml00104",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Maintains open-source operators for distributed training workloads.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00104"
+        },
+        {
+          "id": "ev-ml00105",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Current staff engineer on a platform team serving 80 ML researchers.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00105"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 94,
+          "evidenceIds": [
+            "ev-ml00101"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 92,
+          "evidenceIds": [
+            "ev-ml00102"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 90,
+          "evidenceIds": [
+            "ev-ml00103"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 86,
+          "evidenceIds": [
+            "ev-ml00104"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 72,
+          "evidenceIds": [
+            "ev-ml00105"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 1,
+      "ts": {
+        "total": 89.30000000000001,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 94,
+            "weight": 0.3,
+            "weighted": 28.2,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 92,
+            "weight": 0.25,
+            "weighted": 23,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 90,
+            "weight": 0.2,
+            "weighted": 18,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 86,
+            "weight": 0.15,
+            "weighted": 12.9,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 72,
+            "weight": 0.1,
+            "weighted": 7.2,
+            "confidence": 1
+          }
+        ],
+        "tier": 1
+      }
+    },
+    {
+      "id": "golden-ml002",
+      "name": "Marco Silva",
+      "evidence": [
+        {
+          "id": "ev-ml00201",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Built feature-store ingestion pipelines in Python and Spark.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00201"
+        },
+        {
+          "id": "ev-ml00202",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Owns batch data reliability but has limited model-serving exposure.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00202"
+        },
+        {
+          "id": "ev-ml00203",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Writes clear postmortems for data quality incidents.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00203"
+        },
+        {
+          "id": "ev-ml00204",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Has Kubernetes deployment experience for internal data jobs.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00204"
+        },
+        {
+          "id": "ev-ml00205",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Public profile lists data platform leadership at mid-stage startup.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00205"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 70,
+          "evidenceIds": [
+            "ev-ml00201"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 63,
+          "evidenceIds": [
+            "ev-ml00202"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 64,
+          "evidenceIds": [
+            "ev-ml00203"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 78,
+          "evidenceIds": [
+            "ev-ml00204"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 60,
+          "evidenceIds": [
+            "ev-ml00205"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 2,
+      "ts": {
+        "total": 67.25,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 70,
+            "weight": 0.3,
+            "weighted": 21,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 63,
+            "weight": 0.25,
+            "weighted": 15.75,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 64,
+            "weight": 0.2,
+            "weighted": 12.8,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 78,
+            "weight": 0.15,
+            "weighted": 11.7,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 60,
+            "weight": 0.1,
+            "weighted": 6,
+            "confidence": 1
+          }
+        ],
+        "tier": 2
+      }
+    },
+    {
+      "id": "golden-ml003",
+      "name": "Nina Patel",
+      "evidence": [
+        {
+          "id": "ev-ml00301",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Research scientist focused on notebook experimentation and model quality.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00301"
+        },
+        {
+          "id": "ev-ml00302",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Published papers on recommendation models without platform ownership.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00302"
+        },
+        {
+          "id": "ev-ml00303",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Uses PyTorch daily but does not mention production infrastructure.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00303"
+        },
+        {
+          "id": "ev-ml00304",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No evidence of Kubernetes, serving, or distributed systems ownership.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00304"
+        },
+        {
+          "id": "ev-ml00305",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Likely prefers research roadmap over infra roadmap.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00305"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 50,
+          "evidenceIds": [
+            "ev-ml00301"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 38,
+          "evidenceIds": [
+            "ev-ml00302"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 32,
+          "evidenceIds": [
+            "ev-ml00303"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 45,
+          "evidenceIds": [
+            "ev-ml00304"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 50,
+          "evidenceIds": [
+            "ev-ml00305"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 3,
+      "ts": {
+        "total": 42.65,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 50,
+            "weight": 0.3,
+            "weighted": 15,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 38,
+            "weight": 0.25,
+            "weighted": 9.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 32,
+            "weight": 0.2,
+            "weighted": 6.4,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 45,
+            "weight": 0.15,
+            "weighted": 6.75,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 50,
+            "weight": 0.1,
+            "weighted": 5,
+            "confidence": 1
+          }
+        ],
+        "tier": 3
+      }
+    },
+    {
+      "id": "golden-ml004",
+      "name": "Ethan Brooks",
+      "evidence": [
+        {
+          "id": "ev-ml00401",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Principal backend engineer who built distributed job orchestration services.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00401"
+        },
+        {
+          "id": "ev-ml00402",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No direct ML platform role, but deep queueing and scheduling background.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00402"
+        },
+        {
+          "id": "ev-ml00403",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Led migration from VMs to Kubernetes for production workloads.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00403"
+        },
+        {
+          "id": "ev-ml00404",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Mentors senior engineers and writes detailed design docs.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00404"
+        },
+        {
+          "id": "ev-ml00405",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Open-source Rust and Go repositories show systems depth.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00405"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 78,
+          "evidenceIds": [
+            "ev-ml00401"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 58,
+          "evidenceIds": [
+            "ev-ml00402"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 72,
+          "evidenceIds": [
+            "ev-ml00403"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 80,
+          "evidenceIds": [
+            "ev-ml00404"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 58,
+          "evidenceIds": [
+            "ev-ml00405"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 2,
+      "ts": {
+        "total": 70.1,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 78,
+            "weight": 0.3,
+            "weighted": 23.4,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 58,
+            "weight": 0.25,
+            "weighted": 14.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 72,
+            "weight": 0.2,
+            "weighted": 14.4,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 80,
+            "weight": 0.15,
+            "weighted": 12,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 58,
+            "weight": 0.1,
+            "weighted": 5.800000000000001,
+            "confidence": 1
+          }
+        ],
+        "tier": 2
+      }
+    },
+    {
+      "id": "golden-ml005",
+      "name": "Priya Chen",
+      "evidence": [
+        {
+          "id": "ev-ml00501",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Owned inference platform at a foundation-model startup.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00501"
+        },
+        {
+          "id": "ev-ml00502",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Built autoscaling for GPU-backed endpoints and model rollout tooling.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00502"
+        },
+        {
+          "id": "ev-ml00503",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Improved deploy safety with canarying, SLO dashboards, and rollback automation.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00503"
+        },
+        {
+          "id": "ev-ml00504",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Frequent talks on ML platform reliability and developer experience.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00504"
+        },
+        {
+          "id": "ev-ml00505",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Profile includes clear contact path through GitHub and personal site.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00505"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 96,
+          "evidenceIds": [
+            "ev-ml00501"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 96,
+          "evidenceIds": [
+            "ev-ml00502"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 94,
+          "evidenceIds": [
+            "ev-ml00503"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 90,
+          "evidenceIds": [
+            "ev-ml00504"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 82,
+          "evidenceIds": [
+            "ev-ml00505"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 1,
+      "ts": {
+        "total": 93.3,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 96,
+            "weight": 0.3,
+            "weighted": 28.799999999999997,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 96,
+            "weight": 0.25,
+            "weighted": 24,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 94,
+            "weight": 0.2,
+            "weighted": 18.8,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 90,
+            "weight": 0.15,
+            "weighted": 13.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 82,
+            "weight": 0.1,
+            "weighted": 8.200000000000001,
+            "confidence": 1
+          }
+        ],
+        "tier": 1
+      }
+    },
+    {
+      "id": "golden-ml006",
+      "name": "Owen Walker",
+      "evidence": [
+        {
+          "id": "ev-ml00601",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Frontend platform engineer focused on design systems and build tooling.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00601"
+        },
+        {
+          "id": "ev-ml00602",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Some TypeScript infrastructure work but no ML systems evidence.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00602"
+        },
+        {
+          "id": "ev-ml00603",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Strong collaboration and documentation signals.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00603"
+        },
+        {
+          "id": "ev-ml00604",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No Python, GPU, Kubernetes, or model-serving claims found.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00604"
+        },
+        {
+          "id": "ev-ml00605",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Career trajectory points toward web platform leadership.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00605"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 42,
+          "evidenceIds": [
+            "ev-ml00601"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 24,
+          "evidenceIds": [
+            "ev-ml00602"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 30,
+          "evidenceIds": [
+            "ev-ml00603"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 70,
+          "evidenceIds": [
+            "ev-ml00604"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 65,
+          "evidenceIds": [
+            "ev-ml00605"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 3,
+      "ts": {
+        "total": 41.6,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 42,
+            "weight": 0.3,
+            "weighted": 12.6,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 24,
+            "weight": 0.25,
+            "weighted": 6,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 30,
+            "weight": 0.2,
+            "weighted": 6,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 70,
+            "weight": 0.15,
+            "weighted": 10.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 65,
+            "weight": 0.1,
+            "weighted": 6.5,
+            "confidence": 1
+          }
+        ],
+        "tier": 3
+      }
+    },
+    {
+      "id": "golden-ml007",
+      "name": "Leah Kim",
+      "evidence": [
+        {
+          "id": "ev-ml00701",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Built distributed training observability for JAX workloads.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00701"
+        },
+        {
+          "id": "ev-ml00702",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Implemented GPU utilization tracing and automated failed-run triage.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00702"
+        },
+        {
+          "id": "ev-ml00703",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Partnered with researchers to reduce training waste by 21%.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00703"
+        },
+        {
+          "id": "ev-ml00704",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Operates production Kubernetes clusters for ML experimentation.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00704"
+        },
+        {
+          "id": "ev-ml00705",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Writes clear docs and has active conference talks.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00705"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 91,
+          "evidenceIds": [
+            "ev-ml00701"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 93,
+          "evidenceIds": [
+            "ev-ml00702"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 88,
+          "evidenceIds": [
+            "ev-ml00703"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 88,
+          "evidenceIds": [
+            "ev-ml00704"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 74,
+          "evidenceIds": [
+            "ev-ml00705"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 1,
+      "ts": {
+        "total": 88.75000000000001,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 91,
+            "weight": 0.3,
+            "weighted": 27.3,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 93,
+            "weight": 0.25,
+            "weighted": 23.25,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 88,
+            "weight": 0.2,
+            "weighted": 17.6,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 88,
+            "weight": 0.15,
+            "weighted": 13.2,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 74,
+            "weight": 0.1,
+            "weighted": 7.4,
+            "confidence": 1
+          }
+        ],
+        "tier": 1
+      }
+    },
+    {
+      "id": "golden-ml008",
+      "name": "Samir Haddad",
+      "evidence": [
+        {
+          "id": "ev-ml00801",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "SRE lead for high-traffic payment APIs with deep incident experience.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00801"
+        },
+        {
+          "id": "ev-ml00802",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Kubernetes and observability expert, but no ML workload evidence.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00802"
+        },
+        {
+          "id": "ev-ml00803",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Has built capacity planning systems and autoscaling policies.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00803"
+        },
+        {
+          "id": "ev-ml00804",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Writes excellent runbooks and incident retrospectives.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00804"
+        },
+        {
+          "id": "ev-ml00805",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "May need ramp-up on PyTorch and GPU-specific failure modes.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00805"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 82,
+          "evidenceIds": [
+            "ev-ml00801"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 50,
+          "evidenceIds": [
+            "ev-ml00802"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 66,
+          "evidenceIds": [
+            "ev-ml00803"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 86,
+          "evidenceIds": [
+            "ev-ml00804"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 68,
+          "evidenceIds": [
+            "ev-ml00805"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 2,
+      "ts": {
+        "total": 70,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 82,
+            "weight": 0.3,
+            "weighted": 24.599999999999998,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 50,
+            "weight": 0.25,
+            "weighted": 12.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 66,
+            "weight": 0.2,
+            "weighted": 13.200000000000001,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 86,
+            "weight": 0.15,
+            "weighted": 12.9,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 68,
+            "weight": 0.1,
+            "weighted": 6.800000000000001,
+            "confidence": 1
+          }
+        ],
+        "tier": 2
+      }
+    },
+    {
+      "id": "golden-ml009",
+      "name": "Camila Ortiz",
+      "evidence": [
+        {
+          "id": "ev-ml00901",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Data analyst building dashboards and SQL models for marketing teams.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00901"
+        },
+        {
+          "id": "ev-ml00902",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No production software ownership beyond scheduled dbt jobs.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00902"
+        },
+        {
+          "id": "ev-ml00903",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Uses Python notebooks for analysis, not platform engineering.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00903"
+        },
+        {
+          "id": "ev-ml00904",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No distributed systems, Kubernetes, or service reliability signals.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00904"
+        },
+        {
+          "id": "ev-ml00905",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Public profile suggests analytics IC path.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml00905"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 28,
+          "evidenceIds": [
+            "ev-ml00901"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 18,
+          "evidenceIds": [
+            "ev-ml00902"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 22,
+          "evidenceIds": [
+            "ev-ml00903"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 48,
+          "evidenceIds": [
+            "ev-ml00904"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 60,
+          "evidenceIds": [
+            "ev-ml00905"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 3,
+      "ts": {
+        "total": 30.5,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 28,
+            "weight": 0.3,
+            "weighted": 8.4,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 18,
+            "weight": 0.25,
+            "weighted": 4.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 22,
+            "weight": 0.2,
+            "weighted": 4.4,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 48,
+            "weight": 0.15,
+            "weighted": 7.199999999999999,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 60,
+            "weight": 0.1,
+            "weighted": 6,
+            "confidence": 1
+          }
+        ],
+        "tier": 3
+      }
+    },
+    {
+      "id": "golden-ml010",
+      "name": "Iris Novak",
+      "evidence": [
+        {
+          "id": "ev-ml01001",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Created internal model registry and deployment approvals workflow.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01001"
+        },
+        {
+          "id": "ev-ml01002",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Built Python services that connect training artifacts to production rollout.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01002"
+        },
+        {
+          "id": "ev-ml01003",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Less evidence of low-level GPU work, but strong ML lifecycle ownership.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01003"
+        },
+        {
+          "id": "ev-ml01004",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Collaborates closely with infra, research, and compliance teams.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01004"
+        },
+        {
+          "id": "ev-ml01005",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Maintains detailed architecture docs.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01005"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 80,
+          "evidenceIds": [
+            "ev-ml01001"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 84,
+          "evidenceIds": [
+            "ev-ml01002"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 82,
+          "evidenceIds": [
+            "ev-ml01003"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 88,
+          "evidenceIds": [
+            "ev-ml01004"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 64,
+          "evidenceIds": [
+            "ev-ml01005"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 1,
+      "ts": {
+        "total": 81.00000000000001,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 80,
+            "weight": 0.3,
+            "weighted": 24,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 84,
+            "weight": 0.25,
+            "weighted": 21,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 82,
+            "weight": 0.2,
+            "weighted": 16.400000000000002,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 88,
+            "weight": 0.15,
+            "weighted": 13.2,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 64,
+            "weight": 0.1,
+            "weighted": 6.4,
+            "confidence": 1
+          }
+        ],
+        "tier": 1
+      }
+    },
+    {
+      "id": "golden-ml011",
+      "name": "Theo Martin",
+      "evidence": [
+        {
+          "id": "ev-ml01101",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Security engineer specializing in IAM, audit logging, and threat modeling.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01101"
+        },
+        {
+          "id": "ev-ml01102",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Built policy enforcement services in Go and Kubernetes.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01102"
+        },
+        {
+          "id": "ev-ml01103",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No ML platform or model-serving evidence.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01103"
+        },
+        {
+          "id": "ev-ml01104",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Strong seniority and operational discipline.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01104"
+        },
+        {
+          "id": "ev-ml01105",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Likely better fit for security platform roles.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01105"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 60,
+          "evidenceIds": [
+            "ev-ml01101"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 28,
+          "evidenceIds": [
+            "ev-ml01102"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 35,
+          "evidenceIds": [
+            "ev-ml01103"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 60,
+          "evidenceIds": [
+            "ev-ml01104"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 52,
+          "evidenceIds": [
+            "ev-ml01105"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 3,
+      "ts": {
+        "total": 46.2,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 60,
+            "weight": 0.3,
+            "weighted": 18,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 28,
+            "weight": 0.25,
+            "weighted": 7,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 35,
+            "weight": 0.2,
+            "weighted": 7,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 60,
+            "weight": 0.15,
+            "weighted": 9,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 52,
+            "weight": 0.1,
+            "weighted": 5.2,
+            "confidence": 1
+          }
+        ],
+        "tier": 3
+      }
+    },
+    {
+      "id": "golden-ml012",
+      "name": "Maya Singh",
+      "evidence": [
+        {
+          "id": "ev-ml01201",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Led migration of model-serving workloads from bespoke scripts to Kubernetes.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01201"
+        },
+        {
+          "id": "ev-ml01202",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Built cost attribution for GPU inference teams.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01202"
+        },
+        {
+          "id": "ev-ml01203",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Introduced load testing and SLOs for recommender-system endpoints.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01203"
+        },
+        {
+          "id": "ev-ml01204",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Mentors engineers across ML platform and backend teams.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01204"
+        },
+        {
+          "id": "ev-ml01205",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Profile has strong public writing on platform tradeoffs.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01205"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 90,
+          "evidenceIds": [
+            "ev-ml01201"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 90,
+          "evidenceIds": [
+            "ev-ml01202"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 89,
+          "evidenceIds": [
+            "ev-ml01203"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 91,
+          "evidenceIds": [
+            "ev-ml01204"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 76,
+          "evidenceIds": [
+            "ev-ml01205"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 1,
+      "ts": {
+        "total": 88.55,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 90,
+            "weight": 0.3,
+            "weighted": 27,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 90,
+            "weight": 0.25,
+            "weighted": 22.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 89,
+            "weight": 0.2,
+            "weighted": 17.8,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 91,
+            "weight": 0.15,
+            "weighted": 13.65,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 76,
+            "weight": 0.1,
+            "weighted": 7.6000000000000005,
+            "confidence": 1
+          }
+        ],
+        "tier": 1
+      }
+    },
+    {
+      "id": "golden-ml013",
+      "name": "Ben Carter",
+      "evidence": [
+        {
+          "id": "ev-ml01301",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Machine learning engineer shipping ranking models in a product team.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01301"
+        },
+        {
+          "id": "ev-ml01302",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Owns feature iteration and offline evaluation, not shared infrastructure.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01302"
+        },
+        {
+          "id": "ev-ml01303",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Some Airflow and Python service experience.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01303"
+        },
+        {
+          "id": "ev-ml01304",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No evidence of Kubernetes ownership or multi-team platform work.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01304"
+        },
+        {
+          "id": "ev-ml01305",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Good collaborator with product analytics teams.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01305"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 62,
+          "evidenceIds": [
+            "ev-ml01301"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 58,
+          "evidenceIds": [
+            "ev-ml01302"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 52,
+          "evidenceIds": [
+            "ev-ml01303"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 74,
+          "evidenceIds": [
+            "ev-ml01304"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 70,
+          "evidenceIds": [
+            "ev-ml01305"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 2,
+      "ts": {
+        "total": 61.599999999999994,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 62,
+            "weight": 0.3,
+            "weighted": 18.599999999999998,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 58,
+            "weight": 0.25,
+            "weighted": 14.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 52,
+            "weight": 0.2,
+            "weighted": 10.4,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 74,
+            "weight": 0.15,
+            "weighted": 11.1,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 70,
+            "weight": 0.1,
+            "weighted": 7,
+            "confidence": 1
+          }
+        ],
+        "tier": 2
+      }
+    },
+    {
+      "id": "golden-ml014",
+      "name": "Hannah Weiss",
+      "evidence": [
+        {
+          "id": "ev-ml01401",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Built CUDA kernels and optimized training throughput for vision models.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01401"
+        },
+        {
+          "id": "ev-ml01402",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Strong GPU performance work but limited production service ownership.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01402"
+        },
+        {
+          "id": "ev-ml01403",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Collaborates with research teams on profiling and bottleneck analysis.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01403"
+        },
+        {
+          "id": "ev-ml01404",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No evidence of model-serving reliability or incident ownership.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01404"
+        },
+        {
+          "id": "ev-ml01405",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Deep technical profile with niche systems focus.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01405"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 82,
+          "evidenceIds": [
+            "ev-ml01401"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 70,
+          "evidenceIds": [
+            "ev-ml01402"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 66,
+          "evidenceIds": [
+            "ev-ml01403"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 72,
+          "evidenceIds": [
+            "ev-ml01404"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 52,
+          "evidenceIds": [
+            "ev-ml01405"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 2,
+      "ts": {
+        "total": 71.3,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 82,
+            "weight": 0.3,
+            "weighted": 24.599999999999998,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 70,
+            "weight": 0.25,
+            "weighted": 17.5,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 66,
+            "weight": 0.2,
+            "weighted": 13.200000000000001,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 72,
+            "weight": 0.15,
+            "weighted": 10.799999999999999,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 52,
+            "weight": 0.1,
+            "weighted": 5.2,
+            "confidence": 1
+          }
+        ],
+        "tier": 2
+      }
+    },
+    {
+      "id": "golden-ml015",
+      "name": "Jon Bell",
+      "evidence": [
+        {
+          "id": "ev-ml01501",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Engineering manager for enterprise SaaS integrations.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01501"
+        },
+        {
+          "id": "ev-ml01502",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Mostly people management and roadmap coordination.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01502"
+        },
+        {
+          "id": "ev-ml01503",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "No current hands-on ML, infra, or distributed systems evidence.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01503"
+        },
+        {
+          "id": "ev-ml01504",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Strong stakeholder management but weak technical match.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01504"
+        },
+        {
+          "id": "ev-ml01505",
+          "adapter": "golden",
+          "source": "golden-fixture",
+          "claim": "Profile indicates low likelihood of returning to hands-on infra IC work.",
+          "retrievedAt": "2026-05-01T00:00:00.000Z",
+          "confidence": "high",
+          "url": "https://example.com/ev-ml01505"
+        }
+      ],
+      "expectedSignals": {
+        "technicalDepth": {
+          "score": 30,
+          "evidenceIds": [
+            "ev-ml01501"
+          ],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 20,
+          "evidenceIds": [
+            "ev-ml01502"
+          ],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 18,
+          "evidenceIds": [
+            "ev-ml01503"
+          ],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 62,
+          "evidenceIds": [
+            "ev-ml01504"
+          ],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 54,
+          "evidenceIds": [
+            "ev-ml01505"
+          ],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "expectedTier": 3,
+      "ts": {
+        "total": 32.3,
+        "breakdown": [
+          {
+            "dimension": "technicalDepth",
+            "raw": 30,
+            "weight": 0.3,
+            "weighted": 9,
+            "confidence": 1
+          },
+          {
+            "dimension": "domainRelevance",
+            "raw": 20,
+            "weight": 0.25,
+            "weighted": 5,
+            "confidence": 1
+          },
+          {
+            "dimension": "trajectoryMatch",
+            "raw": 18,
+            "weight": 0.2,
+            "weighted": 3.6,
+            "confidence": 1
+          },
+          {
+            "dimension": "cultureFit",
+            "raw": 62,
+            "weight": 0.15,
+            "weighted": 9.299999999999999,
+            "confidence": 1
+          },
+          {
+            "dimension": "reachability",
+            "raw": 54,
+            "weight": 0.1,
+            "weighted": 5.4,
+            "confidence": 1
+          }
+        ],
+        "tier": 3
+      }
+    }
+  ],
+  "adversarial": [
+    {
+      "name": "redflag-low",
+      "signals": {
+        "technicalDepth": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "redFlags": [
+          {
+            "signal": "s",
+            "evidenceId": "ev-x",
+            "severity": "low"
+          }
+        ]
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 78,
+        "tier": 1
+      }
+    },
+    {
+      "name": "redflag-medium",
+      "signals": {
+        "technicalDepth": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "redFlags": [
+          {
+            "signal": "s",
+            "evidenceId": "ev-x",
+            "severity": "medium"
+          }
+        ]
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 75,
+        "tier": 1
+      }
+    },
+    {
+      "name": "redflag-high",
+      "signals": {
+        "technicalDepth": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "redFlags": [
+          {
+            "signal": "s",
+            "evidenceId": "ev-x",
+            "severity": "high"
+          }
+        ]
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 70,
+        "tier": 2
+      }
+    },
+    {
+      "name": "redflag-mixed-sum",
+      "signals": {
+        "technicalDepth": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "redFlags": [
+          {
+            "signal": "s",
+            "evidenceId": "ev-x",
+            "severity": "low"
+          },
+          {
+            "signal": "s",
+            "evidenceId": "ev-x",
+            "severity": "medium"
+          },
+          {
+            "signal": "s",
+            "evidenceId": "ev-x",
+            "severity": "high"
+          }
+        ]
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 63,
+        "tier": 2
+      }
+    },
+    {
+      "name": "confidence-zero",
+      "signals": {
+        "technicalDepth": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "domainRelevance": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "trajectoryMatch": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "cultureFit": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "reachability": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "redFlags": []
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 0,
+        "tier": 3
+      }
+    },
+    {
+      "name": "confidence-partial",
+      "signals": {
+        "technicalDepth": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0.5
+        },
+        "domainRelevance": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0.5
+        },
+        "trajectoryMatch": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0.5
+        },
+        "cultureFit": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0.5
+        },
+        "reachability": {
+          "score": 80,
+          "evidenceIds": [],
+          "confidence": 0.5
+        },
+        "redFlags": []
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 40,
+        "tier": 3
+      }
+    },
+    {
+      "name": "confidence-mixed",
+      "signals": {
+        "technicalDepth": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "trajectoryMatch": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "cultureFit": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "reachability": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 0
+        },
+        "redFlags": []
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 30,
+        "tier": 3
+      }
+    },
+    {
+      "name": "clamp-low",
+      "signals": {
+        "technicalDepth": {
+          "score": 0,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 0,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 0,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 0,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 0,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "redFlags": [
+          {
+            "signal": "s",
+            "evidenceId": "ev-x",
+            "severity": "high"
+          }
+        ]
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 0,
+        "tier": 3
+      }
+    },
+    {
+      "name": "clamp-high",
+      "signals": {
+        "technicalDepth": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 100,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.3,
+          "trajectoryMatch": 0.3,
+          "cultureFit": 0.3,
+          "reachability": 0.3
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 100,
+        "tier": 1
+      }
+    },
+    {
+      "name": "boundary-tier1",
+      "signals": {
+        "technicalDepth": {
+          "score": 72,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 72,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 72,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 72,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 72,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 72,
+        "tier": 1
+      }
+    },
+    {
+      "name": "boundary-tier2",
+      "signals": {
+        "technicalDepth": {
+          "score": 48,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "domainRelevance": {
+          "score": 48,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "trajectoryMatch": {
+          "score": 48,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "cultureFit": {
+          "score": 48,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "reachability": {
+          "score": 48,
+          "evidenceIds": [],
+          "confidence": 1
+        },
+        "redFlags": []
+      },
+      "config": {
+        "weights": {
+          "technicalDepth": 0.3,
+          "domainRelevance": 0.25,
+          "trajectoryMatch": 0.2,
+          "cultureFit": 0.15,
+          "reachability": 0.1
+        },
+        "tierThresholds": {
+          "tier1MinScore": 72,
+          "tier2MinScore": 48
+        },
+        "redFlagPenalties": {
+          "low": 2,
+          "medium": 5,
+          "high": 10
+        }
+      },
+      "ts": {
+        "total": 48,
+        "tier": 2
+      }
+    }
+  ]
+}
