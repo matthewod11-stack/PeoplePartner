@@ -30,3 +30,6 @@ pub mod schemas;
 pub mod score;
 pub mod signal_extract;
 pub mod templates;
+
+#[cfg(test)]
+mod eval_differential;
