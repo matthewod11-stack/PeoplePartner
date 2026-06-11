@@ -69,6 +69,7 @@ export function OnboardingFlow({ onComplete, initialPrompt }: OnboardingFlowProp
     goBack,
     completeStep,
     finishOnboarding,
+    refreshLicense,
     stepInfo,
   } = useOnboarding();
 
@@ -99,6 +100,7 @@ export function OnboardingFlow({ onComplete, initialPrompt }: OnboardingFlowProp
         return (
           <WelcomeStep
             onContinue={() => handleStepComplete(1)}
+            onLicenseActivated={refreshLicense}
           />
         );
 

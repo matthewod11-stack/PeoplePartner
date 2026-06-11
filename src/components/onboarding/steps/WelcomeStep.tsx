@@ -1,11 +1,19 @@
 // People Partner - Welcome Step (Step 1)
-// First impression: logo, value props, and get started CTA
+// First impression: logo, value props, get started CTA — and a license-key
+// affordance so buyers never exit onboarding in trial mode (#111)
+
+import { useState } from 'react';
+import { LicenseKeyInput } from '../../settings/LicenseKeyInput';
 
 interface WelcomeStepProps {
   onContinue: () => void;
+  /** A buyer activated their license on the spot — refresh license-aware steps (#111) */
+  onLicenseActivated?: () => void;
 }
 
-export function WelcomeStep({ onContinue }: WelcomeStepProps) {
+export function WelcomeStep({ onContinue, onLicenseActivated }: WelcomeStepProps) {
+  const [showLicense, setShowLicense] = useState(false);
+  const [licenseActivated, setLicenseActivated] = useState(false);
   return (
     <div className="flex flex-col items-center text-center">
       {/* Logo */}
@@ -63,6 +71,55 @@ export function WelcomeStep({ onContinue }: WelcomeStepProps) {
       <p className="mt-4 text-xs text-stone-500">
         Setup takes about 2 minutes
       </p>
+
+      {/* Already purchased? License key entry (#111) — the purchase email
+          sends buyers here with a PP-… key; without this affordance every
+          buyer exited onboarding in trial mode. */}
+      <div className="mt-6 w-full">
+        {licenseActivated ? (
+          <div className="p-3 bg-green-50 border border-green-200 rounded-xl text-left">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <p className="text-sm text-green-800 font-medium">
+                License activated — paid mode is unlocked.
+              </p>
+            </div>
+            <p className="mt-1 text-xs text-green-700">
+              Continue with setup; you&apos;ll add your AI provider key next.
+            </p>
+          </div>
+        ) : showLicense ? (
+          <div className="text-left">
+            <p className="mb-2 text-sm text-stone-600">
+              Paste the license key from your purchase confirmation email.
+            </p>
+            <LicenseKeyInput
+              compact
+              onSave={() => {
+                setLicenseActivated(true);
+                onLicenseActivated?.();
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowLicense(false)}
+              className="mt-2 text-xs text-stone-500 hover:text-stone-700"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowLicense(true)}
+            className="text-sm text-primary-600 hover:text-primary-700 underline underline-offset-2"
+          >
+            Already purchased? Enter your license key
+          </button>
+        )}
+      </div>
     </div>
   );
 }

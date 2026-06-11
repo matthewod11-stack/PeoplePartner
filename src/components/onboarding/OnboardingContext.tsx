@@ -85,6 +85,9 @@ interface OnboardingContextValue {
   completeStep: (step: OnboardingStep) => Promise<void>;
   isStepCompleted: (step: OnboardingStep) => boolean;
 
+  // License entered mid-onboarding (#111) — re-queries hasLicense
+  refreshLicense: () => Promise<void>;
+
   // Onboarding completion
   finishOnboarding: () => Promise<void>;
 }
@@ -248,6 +251,20 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
   );
 
   // ---------------------------------------------------------------------------
+  // License refresh (#111)
+  // ---------------------------------------------------------------------------
+  // A buyer can activate their license mid-onboarding (Welcome step). Re-query
+  // so the AI Provider step flips back to required — licensed users need a
+  // BYOK key, and the skip-friendly trial copy no longer applies.
+  const refreshLicense = useCallback(async () => {
+    try {
+      setHasLicense(await hasLicenseKey());
+    } catch {
+      // keep the current value — a failed re-query shouldn't flip state
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // Finish onboarding
   // ---------------------------------------------------------------------------
   const finishOnboarding = useCallback(async () => {
@@ -286,6 +303,9 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     // Step completion
     completeStep,
     isStepCompleted,
+
+    // License refresh (#111)
+    refreshLicense,
 
     // Onboarding completion
     finishOnboarding,

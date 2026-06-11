@@ -105,10 +105,14 @@ export function UpgradePrompt() {
       ? 'employee'
       : 'message';
 
-  // Wizard step titles
+  // Wizard step titles. The hard-mode headline is deliberately NOT
+  // "Trial complete" (#111): a buyer whose license isn't entered yet is
+  // indistinguishable from a trial-ender, and greeting someone who just
+  // paid $99 with a re-sell card reads as a double-charge. "Unlock full
+  // access" serves both audiences; the body copy carries the limit detail.
   const stepTitles: Record<WizardStep, string> = {
     purchase: isHard
-      ? 'Trial complete'
+      ? 'Unlock full access'
       : isAtEmployeeLimit
         ? 'Employee limit reached'
         : 'Running low on trial messages!',
@@ -164,7 +168,7 @@ export function UpgradePrompt() {
         {wizardStep === 'purchase' && (
           <>
             {isHard ? (
-              <div className="text-sm text-stone-600">
+              <div className="space-y-3 text-sm text-stone-600">
                 {hardReason === 'message' ? (
                   <p>
                     You&apos;ve used all {trialStatus.messages_limit} trial messages.
@@ -176,6 +180,14 @@ export function UpgradePrompt() {
                     Upgrade for unlimited employee records.
                   </p>
                 )}
+                {/* Purchase-aware greeting (#111): a buyer who hasn't entered
+                    their key yet lands here too — route them before the
+                    pricing card implies they need to pay again. */}
+                <p className="text-stone-700">
+                  <span className="font-medium">Already purchased?</span>{' '}
+                  Enter the license key from your confirmation email below —
+                  no need to buy again.
+                </p>
               </div>
             ) : isAtEmployeeLimit ? (
               <div className="text-sm text-stone-600">
@@ -226,8 +238,26 @@ export function UpgradePrompt() {
               </ul>
             </div>
 
-            {/* Actions */}
-            <div className="flex gap-3 pt-1">
+            {/* Actions — license entry is co-primary (#111): for a buyer it's
+                THE action, and it was previously a small underlined link under
+                a $99 re-sell card. */}
+            <div className="flex flex-col gap-2 pt-1">
+              <Button
+                variant="primary"
+                size="md"
+                fullWidth
+                onClick={() => openUpgradeUrl()}
+              >
+                Upgrade Now
+              </Button>
+              <Button
+                variant="secondary"
+                size="md"
+                fullWidth
+                onClick={() => setWizardStep('license')}
+              >
+                I already have a license key
+              </Button>
               {!isHard && (
                 <Button
                   variant="ghost"
@@ -238,25 +268,6 @@ export function UpgradePrompt() {
                   Maybe Later
                 </Button>
               )}
-              <Button
-                variant="primary"
-                size="md"
-                fullWidth
-                onClick={() => openUpgradeUrl()}
-              >
-                Upgrade Now
-              </Button>
-            </div>
-
-            {/* "I have a key" link */}
-            <div className="text-center pt-1">
-              <button
-                type="button"
-                onClick={() => setWizardStep('license')}
-                className="text-sm text-primary-600 hover:text-primary-700 underline underline-offset-2"
-              >
-                I already have a license key
-              </button>
             </div>
           </>
         )}
