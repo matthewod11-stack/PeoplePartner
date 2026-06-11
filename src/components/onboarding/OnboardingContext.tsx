@@ -14,6 +14,7 @@ import {
   setSetting,
   hasAnyProviderApiKey,
   hasCompany,
+  hasLicenseKey,
 } from '../../lib/tauri-commands';
 
 // =============================================================================
@@ -30,7 +31,15 @@ export interface StepInfo {
   required: boolean;
 }
 
-/** All onboarding steps with metadata */
+/** All onboarding steps with metadata.
+ *
+ * Step 2 (AI Provider) is required only for licensed installs: trial routing
+ * always goes through the proxy and never uses a BYOK key, so forcing a
+ * non-technical evaluator to mint an API key before their first answer was
+ * pure funnel friction (#107). The effective `required` flag is computed in
+ * the provider below from license state — this array is the licensed-mode
+ * baseline.
+ */
 export const ONBOARDING_STEPS: StepInfo[] = [
   { number: 1, name: 'Welcome', required: false },
   { number: 2, name: 'AI Provider', required: true },
@@ -56,6 +65,10 @@ interface OnboardingContextValue {
   completedSteps: Set<OnboardingStep>;
   isLoading: boolean;
   isCompleted: boolean;
+  /** Whether a license key is present. Queried from the backend on mount —
+   *  the TrialContext is NOT available here (OnboardingFlow mounts outside
+   *  TrialProvider, #107), so steps must use this instead of useTrial(). */
+  hasLicense: boolean;
 
   // Step info
   stepInfo: StepInfo;
@@ -95,6 +108,9 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
   const [completedSteps, setCompletedSteps] = useState<Set<OnboardingStep>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [isCompleted, setIsCompleted] = useState(false);
+  // Default false (= trial): on query failure the key step stays skippable,
+  // which is safe because trial routing never needs a key.
+  const [hasLicense, setHasLicense] = useState(false);
 
   // ---------------------------------------------------------------------------
   // Initialize: Load saved progress on mount
@@ -119,6 +135,13 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
           if (parsed >= 1 && parsed <= 7) {
             resumeStep = parsed as OnboardingStep;
           }
+        }
+
+        // License state decides whether the AI Provider step is required (#107)
+        try {
+          setHasLicense(await hasLicenseKey());
+        } catch {
+          // Treat as trial — the skippable path never needs a key
         }
 
         // Verify required steps that may have been completed externally
@@ -173,7 +196,13 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
   // ---------------------------------------------------------------------------
   // Computed values
   // ---------------------------------------------------------------------------
-  const stepInfo = ONBOARDING_STEPS[currentStep - 1];
+  // Step 2 is only a hard requirement when a license is present — trial chats
+  // route through the proxy and never touch a BYOK key (#107).
+  const baseStepInfo = ONBOARDING_STEPS[currentStep - 1];
+  const stepInfo =
+    baseStepInfo.number === 2 && !hasLicense
+      ? { ...baseStepInfo, required: false }
+      : baseStepInfo;
   const totalSteps = ONBOARDING_STEPS.length;
   const canGoBack = currentStep > 1;
   const canGoForward = currentStep < 7;
@@ -241,6 +270,7 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     completedSteps,
     isLoading,
     isCompleted,
+    hasLicense,
 
     // Step info
     stepInfo,

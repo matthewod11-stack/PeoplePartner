@@ -6,7 +6,7 @@ import { ApiKeyInput } from '../../settings/ApiKeyInput';
 import { ProviderPicker } from '../../settings/ProviderPicker';
 import { getActiveProvider, setActiveProvider, hasAnyProviderApiKey } from '../../../lib/tauri-commands';
 import { PROVIDER_META } from '../../../lib/provider-config';
-import { useTrial } from '../../../contexts/TrialContext';
+import { useOnboarding } from '../OnboardingContext';
 
 interface ApiKeyStepProps {
   onComplete: () => void;
@@ -84,7 +84,11 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
 }
 
 export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
-  const { isTrialMode } = useTrial();
+  // License state comes from OnboardingContext (backend query), NOT useTrial():
+  // OnboardingFlow mounts outside TrialProvider, so useTrial() here silently
+  // returned its isTrialMode:false defaults and the trial note never rendered (#107).
+  const { hasLicense } = useOnboarding();
+  const isTrialMode = !hasLicense;
   const [phase, setPhase] = useState<'select' | 'configure'>('select');
   const [selectedProvider, setSelectedProvider] = useState('anthropic');
   const [hasKey, setHasKey] = useState(false);
@@ -138,9 +142,14 @@ export function ApiKeyStep({ onComplete, onValidChange }: ApiKeyStepProps) {
     return (
       <div className="w-full overflow-y-auto max-h-[calc(100vh-320px)]">
         {isTrialMode && (
-          <div className="mb-4 p-3 bg-stone-50 rounded-lg border border-stone-200">
-            <p className="text-xs text-stone-600">
-              Trial uses Claude (Anthropic). Choose your preferred provider for when you upgrade to paid mode.
+          <div className="mb-4 p-3 bg-primary-50 rounded-lg border border-primary-200">
+            <p className="text-sm font-medium text-primary-800">
+              Try free first — 50 messages on us, no API key needed.
+            </p>
+            <p className="mt-1 text-xs text-primary-700">
+              You can skip this step: the free trial uses Claude (Anthropic) with no
+              setup. Pick a provider now only if you already have an API key, or add
+              one later in Settings.
             </p>
           </div>
         )}
