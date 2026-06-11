@@ -13,7 +13,11 @@ interface Env {
 }
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_COUNT_TOKENS_URL =
+  "https://api.anthropic.com/v1/messages/count_tokens";
 const ANTHROPIC_VERSION = "2023-06-01";
+const HEALTH_CACHE_KEY = "health:last";
+const HEALTH_CACHE_TTL_SECONDS = 60;
 const DEFAULT_ALLOWED_MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS_CAP = 4096;
 const DEFAULT_ALLOWED_ORIGINS = ["tauri://localhost", "http://localhost:1420"];
@@ -105,8 +109,90 @@ function timingSafeEqual(a: string, b: string): boolean {
   return mismatch === 0;
 }
 
+// ============================================================================
+// Health check (#117)
+// ============================================================================
+//
+// GET /health verifies the upstream credential end-to-end: a minimal
+// authenticated call to Anthropic's count_tokens endpoint (free — counts
+// tokens, generates nothing). 200 = key valid + model servable; 503 = the
+// trial funnel is broken (revoked/deleted key, retired model, upstream down).
+// Motivated by the 2026-06-11 incident where a deleted CLAUDE_API_KEY
+// silently 401'd every trial chat with zero detection.
+//
+// Abuse posture: no caller input reaches the upstream request (fixed body),
+// the response carries only a status — no inference is possible — and the
+// result is cached in KV for 60s so external callers can't drive upstream
+// load. Probed every 6h by .github/workflows/proxy-health.yml.
+
+interface HealthResult {
+  healthy: boolean;
+  upstreamStatus: number;
+}
+
+function healthResponse(result: HealthResult, cached: boolean): Response {
+  return new Response(
+    JSON.stringify({
+      status: result.healthy ? "ok" : "unhealthy",
+      upstream_status: result.upstreamStatus,
+      cached,
+    }),
+    {
+      status: result.healthy ? 200 : 503,
+      headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+    },
+  );
+}
+
+async function handleHealth(env: Env, ctx: ExecutionContext): Promise<Response> {
+  const cachedRaw = await env.QUOTA.get(HEALTH_CACHE_KEY);
+  if (cachedRaw) {
+    return healthResponse(JSON.parse(cachedRaw) as HealthResult, true);
+  }
+
+  const result: HealthResult = { healthy: false, upstreamStatus: 0 };
+  try {
+    const res = await fetch(ANTHROPIC_COUNT_TOKENS_URL, {
+      method: "POST",
+      headers: {
+        "x-api-key": env.CLAUDE_API_KEY ?? "",
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: env.ALLOWED_MODEL || DEFAULT_ALLOWED_MODEL,
+        messages: [{ role: "user", content: "health probe" }],
+      }),
+    });
+    await res.text(); // drain; the body is never echoed to the caller
+    result.upstreamStatus = res.status;
+    result.healthy = res.ok;
+  } catch {
+    // network failure to upstream — upstreamStatus stays 0, unhealthy
+  }
+
+  ctx.waitUntil(
+    env.QUOTA.put(HEALTH_CACHE_KEY, JSON.stringify(result), {
+      expirationTtl: HEALTH_CACHE_TTL_SECONDS,
+    }),
+  );
+  return healthResponse(result, false);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    // Health probe routes before the Origin gate — cron/CI callers send no
+    // Origin header, and the response carries no user data so CORS is moot.
+    if (new URL(request.url).pathname === "/health") {
+      if (request.method !== "GET") {
+        return new Response(
+          JSON.stringify({ error: "method_not_allowed", message: "Only GET is allowed" }),
+          { status: 405, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return handleHealth(env, ctx);
+    }
+
     const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
     const origin = request.headers.get("Origin") ?? "";
     const corsHeaders = buildCorsHeaders(origin || DEFAULT_ALLOWED_ORIGINS[0]);

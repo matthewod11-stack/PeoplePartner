@@ -9,6 +9,7 @@
 #   - replayed requests        (expect 409 replay_detected)
 # And accepts:
 #   - valid signed requests    (expect 200)
+#   - GET /health              (expect 200 "status":"ok" — upstream key live, #117)
 #
 # Usage:
 #   PROXY_URL=https://hrcommand-proxy.hrcommand.workers.dev \
@@ -130,6 +131,12 @@ echo "Test 5: replay protection"
 status=$(request "$ts_now" "$sig_ok")
 body=$(cat /tmp/_pp_proxy_body)
 check "replay rejected" 409 "replay_detected" "$status" "$body"
+
+# 6. Health endpoint (#117) — upstream credential must be live
+echo "Test 6: health endpoint"
+status=$(curl -sS -o /tmp/_pp_proxy_body -w '%{http_code}' --max-time 30 "${PROXY_URL%/}/health")
+body=$(cat /tmp/_pp_proxy_body)
+check "health endpoint reports ok" 200 '"status":"ok"' "$status" "$body"
 
 echo
 echo "----"

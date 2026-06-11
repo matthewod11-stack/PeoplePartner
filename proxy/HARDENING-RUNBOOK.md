@@ -83,6 +83,29 @@ Apply via `wrangler.toml` change + `wrangler deploy`.
 
 ---
 
+## Health check & alerting (#117)
+
+> Added 2026-06-11 after the deleted-`CLAUDE_API_KEY` incident: the Worker's
+> Anthropic key was accidentally removed, every trial chat 401'd, and nothing
+> detected it — it was caught only by a manual signed probe during #105
+> verification.
+
+**Endpoint:** `GET https://hrcommand-proxy.hrcommand.workers.dev/health` (no Origin header or signing required — it routes before the Origin gate).
+
+- **200 `{"status":"ok"}`** — the Worker's `CLAUDE_API_KEY` authenticated against Anthropic AND the pinned `ALLOWED_MODEL` is servable. The probe is a `count_tokens` call: free, generates no inference, fixed body (no caller input reaches upstream).
+- **503 `{"status":"unhealthy","upstream_status":N}`** — the trial funnel is broken right now. `upstream_status` tells you why: `401` = key deleted/revoked (re-upload via `wrangler secret put CLAUDE_API_KEY`), `404` = `ALLOWED_MODEL` retired (repoint per #105's procedure), `0` = upstream unreachable.
+- Results are KV-cached for 60s, so hammering the endpoint can't drive upstream load.
+
+**Alerting:** `.github/workflows/proxy-health.yml` probes every 6 hours (plus on manual dispatch) and fails the run on anything but 200 — GitHub emails the workflow's committer on scheduled-run failure. After fixing the cause, re-run the workflow manually (`gh workflow run "Trial proxy health"`) to confirm green.
+
+**Key rotation/re-upload verification ritual** (do this EVERY time `CLAUDE_API_KEY` is touched):
+
+1. `cd app/proxy && wrangler secret put CLAUDE_API_KEY` (paste the new key)
+2. `curl -s https://hrcommand-proxy.hrcommand.workers.dev/health` → expect `{"status":"ok",...}`. The 60s KV cache may serve the pre-rotation result on the first hit — wait a minute and re-probe if it disagrees with what you expect.
+3. For full coverage, run `scripts/verify-hardening.sh` (Test 6 covers health; Tests 1–5 confirm the signing layers survived the deploy).
+
+---
+
 ## Rotation (when needed)
 
 Rotate the signing secret when:

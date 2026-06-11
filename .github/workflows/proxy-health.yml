@@ -1,0 +1,34 @@
+name: Trial proxy health
+
+# Synthetic check for the trial proxy (#117). The proxy is the only
+# pre-purchase product experience — a dead/revoked CLAUDE_API_KEY 401s every
+# trial chat with no user-visible symptom on our side. This probe hits the
+# Worker's GET /health (a free authenticated count_tokens call upstream) and
+# fails the run on anything but 200, which triggers GitHub's failure email to
+# the workflow's committer. Recovery ritual: app/proxy/HARDENING-RUNBOOK.md
+# § Health check & alerting.
+
+on:
+  schedule:
+    - cron: "23 */6 * * *" # every 6 hours
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe /health
+        run: |
+          # curl --retry treats 408/429/5xx + transport errors as retryable,
+          # so momentary blips don't page; a persistent failure still does.
+          status=$(curl -sS -o /tmp/health.json -w '%{http_code}' \
+            --retry 2 --retry-delay 15 --max-time 30 \
+            https://hrcommand-proxy.hrcommand.workers.dev/health) || status=000
+          echo "HTTP $status"
+          cat /tmp/health.json 2>/dev/null || true
+          if [ "$status" != "200" ]; then
+            echo "::error::Trial proxy unhealthy (HTTP $status) — every trial chat is likely failing RIGHT NOW. Check upstream_status above; recovery: app/proxy/HARDENING-RUNBOOK.md § Health check & alerting."
+            exit 1
+          fi
