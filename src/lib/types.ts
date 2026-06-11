@@ -57,6 +57,7 @@ export type ChatErrorType =
   | 'no_api_key'
   | 'trial_limit'
   | 'auth_error'
+  | 'billing'
   | 'rate_limit'
   | 'network_error'
   | 'api_error'

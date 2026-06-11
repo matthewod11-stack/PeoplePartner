@@ -27,6 +27,8 @@ interface MessageListProps {
   onRetry?: (messageId: string) => void;
   /** Callback to copy original message content */
   onCopyMessage?: (content: string) => void;
+  /** Opens the Settings panel — shown on key/billing errors (#110) */
+  onOpenSettings?: () => void;
 }
 
 /**
@@ -147,6 +149,7 @@ export function MessageList({
   onPromptClick,
   onRetry,
   onCopyMessage,
+  onOpenSettings,
 }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -187,6 +190,7 @@ export function MessageList({
                     ? () => onCopyMessage(message.error!.originalContent!)
                     : undefined
                 }
+                onOpenSettings={onOpenSettings}
               />
             ) : (
               <MessageBubble

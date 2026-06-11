@@ -5,7 +5,13 @@ interface ErrorMessageProps {
   timestamp?: string;
   onRetry?: () => void;
   onCopyMessage?: () => void;
+  /** Opens the Settings panel. Rendered for error types the user fixes in
+   *  Settings (key/billing) — a Retry button can't fix those (#110). */
+  onOpenSettings?: () => void;
 }
+
+/** Error types whose remedy lives in Settings (provider key / billing). */
+const SETTINGS_FIXABLE_TYPES = new Set(['no_api_key', 'auth_error', 'billing']);
 
 function formatTime(timestamp: string): string {
   try {
@@ -23,9 +29,11 @@ export function ErrorMessage({
   timestamp,
   onRetry,
   onCopyMessage,
+  onOpenSettings,
 }: ErrorMessageProps) {
   const showRetry = error.retryable && onRetry;
   const showCopy = error.originalContent && onCopyMessage;
+  const showSettings = SETTINGS_FIXABLE_TYPES.has(error.type) && onOpenSettings;
 
   return (
     <div className="flex items-start" role="alert" aria-live="polite">
@@ -94,6 +102,42 @@ export function ErrorMessage({
                   />
                 </svg>
                 Retry
+              </button>
+            )}
+            {showSettings && (
+              <button
+                onClick={onOpenSettings}
+                className="
+                  inline-flex items-center gap-1.5
+                  px-3 py-1.5
+                  text-sm font-medium
+                  text-red-700
+                  bg-red-100
+                  hover:bg-red-200
+                  rounded-lg
+                  transition-colors
+                "
+                aria-label="Open Settings to fix this"
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                  />
+                </svg>
+                Open Settings
               </button>
             )}
             {showCopy && (

@@ -128,9 +128,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 
 interface ChatAreaProps {
   chatInputRef?: React.RefObject<ChatInputHandle>;
+  /** Opens the Settings panel — surfaced on key/billing chat errors (#110) */
+  onOpenSettings?: () => void;
 }
 
-function ChatArea({ chatInputRef }: ChatAreaProps) {
+function ChatArea({ chatInputRef, onOpenSettings }: ChatAreaProps) {
   // Get conversation state from context
   const { messages, isLoading } = useConversationMessages();
   const { piiNotification, piiScanError, memoryNotice } = useConversationMeta();
@@ -230,6 +232,7 @@ function ChatArea({ chatInputRef }: ChatAreaProps) {
         onPromptClick={handlePromptClick}
         onRetry={retryMessage}
         onCopyMessage={handleCopyMessage}
+        onOpenSettings={onOpenSettings}
       />
       <ChatInput
         ref={chatInputRef}
@@ -359,7 +362,10 @@ function MainAppContent() {
             <RecruitingView onOpenSettings={() => setIsSettingsOpen(true)} />
           </Suspense>
         ) : (
-          <ChatArea chatInputRef={chatInputRef} />
+          <ChatArea
+            chatInputRef={chatInputRef}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
         )}
       </AppShell>
       <EmployeeEditModal />

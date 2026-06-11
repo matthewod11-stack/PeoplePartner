@@ -16,7 +16,7 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     pattern: /API key not configured/i,
     type: 'no_api_key',
     message: 'API Key Required',
-    details: 'Add your Anthropic API key in Settings to continue.',
+    details: "Add your AI provider's API key in Settings to continue.",
     retryable: false,
   },
   {
@@ -34,7 +34,30 @@ const ERROR_PATTERNS: ErrorPattern[] = [
     retryable: false,
   },
   {
-    pattern: /rate_limit|too many requests/i,
+    // Provider credit/quota exhaustion (#110). Matched against the real
+    // wrapped strings ("API returned error: HTTP {n}: {parsed}"):
+    //   Anthropic 400 — "Your credit balance is too low to access the
+    //                    Anthropic API. Please go to Plans & Billing..."
+    //   OpenAI 429    — "You exceeded your current quota, please check your
+    //                    plan and billing details." (insufficient_quota)
+    //   Gemini 429    — "Resource has been exhausted (e.g. check quota)."
+    // Must precede rate_limit and the api_error catch-all: a Retry button
+    // can never fix an empty credit balance.
+    pattern:
+      /credit balance is too low|insufficient_quota|exceeded your current quota|check your plan and billing|resource has been exhausted/i,
+    type: 'billing',
+    message: 'Provider Out of Credits',
+    details:
+      'Your AI provider account is out of credits or over its quota. Add credits in ' +
+      "your provider's billing console (or switch providers in Settings) to continue — " +
+      'your People Partner license is unaffected.',
+    retryable: false,
+  },
+  {
+    // "rate.?limit" covers both Anthropic's "rate_limit_error" and OpenAI's
+    // "Rate limit reached" phrasing — the latter previously fell through to
+    // the generic catch-all (caught while testing #110).
+    pattern: /rate.?limit|too many requests/i,
     type: 'rate_limit',
     message: 'Rate Limited',
     details: 'Too many requests. Please wait a moment and try again.',
