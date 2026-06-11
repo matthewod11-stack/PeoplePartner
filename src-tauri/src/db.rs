@@ -238,6 +238,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (11, "audit_log_append_only", include_str!("../migrations/011_audit_log_append_only.sql")),
     (12, "license_signed_token", include_str!("../migrations/012_license_signed_token.sql")),
     (13, "recruiting", include_str!("../migrations/013_recruiting.sql")),
+    (14, "employee_is_sample", include_str!("../migrations/014_employee_is_sample.sql")),
 ];
 
 /// Highest version that the pre-versioning runner may have applied. Used only
@@ -645,6 +646,46 @@ mod tests {
         .await
         .unwrap();
 
+        // employees is created by migration 001 (pre-legacy); migration 014
+        // ALTERs it and backfills sample flags, so it must exist with the
+        // post-002 production shape for that ALTER to succeed when we skip
+        // 001 via backfill.
+        sqlx::query(
+            "CREATE TABLE employees (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                full_name TEXT NOT NULL,
+                department TEXT,
+                job_title TEXT,
+                manager_id TEXT,
+                hire_date TEXT,
+                work_state TEXT,
+                status TEXT DEFAULT 'active',
+                extra_fields TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                date_of_birth TEXT,
+                gender TEXT,
+                ethnicity TEXT,
+                termination_date TEXT,
+                termination_reason TEXT
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Seed a pre-fix sample row + a real row so we can prove migration
+        // 014's backfill flags exactly the Acme sample data on legacy DBs.
+        sqlx::query(
+            "INSERT INTO employees (id, email, full_name) VALUES
+             ('legacy-sample', 'margaret.chen@acmecorp.com', 'Margaret Chen'),
+             ('legacy-real', 'jane@realco.com', 'Jane Real')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
         // Seed one row so we can prove migration 011 (which rebuilds the
         // table) preserves data rather than silently wiping it.
         sqlx::query(
@@ -666,15 +707,30 @@ mod tests {
         let expected: Vec<i64> = MIGRATIONS.iter().map(|(v, _, _)| *v).collect();
         assert_eq!(versions, expected, "backfill + newer migrations must populate every version");
 
-        // `employees` table (created by 001) must NOT exist — proves backfill
-        // really skipped 001 instead of executing it.
-        let (employees_count,): (i64,) = sqlx::query_as(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'employees'",
+        // `conversations` table (created by 001, untouched by post-legacy
+        // migrations) must NOT exist — proves backfill really skipped 001
+        // instead of executing it.
+        let (conversations_count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'conversations'",
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(employees_count, 0, "001 was re-run instead of backfilled");
+        assert_eq!(conversations_count, 0, "001 was re-run instead of backfilled");
+
+        // Migration 014's backfill must flag exactly the Acme sample rows on
+        // a legacy DB that loaded sample data before the fix.
+        let flagged: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM employees WHERE is_sample = 1 ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            flagged,
+            vec!["legacy-sample".to_string()],
+            "014 backfill must flag Acme rows and only Acme rows"
+        );
 
         // Migration 011's rebuild must preserve existing audit rows.
         let (legacy_row_count,): (i64,) =

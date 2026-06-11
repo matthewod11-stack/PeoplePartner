@@ -107,7 +107,11 @@ export function UpgradePrompt() {
 
   // Wizard step titles
   const stepTitles: Record<WizardStep, string> = {
-    purchase: isHard ? 'Trial complete' : 'Running low on trial messages!',
+    purchase: isHard
+      ? 'Trial complete'
+      : isAtEmployeeLimit
+        ? 'Employee limit reached'
+        : 'Running low on trial messages!',
     license: 'Enter your license key',
     provider: 'Choose your AI provider',
     complete: 'You\'re all set!',
@@ -172,6 +176,14 @@ export function UpgradePrompt() {
                     Upgrade for unlimited employee records.
                   </p>
                 )}
+              </div>
+            ) : isAtEmployeeLimit ? (
+              <div className="text-sm text-stone-600">
+                <p>
+                  Your trial includes up to {trialStatus.employees_limit} of your own
+                  employee records (sample data doesn&apos;t count). Upgrade for
+                  unlimited employee records.
+                </p>
               </div>
             ) : (
               <div className="text-sm text-stone-600">

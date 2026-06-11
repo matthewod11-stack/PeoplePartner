@@ -178,13 +178,17 @@ pub async fn import_employees_bulk(
     for emp in employees {
         let status = emp.status.unwrap_or_else(|| "active".to_string());
 
+        // is_sample = 1: this path only carries bundled sample / test data
+        // (onboarding auto-load, dev test-data import). Real user data goes
+        // through `import_employees` / `create_employee`, which enforce the
+        // trial limit; sample rows are exempt from that limit (#106).
         let result = sqlx::query(
             r#"
             INSERT INTO employees (
                 id, email, full_name, department, job_title, manager_id,
                 hire_date, work_state, status, date_of_birth, gender, ethnicity,
-                termination_date, termination_reason
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                termination_date, termination_reason, is_sample
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
             "#,
         )
         .bind(&emp.id)
@@ -654,5 +658,23 @@ mod tests {
         let reimport = vec![make_employee("emp-1", "alice@example.com")];
         let result = import_employees_bulk(&pool, reimport).await.unwrap();
         assert_eq!(result.inserted, 1);
+    }
+
+    /// #106: rows inserted through the bulk path are sample/test data and must
+    /// be tagged is_sample = 1 so the trial employee limit ignores them.
+    #[tokio::test]
+    async fn bulk_imported_employees_are_flagged_as_sample() {
+        let pool = test_pool().await;
+        let employees = vec![make_employee("emp-1", "alice@example.com")];
+        import_employees_bulk(&pool, employees)
+            .await
+            .expect("import succeeded");
+
+        let flagged: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM employees WHERE is_sample = 1")
+                .fetch_one(&pool)
+                .await
+                .expect("count sample-flagged rows");
+        assert_eq!(flagged, 1, "bulk-imported employees must be tagged is_sample = 1");
     }
 }

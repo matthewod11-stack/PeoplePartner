@@ -102,9 +102,14 @@ export function TrialProvider({ children }: TrialProviderProps) {
         const remaining = status.messages_limit - status.messages_used;
         const softDismissed = sessionStorage.getItem(SOFT_PROMPT_DISMISSED_KEY) === 'true';
 
-        if (remaining <= 0 || status.employees_used >= status.employees_limit) {
-          // Hard prompt - always show at limit
+        if (remaining <= 0) {
+          // Hard prompt — only message exhaustion blocks the app
           setPromptSeverity('hard');
+          setShowUpgradePrompt(true);
+        } else if (status.employees_used >= status.employees_limit && !softDismissed) {
+          // Employee limit is enforced at the add/import path itself, so the
+          // prompt is informational and must stay dismissable (#106)
+          setPromptSeverity('soft');
           setShowUpgradePrompt(true);
         } else if (remaining <= SOFT_PROMPT_THRESHOLD && !softDismissed) {
           // Soft prompt - show once per session

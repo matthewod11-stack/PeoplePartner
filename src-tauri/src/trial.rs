@@ -91,7 +91,7 @@ pub async fn get_trial_status(pool: &DbPool) -> Result<TrialStatus, SettingsErro
     let has_api_key = keyring::has_api_key();
     let is_trial = !has_license;
     let messages_used = get_trial_messages_used(pool).await?;
-    let employees_used = get_total_employee_count(pool).await?;
+    let employees_used = get_countable_employee_count(pool).await?;
 
     Ok(TrialStatus {
         is_trial,
@@ -145,9 +145,11 @@ pub async fn reset_trial_messages(pool: &DbPool) -> Result<(), SettingsError> {
 // Employee Limit
 // ============================================================================
 
-/// Get total employee count (all statuses).
-pub async fn get_total_employee_count(pool: &DbPool) -> Result<i64, SettingsError> {
-    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM employees")
+/// Count employees that count toward the trial limit: all statuses, but
+/// excluding bundled sample data (`is_sample = 1`). Sample rows are loaded
+/// by onboarding and must not consume the trial allowance (#106).
+pub async fn get_countable_employee_count(pool: &DbPool) -> Result<i64, SettingsError> {
+    let row: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM employees WHERE is_sample = 0")
         .fetch_one(pool)
         .await
         .map_err(|e| SettingsError::Database(e.to_string()))?;
@@ -158,7 +160,7 @@ pub async fn get_total_employee_count(pool: &DbPool) -> Result<i64, SettingsErro
 /// Only enforces limits in trial mode.
 pub async fn check_employee_limit(pool: &DbPool) -> Result<EmployeeLimitCheck, SettingsError> {
     let is_trial = is_trial_mode(pool).await?;
-    let current = get_total_employee_count(pool).await?;
+    let current = get_countable_employee_count(pool).await?;
 
     if !is_trial {
         return Ok(EmployeeLimitCheck {
@@ -343,5 +345,125 @@ mod tests {
                 assert_ne!(keys[i], keys[j], "Settings keys must be unique");
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // DB-backed tests: sample data is exempt from the trial employee limit
+    // (#106 — onboarding auto-loads 100 sample employees through the bulk
+    // path; counting them tripped an undismissable paywall on fresh installs)
+    // ------------------------------------------------------------------
+
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::time::Duration;
+
+    async fn test_pool() -> DbPool {
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("run migrations");
+        pool
+    }
+
+    async fn insert_real_employee(pool: &DbPool, id: &str, email: &str) {
+        sqlx::query("INSERT INTO employees (id, email, full_name) VALUES (?, ?, ?)")
+            .bind(id)
+            .bind(email)
+            .bind(format!("Real User {id}"))
+            .execute(pool)
+            .await
+            .expect("insert real employee");
+    }
+
+    fn sample_employee(i: usize) -> crate::bulk_import::ImportEmployee {
+        crate::bulk_import::ImportEmployee {
+            id: format!("emp_sample{i:03}"),
+            email: format!("user{i}@acmecorp.com"),
+            full_name: format!("Sample User {i}"),
+            department: None,
+            job_title: None,
+            manager_id: None,
+            hire_date: None,
+            work_state: None,
+            status: Some("active".to_string()),
+            date_of_birth: None,
+            gender: None,
+            ethnicity: None,
+            termination_date: None,
+            termination_reason: None,
+        }
+    }
+
+    /// Fresh-install regression (#106): onboarding bulk-loads 100 sample
+    /// employees in trial mode. That load must neither trip the 10-employee
+    /// limit nor count toward `employees_used`.
+    #[tokio::test]
+    async fn fresh_install_sample_load_does_not_trip_trial_limit() {
+        let pool = test_pool().await;
+        let sample: Vec<_> = (0..100).map(sample_employee).collect();
+        crate::bulk_import::import_employees_bulk(&pool, sample)
+            .await
+            .expect("sample import succeeds");
+
+        let check = check_employee_limit(&pool).await.expect("limit check");
+        assert!(check.allowed, "sample data alone must not trip the trial limit");
+        assert_eq!(check.current, 0, "sample employees must not count");
+    }
+
+    #[tokio::test]
+    async fn real_employees_still_count_toward_trial_limit() {
+        let pool = test_pool().await;
+        for i in 0..10 {
+            insert_real_employee(&pool, &format!("real{i}"), &format!("real{i}@example.com"))
+                .await;
+        }
+        let check = check_employee_limit(&pool).await.expect("limit check");
+        assert!(!check.allowed, "10 real employees must trip the trial limit");
+        assert_eq!(check.current, 10);
+    }
+
+    #[tokio::test]
+    async fn mixed_sample_and_real_counts_only_real() {
+        let pool = test_pool().await;
+        let sample: Vec<_> = (0..100).map(sample_employee).collect();
+        crate::bulk_import::import_employees_bulk(&pool, sample)
+            .await
+            .expect("sample import");
+        for i in 0..3 {
+            insert_real_employee(&pool, &format!("real{i}"), &format!("real{i}@example.com"))
+                .await;
+        }
+
+        let count = get_countable_employee_count(&pool).await.expect("count");
+        assert_eq!(count, 3, "only non-sample employees count");
+        let check = check_employee_limit(&pool).await.expect("limit check");
+        assert!(check.allowed);
+        assert_eq!(check.current, 3);
+    }
+
+    /// Pins the 014 migration's backfill predicate: only rows from the Acme
+    /// sample dataset (@acmecorp.com) get flagged; real rows are untouched.
+    #[tokio::test]
+    async fn backfill_predicate_targets_only_acmecorp_rows() {
+        let pool = test_pool().await;
+        // Simulate a pre-fix install: sample rows present but unflagged.
+        insert_real_employee(&pool, "legacy_sample", "margaret.chen@acmecorp.com").await;
+        insert_real_employee(&pool, "real_user", "jane@realco.com").await;
+
+        sqlx::query("UPDATE employees SET is_sample = 1 WHERE email LIKE '%@acmecorp.com'")
+            .execute(&pool)
+            .await
+            .expect("backfill update");
+
+        let count = get_countable_employee_count(&pool).await.expect("count");
+        assert_eq!(count, 1, "only the non-Acme row should remain countable");
     }
 }

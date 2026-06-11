@@ -50,9 +50,11 @@ pub(crate) async fn create_employee(
     state: tauri::State<'_, Database>,
     input: employees::CreateEmployee,
 ) -> Result<employees::Employee, employees::EmployeeError> {
-    // Enforce trial employee limit
+    // Enforce trial employee limit (sample data is exempt — #106)
     if trial::is_trial_mode(&state.pool).await.unwrap_or(false) {
-        let count = employees::get_total_employee_count(&state.pool).await?;
+        let count = trial::get_countable_employee_count(&state.pool)
+            .await
+            .map_err(|e| employees::EmployeeError::Database(e.to_string()))?;
         if count >= trial::TRIAL_EMPLOYEE_LIMIT {
             return Err(employees::EmployeeError::Validation(
                 "Trial is limited to 10 employees. Upgrade to add more.".to_string(),
@@ -143,9 +145,11 @@ pub(crate) async fn import_employees(
     state: tauri::State<'_, Database>,
     employees: Vec<employees::CreateEmployee>,
 ) -> Result<employees::ImportResult, employees::EmployeeError> {
-    // Enforce trial employee limit for imports
+    // Enforce trial employee limit for imports (sample data is exempt — #106)
     if trial::is_trial_mode(&state.pool).await.unwrap_or(false) {
-        let current = employees::get_total_employee_count(&state.pool).await?;
+        let current = trial::get_countable_employee_count(&state.pool)
+            .await
+            .map_err(|e| employees::EmployeeError::Database(e.to_string()))?;
         let mut unique_emails: HashSet<String> = HashSet::new();
         let mut net_new_count: i64 = 0;
 
