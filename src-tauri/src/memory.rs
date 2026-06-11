@@ -105,11 +105,13 @@ pub const DEFAULT_MEMORY_LIMIT: usize = 3;
 // Core Functions
 // ============================================================================
 
-/// Generate a summary for a conversation using Claude
+/// Generate a summary for a conversation using the user's active provider
 ///
 /// Takes the messages_json from the conversations table and returns
 /// a 2-3 sentence summary focusing on topic, employees mentioned, and outcomes.
-pub async fn generate_summary(messages_json: &str) -> Result<String, MemoryError> {
+/// The provider/model come from settings (#108) — trial users without a BYOK
+/// key get `NoApiKey`, which the frontend surfaces as a one-time notice.
+pub async fn generate_summary(pool: &DbPool, messages_json: &str) -> Result<String, MemoryError> {
     // Parse the messages from JSON
     let messages: Vec<StoredMessage> = serde_json::from_str(messages_json)
         .map_err(|e| MemoryError::ParseError(e.to_string()))?;
@@ -130,24 +132,32 @@ pub async fn generate_summary(messages_json: &str) -> Result<String, MemoryError
         ),
     }];
 
-    // Call Claude for summary (using existing chat module)
-    let response = generate_summary_internal(summary_request).await?;
+    let active = crate::chat::resolve_active_provider(pool)
+        .await
+        .map_err(|e| MemoryError::Database(e.to_string()))?;
+    let response = generate_summary_internal(summary_request, &active).await?;
 
     Ok(response.content.trim().to_string())
 }
 
-/// Internal function to call Claude API for summary generation
+/// Internal function to call the active provider for summary generation
 /// Separated for testability
 async fn generate_summary_internal(
     messages: Vec<ChatMessage>,
+    active: &crate::chat::ActiveProvider,
 ) -> Result<ChatResponse, MemoryError> {
     use crate::chat;
 
     // Use a simpler, direct API call for summaries
     // This avoids the conversation trimming logic meant for longer chats
-    chat::send_message(messages, Some(SUMMARY_SYSTEM_PROMPT.to_string()), "anthropic", None)
-        .await
-        .map_err(MemoryError::from)
+    chat::send_message(
+        messages,
+        Some(SUMMARY_SYSTEM_PROMPT.to_string()),
+        &active.provider_id,
+        active.model_id.as_deref(),
+    )
+    .await
+    .map_err(MemoryError::from)
 }
 
 /// Format conversation messages into a readable string for summarization
@@ -340,6 +350,19 @@ fn prepare_fts_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #108 regression lock: summaries must use the user's active provider
+    /// from settings, never a hardcoded one. The needle is built at runtime
+    /// so this test's own source can't satisfy it.
+    #[test]
+    fn no_hardcoded_provider_in_summary_path() {
+        let src = include_str!("memory.rs");
+        let needle = format!("\"{}{}\"", "anthro", "pic");
+        assert!(
+            !src.contains(&needle),
+            "memory.rs hardcodes a provider id — resolve it via chat::resolve_active_provider (#108)"
+        );
+    }
 
     #[test]
     fn test_format_conversation_for_summary() {

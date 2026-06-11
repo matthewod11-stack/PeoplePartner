@@ -68,6 +68,10 @@ interface ConversationContextValue {
   // PII scan failure (fail-closed: message was NOT sent)
   piiScanError: string | null;
   clearPiiScanError: () => void;
+
+  // One-time notice when memory summaries are unavailable (#108)
+  memoryNotice: string | null;
+  clearMemoryNotice: () => void;
 }
 
 interface ConversationMessagesContextValue {
@@ -80,6 +84,7 @@ interface ConversationMetaContextValue {
   currentTitle: string | null;
   piiNotification: string | null;
   piiScanError: string | null;
+  memoryNotice: string | null;
 }
 
 interface ConversationDirectoryContextValue {
@@ -100,6 +105,7 @@ interface ConversationActionsContextValue {
   refreshConversations: () => Promise<void>;
   clearPiiNotification: () => void;
   clearPiiScanError: () => void;
+  clearMemoryNotice: () => void;
 }
 
 // =============================================================================
@@ -194,6 +200,20 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
 
   const clearPiiScanError = useCallback(() => {
     setPiiScanError(null);
+  }, []);
+
+  // ---------------------------------------------------------------------------
+  // Memory-unavailable notice (#108)
+  // ---------------------------------------------------------------------------
+  // Summary generation needs an API key for the active provider. Trial users
+  // (and misconfigured BYOK setups) have none — instead of swallowing the
+  // failure in a console.warn, surface it once per session so the user knows
+  // why cross-conversation memory is off and how to turn it on.
+  const [memoryNotice, setMemoryNotice] = useState<string | null>(null);
+  const memoryNoticeShown = useRef(false);
+
+  const clearMemoryNotice = useCallback(() => {
+    setMemoryNotice(null);
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -623,6 +643,15 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
         console.log('[Memory] Summary saved:', summary.substring(0, 80) + '...');
       } catch (err) {
         console.warn('[Memory] Summary generation failed:', err);
+        // MemoryError::NoApiKey serializes as "API key not configured" —
+        // surface it once per session instead of silently losing memory (#108).
+        if (!memoryNoticeShown.current && String(err).includes('API key not configured')) {
+          memoryNoticeShown.current = true;
+          setMemoryNotice(
+            'Conversation memory is off: no API key is configured for your AI provider. ' +
+              'Add one in Settings — or memory unlocks with a license after purchase.'
+          );
+        }
       }
     }
 
@@ -678,8 +707,9 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       currentTitle,
       piiNotification,
       piiScanError,
+      memoryNotice,
     }),
-    [conversationId, currentTitle, piiNotification, piiScanError]
+    [conversationId, currentTitle, piiNotification, piiScanError, memoryNotice]
   );
 
   const directoryValue = useMemo<ConversationDirectoryContextValue>(
@@ -704,6 +734,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       refreshConversations,
       clearPiiNotification,
       clearPiiScanError,
+      clearMemoryNotice,
     }),
     [
       sendMessage,
@@ -715,6 +746,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       refreshConversations,
       clearPiiNotification,
       clearPiiScanError,
+      clearMemoryNotice,
     ]
   );
 

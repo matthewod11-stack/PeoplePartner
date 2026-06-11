@@ -330,7 +330,17 @@ struct SummaryResponse {
 // Extraction Functions
 // ============================================================================
 
-/// Extract highlights from a single performance review using Claude API
+/// The model label to record on a generated artifact: the user's explicit
+/// model choice when set, otherwise the provider's catalog default (#108).
+fn resolved_model_label(active: &crate::chat::ActiveProvider) -> String {
+    active.model_id.clone().unwrap_or_else(|| {
+        crate::models::default_model_for_provider(&active.provider_id)
+            .unwrap_or("unknown")
+            .to_string()
+    })
+}
+
+/// Extract highlights from a single performance review using the active provider
 pub async fn extract_highlights_for_review(
     pool: &DbPool,
     review: &PerformanceReview,
@@ -340,23 +350,29 @@ pub async fn extract_highlights_for_review(
     // Build the user prompt with review content
     let user_prompt = format_review_for_extraction(review);
 
-    // Call Claude API
+    // Call the user's active provider (#108)
     let messages = vec![ChatMessage {
         role: "user".to_string(),
         content: user_prompt,
     }];
 
-    let response = chat::send_message(messages, Some(EXTRACTION_SYSTEM_PROMPT.to_string()), "anthropic", None)
+    let active = chat::resolve_active_provider(pool)
         .await
-        .map_err(HighlightsError::from)?;
+        .map_err(|e| HighlightsError::Database(e.to_string()))?;
+    let response = chat::send_message(
+        messages,
+        Some(EXTRACTION_SYSTEM_PROMPT.to_string()),
+        &active.provider_id,
+        active.model_id.as_deref(),
+    )
+    .await
+    .map_err(HighlightsError::from)?;
 
     // Parse the JSON response
     let extracted = parse_extraction_response(&response.content)?;
 
-    // Record which model was actually used (catalog default)
-    let model_used = crate::models::default_model_for_provider("anthropic")
-        .unwrap_or("unknown")
-        .to_string();
+    // Record which model was actually used (explicit setting, else catalog default)
+    let model_used = resolved_model_label(&active);
 
     // Create and save the highlight
     let input = CreateHighlight {
@@ -510,15 +526,23 @@ pub async fn generate_employee_summary(
     // Format highlights for summary generation
     let user_prompt = format_highlights_for_summary(&employee.full_name, &highlights);
 
-    // Call Claude API
+    // Call the user's active provider (#108)
     let messages = vec![ChatMessage {
         role: "user".to_string(),
         content: user_prompt,
     }];
 
-    let response = chat::send_message(messages, Some(SUMMARY_SYSTEM_PROMPT.to_string()), "anthropic", None)
+    let active = chat::resolve_active_provider(pool)
         .await
-        .map_err(HighlightsError::from)?;
+        .map_err(|e| HighlightsError::Database(e.to_string()))?;
+    let response = chat::send_message(
+        messages,
+        Some(SUMMARY_SYSTEM_PROMPT.to_string()),
+        &active.provider_id,
+        active.model_id.as_deref(),
+    )
+    .await
+    .map_err(HighlightsError::from)?;
 
     // Parse the JSON response
     let summary_data = parse_summary_response(&response.content)?;
@@ -528,10 +552,8 @@ pub async fn generate_employee_summary(
         .first()
         .and_then(|h| Some(h.created_at.clone()));
 
-    // Record which model was actually used (catalog default)
-    let model_used = crate::models::default_model_for_provider("anthropic")
-        .unwrap_or("unknown")
-        .to_string();
+    // Record which model was actually used (explicit setting, else catalog default)
+    let model_used = resolved_model_label(&active);
 
     // Save the summary
     let input = CreateSummary {
@@ -903,6 +925,19 @@ pub async fn get_summary_or_none(pool: &DbPool, employee_id: &str) -> Option<Emp
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #108 regression lock: highlight extraction + employee summaries must
+    /// use the user's active provider from settings, never a hardcoded one.
+    /// The needle is built at runtime so this test's own source can't satisfy it.
+    #[test]
+    fn no_hardcoded_provider_in_extraction_paths() {
+        let src = include_str!("highlights.rs");
+        let needle = format!("\"{}{}\"", "anthro", "pic");
+        assert!(
+            !src.contains(&needle),
+            "highlights.rs hardcodes a provider id — resolve it via chat::resolve_active_provider (#108)"
+        );
+    }
 
     // -------------------- JSON Parsing Tests --------------------
 

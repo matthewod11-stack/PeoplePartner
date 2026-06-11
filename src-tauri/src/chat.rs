@@ -391,6 +391,35 @@ pub fn trim_conversation_to_budget(
 // API Client
 // ============================================================================
 
+/// The user's active provider + model, resolved from settings (#108).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActiveProvider {
+    pub provider_id: String,
+    /// Explicit model choice for this provider, if the user set one.
+    /// `None` defers to the provider's catalog default.
+    pub model_id: Option<String>,
+}
+
+/// Resolve the active provider + its model from settings. The single source
+/// of truth for every backend-initiated LLM call — interactive chat, memory
+/// summarization, and review-highlight extraction all route through this so
+/// no call site hardcodes a provider (#108: hardcoded "anthropic" made
+/// memory/highlights silently dead for trial users and falsely erroring for
+/// OpenAI/Gemini BYOK customers).
+pub async fn resolve_active_provider(
+    pool: &crate::db::DbPool,
+) -> Result<ActiveProvider, crate::settings::SettingsError> {
+    let provider_id = crate::settings::get_setting(pool, "active_provider")
+        .await?
+        .unwrap_or_else(|| "anthropic".to_string());
+    let model_key = format!("active_model_{}", provider_id);
+    let model_id = crate::settings::get_setting(pool, &model_key).await?;
+    Ok(ActiveProvider {
+        provider_id,
+        model_id,
+    })
+}
+
 /// Send a message to an AI provider and get a response (non-streaming).
 /// Uses the provider's default temperature.
 pub async fn send_message(
@@ -734,6 +763,67 @@ pub async fn send_message_streaming_trial(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ========================================
+    // Active-provider resolution (#108)
+    // ========================================
+
+    async fn test_pool() -> crate::db::DbPool {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        use std::time::Duration;
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("run migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn resolve_active_provider_defaults_to_anthropic() {
+        let pool = test_pool().await;
+        let active = resolve_active_provider(&pool).await.unwrap();
+        assert_eq!(active.provider_id, "anthropic");
+        assert_eq!(active.model_id, None);
+    }
+
+    #[tokio::test]
+    async fn resolve_active_provider_reads_settings() {
+        let pool = test_pool().await;
+        crate::settings::set_setting(&pool, "active_provider", "openai")
+            .await
+            .unwrap();
+        crate::settings::set_setting(&pool, "active_model_openai", "gpt-4o-mini")
+            .await
+            .unwrap();
+        let active = resolve_active_provider(&pool).await.unwrap();
+        assert_eq!(active.provider_id, "openai");
+        assert_eq!(active.model_id.as_deref(), Some("gpt-4o-mini"));
+    }
+
+    #[tokio::test]
+    async fn resolve_active_provider_ignores_other_providers_model() {
+        // The model setting is provider-scoped: a leftover anthropic model
+        // must not leak into an openai session.
+        let pool = test_pool().await;
+        crate::settings::set_setting(&pool, "active_provider", "openai")
+            .await
+            .unwrap();
+        crate::settings::set_setting(&pool, "active_model_anthropic", "claude-sonnet-4-6")
+            .await
+            .unwrap();
+        let active = resolve_active_provider(&pool).await.unwrap();
+        assert_eq!(active.provider_id, "openai");
+        assert_eq!(active.model_id, None);
+    }
 
     // ========================================
     // StreamRegistry tests (issue #25)

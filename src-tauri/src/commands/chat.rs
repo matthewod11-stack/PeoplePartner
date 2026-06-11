@@ -16,17 +16,17 @@ pub(crate) async fn send_chat_message(
     messages: Vec<chat::ChatMessage>,
     system_prompt: Option<String>,
 ) -> Result<chat::ChatResponse, chat::ChatError> {
-    let provider_id = settings::get_setting(&state.pool, "active_provider")
-        .await
-        .map_err(|e| chat::ChatError::RequestError(e.to_string()))?
-        .unwrap_or_else(|| "anthropic".to_string());
-
-    let model_key = format!("active_model_{}", provider_id);
-    let model_id = settings::get_setting(&state.pool, &model_key)
+    let active = chat::resolve_active_provider(&state.pool)
         .await
         .map_err(|e| chat::ChatError::RequestError(e.to_string()))?;
 
-    chat::send_message(messages, system_prompt, &provider_id, model_id.as_deref()).await
+    chat::send_message(
+        messages,
+        system_prompt,
+        &active.provider_id,
+        active.model_id.as_deref(),
+    )
+    .await
 }
 
 /// Send a message with streaming response

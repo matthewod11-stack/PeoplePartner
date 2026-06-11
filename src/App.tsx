@@ -133,13 +133,14 @@ interface ChatAreaProps {
 function ChatArea({ chatInputRef }: ChatAreaProps) {
   // Get conversation state from context
   const { messages, isLoading } = useConversationMessages();
-  const { piiNotification, piiScanError } = useConversationMeta();
+  const { piiNotification, piiScanError, memoryNotice } = useConversationMeta();
   const {
     sendMessage,
     retryMessage,
     startNewConversation,
     clearPiiNotification,
     clearPiiScanError,
+    clearMemoryNotice,
   } = useConversationActions();
 
   // Get selected employee from context (for prioritizing in context builder)
@@ -216,6 +217,12 @@ function ChatArea({ chatInputRef }: ChatAreaProps) {
         summary={piiScanError}
         onDismiss={clearPiiScanError}
         variant="error"
+      />
+      {/* Memory unavailable — one-time notice with the path to enable it (#108) */}
+      <PIINotification
+        summary={memoryNotice}
+        onDismiss={clearMemoryNotice}
+        duration={10000}
       />
       <MessageList
         messages={messages}

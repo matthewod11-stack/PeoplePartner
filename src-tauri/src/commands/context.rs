@@ -68,12 +68,13 @@ pub(crate) fn get_personas() -> Vec<context::Persona> {
 
 // ---- Memory (cross-conversation) ----
 
-/// Generate a summary for a conversation using Claude
+/// Generate a summary for a conversation using the user's active provider (#108)
 #[tauri::command]
 pub(crate) async fn generate_conversation_summary(
+    state: tauri::State<'_, Database>,
     messages_json: String,
 ) -> Result<String, memory::MemoryError> {
-    memory::generate_summary(&messages_json).await
+    memory::generate_summary(&state.pool, &messages_json).await
 }
 
 /// Save a summary to an existing conversation
