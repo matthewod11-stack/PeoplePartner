@@ -146,12 +146,14 @@ pub(crate) fn cancel_stream(registry: tauri::State<'_, chat::StreamRegistry>, st
 
 /// Check if the network and Anthropic API are reachable
 #[tauri::command]
-pub(crate) async fn check_network_status() -> network::NetworkStatus {
-    network::check_network().await
+pub(crate) async fn check_network_status(
+    state: tauri::State<'_, Database>,
+) -> Result<network::NetworkStatus, ()> {
+    Ok(network::check_network(&state.pool).await)
 }
 
 /// Quick check if online (returns just a boolean)
 #[tauri::command]
-pub(crate) async fn is_online() -> bool {
-    network::is_online().await
+pub(crate) async fn is_online(state: tauri::State<'_, Database>) -> Result<bool, ()> {
+    Ok(network::is_online(&state.pool).await)
 }
