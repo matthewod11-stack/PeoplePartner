@@ -69,7 +69,7 @@ curl -X POST http://localhost:8787/v1/messages \
   -H "Origin: tauri://localhost" \
   -H "X-Device-ID: 550e8400-e29b-41d4-a716-446655440000" \
   -d '{
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-sonnet-4-6",
     "max_tokens": 256,
     "messages": [{"role": "user", "content": "Hello"}]
   }'

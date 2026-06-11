@@ -76,7 +76,7 @@ Tests all 5 enforcement paths (unsigned reject, stale reject, wrong-key reject, 
 | `MAX_MESSAGES` | 50 | Lifetime trial quota per device. Lower if abuse seen on quota-rotation; raise rarely. |
 | `MAX_IP_REQUESTS_PER_HOUR` | 300 | Coarse safety valve. Single IP shouldn't approach this with the 50-message lifetime cap. Lower to 100 if you want stricter caps; raise only if legit users trip it (very unlikely). |
 | `MAX_SIGNATURE_AGE_SECONDS` | 300 | Signature freshness window. Currently 5 minutes — reasonable for clock skew. Lower carries replay-window risk; raise carries staleness-window risk. |
-| `ALLOWED_MODEL` | `claude-sonnet-4-20250514` | Model the proxy forwards to Anthropic. Override every request body, prevents trial users from requesting Opus. |
+| `ALLOWED_MODEL` | `claude-sonnet-4-6` | Model the proxy forwards to Anthropic. Override every request body, prevents trial users from requesting Opus. (Repointed 2026-06-10 — `claude-sonnet-4-20250514` retires 2026-06-15.) |
 | `ALLOWED_ORIGINS` | `tauri://localhost,http://localhost:1420` | Comma-separated. Add new dev origins here as needed. |
 
 Apply via `wrangler.toml` change + `wrangler deploy`.

@@ -14,7 +14,7 @@ interface Env {
 
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
-const DEFAULT_ALLOWED_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_ALLOWED_MODEL = "claude-sonnet-4-6";
 const MAX_TOKENS_CAP = 4096;
 const DEFAULT_ALLOWED_ORIGINS = ["tauri://localhost", "http://localhost:1420"];
 const DEFAULT_SIGNATURE_AGE_SECONDS = 300;
