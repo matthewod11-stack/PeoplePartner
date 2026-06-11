@@ -720,6 +720,9 @@ export interface ExaSearchResponse {
  *   - `Network`    → soft toast ("couldn't reach Exa").
  *   - `ExaApi`     → surface status + body for debugging.
  *   - `Internal`   → unexpected (Keychain read failed, parse failed, ...).
+ *   - `FeatureDisabled` → the Rust-side recruiting gate is off (#109). Only
+ *     reachable when the TS and Rust `RECRUITING_ENABLED` flags disagree —
+ *     flip both together (see featureFlags.ts).
  */
 export type RecruitingSearchError =
   | { kind: 'MissingKey' }
@@ -727,7 +730,8 @@ export type RecruitingSearchError =
   | { kind: 'RateLimit'; message: string }
   | { kind: 'Network'; message: string }
   | { kind: 'ExaApi'; status: number; body: string }
-  | { kind: 'Internal'; message: string };
+  | { kind: 'Internal'; message: string }
+  | { kind: 'FeatureDisabled' };
 
 /** Result of {@link recruitingSearchExa} — pattern-match on `ok`. */
 export type RecruitingSearchResult =
@@ -808,4 +812,5 @@ export type IntakeCommandError =
   | { kind: 'MissingExaKey' }
   | { kind: 'Provider'; message: string }
   | { kind: 'Research'; message: string }
-  | { kind: 'Internal'; message: string };
+  | { kind: 'Internal'; message: string }
+  | { kind: 'FeatureDisabled' };

@@ -22,6 +22,63 @@ use crate::recruiting::search::{
 use crate::recruiting::{self, RecruitingSearch, EXA_PROVIDER_ID};
 use serde::Serialize;
 
+// ============================================================================
+// Runtime feature gate (#109)
+// ============================================================================
+//
+// `RECRUITING_ENABLED=false` in `src/lib/featureFlags.ts` only hides the UI —
+// every command below stays reachable via direct IPC from webview JS. This
+// Rust-side gate makes "off" mean off: each command's first statement is
+// `ensure_recruiting_enabled()?`, so a disabled build refuses the call before
+// touching the Keychain, the database, or the network. Containment only — the
+// consent-model/redaction work that gates *enabling* the module is FHR-90/91.
+
+/// Compile-time kill switch for the recruiting module's entire IPC surface.
+/// Mirrors `RECRUITING_ENABLED` in `src/lib/featureFlags.ts` — keep both in
+/// sync when flipping for local development (each file points at the other).
+pub(crate) const RECRUITING_ENABLED: bool = false;
+
+/// Marker for "the recruiting module is disabled in this build". Converts
+/// into each of the three command error shapes, so `ensure_recruiting_enabled()?`
+/// works unchanged in any command — `?` picks the right `From` impl.
+#[derive(Debug)]
+pub(crate) struct RecruitingDisabled;
+
+impl From<RecruitingDisabled> for String {
+    fn from(_: RecruitingDisabled) -> Self {
+        "FeatureDisabled: the recruiting module is disabled in this build \
+         (flip RECRUITING_ENABLED in src-tauri/src/commands/recruiting.rs \
+         and src/lib/featureFlags.ts together)"
+            .into()
+    }
+}
+
+impl From<RecruitingDisabled> for RecruitingSearchError {
+    fn from(_: RecruitingDisabled) -> Self {
+        RecruitingSearchError::FeatureDisabled
+    }
+}
+
+impl From<RecruitingDisabled> for IntakeCommandError {
+    fn from(_: RecruitingDisabled) -> Self {
+        IntakeCommandError::FeatureDisabled
+    }
+}
+
+/// Core gate, parameterized for deterministic both-branch tests.
+fn recruiting_gate(enabled: bool) -> Result<(), RecruitingDisabled> {
+    if enabled {
+        Ok(())
+    } else {
+        Err(RecruitingDisabled)
+    }
+}
+
+/// The guard every recruiting command calls as its first statement.
+fn ensure_recruiting_enabled() -> Result<(), RecruitingDisabled> {
+    recruiting_gate(RECRUITING_ENABLED)
+}
+
 /// Create a new recruiting search. Returns the generated row ID.
 #[tauri::command]
 pub(crate) async fn recruiting_create_search(
@@ -29,6 +86,7 @@ pub(crate) async fn recruiting_create_search(
     query: String,
     seed_employee_id: Option<String>,
 ) -> Result<String, String> {
+    ensure_recruiting_enabled()?;
     recruiting::create_search(&state.pool, &query, seed_employee_id.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -39,6 +97,7 @@ pub(crate) async fn recruiting_create_search(
 pub(crate) async fn recruiting_list_searches(
     state: tauri::State<'_, Database>,
 ) -> Result<Vec<RecruitingSearch>, String> {
+    ensure_recruiting_enabled()?;
     recruiting::list_searches(&state.pool)
         .await
         .map_err(|e| e.to_string())
@@ -53,6 +112,8 @@ pub(crate) async fn recruiting_list_searches(
 ///   - `ExaApi`      → surface status + body inline (debugging-friendly).
 ///   - `Internal`    → unexpected path: Keychain read failure, response
 ///     parse failure, etc.
+///   - `FeatureDisabled` → the recruiting module is compiled off (#109);
+///     only reachable via direct IPC or a TS/Rust flag mismatch.
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind")]
 pub enum RecruitingSearchError {
@@ -62,6 +123,7 @@ pub enum RecruitingSearchError {
     Network { message: String },
     ExaApi { status: u16, body: String },
     Internal { message: String },
+    FeatureDisabled,
 }
 
 impl From<ExaError> for RecruitingSearchError {
@@ -96,6 +158,7 @@ impl From<ExaError> for RecruitingSearchError {
 /// Check whether an Exa API key is stored in the Keychain.
 #[tauri::command]
 pub(crate) fn recruiting_has_exa_key() -> Result<bool, String> {
+    ensure_recruiting_enabled()?;
     Ok(keyring::has_provider_api_key(EXA_PROVIDER_ID))
 }
 
@@ -105,6 +168,7 @@ pub(crate) fn recruiting_has_exa_key() -> Result<bool, String> {
 /// nothing here needs to change.
 #[tauri::command]
 pub(crate) fn recruiting_store_exa_key(api_key: String) -> Result<(), String> {
+    ensure_recruiting_enabled()?;
     keyring::store_provider_api_key(EXA_PROVIDER_ID, &api_key).map_err(|e| e.to_string())
 }
 
@@ -112,6 +176,7 @@ pub(crate) fn recruiting_store_exa_key(api_key: String) -> Result<(), String> {
 /// when no key was stored (matches `keyring::delete_provider_api_key`).
 #[tauri::command]
 pub(crate) fn recruiting_delete_exa_key() -> Result<(), String> {
+    ensure_recruiting_enabled()?;
     keyring::delete_provider_api_key(EXA_PROVIDER_ID).map_err(|e| e.to_string())
 }
 
@@ -124,6 +189,7 @@ pub(crate) fn recruiting_delete_exa_key() -> Result<(), String> {
 pub(crate) async fn recruiting_search_exa(
     query: String,
 ) -> Result<ExaSearchResponse, RecruitingSearchError> {
+    ensure_recruiting_enabled()?;
     let api_key = match keyring::get_provider_api_key(EXA_PROVIDER_ID) {
         Ok(key) => key,
         Err(KeyringError::NotFound) => return Err(RecruitingSearchError::MissingKey),
@@ -174,6 +240,7 @@ pub struct IntakeResultDto {
 }
 
 /// Discriminated error for the intake commands. The frontend matches on `kind`.
+/// `FeatureDisabled` = the recruiting module is compiled off (#109).
 #[derive(Debug, Serialize)]
 #[serde(tag = "kind")]
 pub enum IntakeCommandError {
@@ -182,6 +249,7 @@ pub enum IntakeCommandError {
     Provider { message: String },
     Research { message: String },
     Internal { message: String },
+    FeatureDisabled,
 }
 
 impl From<IntakeError> for IntakeCommandError {
@@ -280,6 +348,7 @@ pub(crate) async fn recruiting_intake_start_from_seed(
     state: tauri::State<'_, Database>,
     seed: IntakeSeedInput,
 ) -> Result<IntakeTurn, IntakeCommandError> {
+    ensure_recruiting_enabled()?;
     let deps = deps_from_env(&state.pool).await?; // preflight LLM/Exa keys
     let text = resolve_seed_text(&seed)?;
     let redacted = crate::pii::scan_and_redact(&text).redacted_text; // financial-scope (names/emails = FHR-90)
@@ -299,6 +368,7 @@ pub(crate) async fn recruiting_intake_start_from_seed(
 pub(crate) async fn recruiting_intake_start(
     state: tauri::State<'_, Database>,
 ) -> Result<IntakeTurn, IntakeCommandError> {
+    ensure_recruiting_enabled()?;
     // Fail fast on missing LLM/Exa keys before creating any conversation state.
     let deps = deps_from_env(&state.pool).await?;
     let mut engine = create_intake_engine(&deps, None);
@@ -322,6 +392,7 @@ pub(crate) async fn recruiting_intake_step(
     conversation_state: String,
     response: String,
 ) -> Result<IntakeTurn, IntakeCommandError> {
+    ensure_recruiting_enabled()?;
     let deps = deps_from_env(&state.pool).await?;
     let mut engine = restore_intake_engine(&conversation_state)?;
     engine.submit_response(&response, &deps).await?;
@@ -339,6 +410,7 @@ pub(crate) async fn recruiting_intake_extract(
     state: tauri::State<'_, Database>,
     conversation_state: String,
 ) -> Result<IntakeResultDto, IntakeCommandError> {
+    ensure_recruiting_enabled()?;
     let deps = deps_from_env(&state.pool).await?;
     let engine = restore_intake_engine(&conversation_state)?;
     let result = extract_intake_result(engine.context(), &deps).await?;
@@ -374,6 +446,7 @@ pub(crate) async fn recruiting_score_candidates(
     talent_profile: TalentProfile,
     config: Option<ScoringConfig>,
 ) -> Result<Vec<ScoredCandidate>, IntakeCommandError> {
+    ensure_recruiting_enabled()?;
     let deps = deps_from_env(&state.pool).await?;
     let cfg = config.unwrap_or_default();
     let retrieved_at = deps.clock.now_iso8601();
@@ -516,6 +589,7 @@ pub(crate) async fn run_search_inner<S: CandidateSource>(
 pub(crate) async fn recruiting_run_search(
     search_config: SearchConfig,
 ) -> Result<RunSearchResult, RecruitingSearchError> {
+    ensure_recruiting_enabled()?;
     let api_key = match keyring::get_provider_api_key(EXA_PROVIDER_ID) {
         Ok(key) => key,
         Err(KeyringError::NotFound) => return Err(RecruitingSearchError::MissingKey),
@@ -765,6 +839,104 @@ mod tests {
         let mapped: IntakeCommandError =
             ScoringError::Template(TemplateError::MissingChangelog("x".into())).into();
         assert!(matches!(mapped, IntakeCommandError::Internal { .. }));
+    }
+
+    // -------------------------------------------------------------------------
+    // Runtime feature gate (#109) — RECRUITING_ENABLED must hold the IPC surface
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn recruiting_gate_blocks_when_disabled() {
+        assert!(recruiting_gate(false).is_err());
+
+        // The marker must convert into all three command error shapes.
+        let msg: String = RecruitingDisabled.into();
+        assert!(
+            msg.contains("FeatureDisabled"),
+            "string-error gate message must carry the FeatureDisabled marker: {msg}"
+        );
+        let e: RecruitingSearchError = RecruitingDisabled.into();
+        assert!(matches!(e, RecruitingSearchError::FeatureDisabled));
+        let e: IntakeCommandError = RecruitingDisabled.into();
+        assert!(matches!(e, IntakeCommandError::FeatureDisabled));
+    }
+
+    #[test]
+    fn recruiting_gate_allows_when_enabled() {
+        assert!(recruiting_gate(true).is_ok());
+    }
+
+    #[test]
+    fn feature_disabled_serializes_with_kind_tag() {
+        // The frontend pattern-matches on `kind` — both enums must emit it.
+        let v = serde_json::to_value(RecruitingSearchError::FeatureDisabled).unwrap();
+        assert_eq!(v["kind"], "FeatureDisabled");
+        let v = serde_json::to_value(IntakeCommandError::FeatureDisabled).unwrap();
+        assert_eq!(v["kind"], "FeatureDisabled");
+    }
+
+    #[tokio::test]
+    async fn search_exa_is_gated_when_flag_off() {
+        if RECRUITING_ENABLED {
+            return; // dev-flipped build: gate open, nothing to assert
+        }
+        let res = recruiting_search_exa("anyone".into()).await;
+        assert!(
+            matches!(res, Err(RecruitingSearchError::FeatureDisabled)),
+            "gate must fire before any Keychain or network access"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_search_is_gated_when_flag_off() {
+        if RECRUITING_ENABLED {
+            return;
+        }
+        let res = recruiting_run_search(sample_search_config()).await;
+        assert!(
+            matches!(res, Err(RecruitingSearchError::FeatureDisabled)),
+            "gate must fire before any Keychain or network access"
+        );
+    }
+
+    #[test]
+    fn exa_key_commands_are_gated_when_flag_off() {
+        if RECRUITING_ENABLED {
+            return;
+        }
+        let err = recruiting_has_exa_key().unwrap_err();
+        assert!(err.contains("FeatureDisabled"), "has_exa_key: {err}");
+        let err = recruiting_store_exa_key("k".into()).unwrap_err();
+        assert!(err.contains("FeatureDisabled"), "store_exa_key: {err}");
+        let err = recruiting_delete_exa_key().unwrap_err();
+        assert!(err.contains("FeatureDisabled"), "delete_exa_key: {err}");
+    }
+
+    /// Self-enforcing sweep: every `#[tauri::command]` in this file must call
+    /// the gate. A new recruiting command added without `ensure_recruiting_enabled()`
+    /// fails here instead of shipping ungated (#109's grep check, made permanent).
+    #[test]
+    fn every_recruiting_command_checks_the_gate() {
+        let src = include_str!("recruiting.rs");
+        // Build the marker at runtime so this test's own source can't match it.
+        let marker = format!("#[tauri::{}]", "command");
+        let segments: Vec<&str> = src.split(marker.as_str()).collect();
+        assert!(
+            segments.len() > 12,
+            "expected at least 12 tauri commands in recruiting.rs; found {}",
+            segments.len() - 1
+        );
+        for seg in segments.iter().skip(1) {
+            let name = seg
+                .split("fn ")
+                .nth(1)
+                .and_then(|s| s.split('(').next())
+                .unwrap_or("<unparsed>");
+            assert!(
+                seg.contains("ensure_recruiting_enabled()"),
+                "recruiting command `{name}` does not call ensure_recruiting_enabled()"
+            );
+        }
     }
 
     #[test]

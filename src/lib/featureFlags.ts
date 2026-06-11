@@ -17,5 +17,12 @@
  * OFF in production until the module is built out. Flip to `true` locally to
  * develop S0.2 (Rust `recruiting` module) and S0.3 (live Exa round-trip)
  * against the UI seam established in S0.1.
+ *
+ * ⚠️ This flag has a Rust mirror (#109): `RECRUITING_ENABLED` in
+ * `src-tauri/src/commands/recruiting.rs` gates the IPC surface itself —
+ * with it off, every recruiting command returns `FeatureDisabled` before
+ * touching the Keychain, database, or network. Flip BOTH flags together;
+ * flipping only this one makes every recruiting call fail with
+ * `{ kind: 'FeatureDisabled' }`.
  */
 export const RECRUITING_ENABLED: boolean = false;

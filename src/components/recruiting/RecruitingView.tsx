@@ -342,6 +342,14 @@ function ErrorState({ error }: { error: RecruitingSearchError }) {
       heading = 'Unexpected error';
       message = error.message;
       break;
+    case 'FeatureDisabled':
+      // Only reachable when the TS and Rust RECRUITING_ENABLED flags disagree
+      // (#109) — the UI is visible but the IPC surface is compiled off.
+      heading = 'Recruiting is disabled in this build';
+      message =
+        'The Rust-side gate is off. Flip RECRUITING_ENABLED in both ' +
+        'src/lib/featureFlags.ts and src-tauri/src/commands/recruiting.rs, then rebuild.';
+      break;
   }
   return (
     <div className="px-6 py-8">
