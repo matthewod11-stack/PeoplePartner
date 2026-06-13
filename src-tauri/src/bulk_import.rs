@@ -280,8 +280,10 @@ pub async fn import_reviews_bulk(
     let mut inserted = 0;
     let mut errors = Vec::new();
 
-    // Track inserted reviews and affected employees for auto-extraction
-    let mut inserted_review_ids: Vec<String> = Vec::new();
+    // Track inserted reviews (review_id, employee_id) and affected employees
+    // for auto-extraction. The employee_id is retained per review so sample-
+    // flagged data can be excluded from extraction below (#118).
+    let mut inserted_reviews: Vec<(String, String)> = Vec::new();
     let mut affected_employee_ids: HashSet<String> = HashSet::new();
 
     for review in reviews {
@@ -308,7 +310,7 @@ pub async fn import_reviews_bulk(
         match result {
             Ok(_) => {
                 inserted += 1;
-                inserted_review_ids.push(review.id.clone());
+                inserted_reviews.push((review.id.clone(), review.employee_id.clone()));
                 affected_employee_ids.insert(review.employee_id.clone());
             }
             Err(e) => {
@@ -321,18 +323,33 @@ pub async fn import_reviews_bulk(
 
     tx.commit().await?;
 
-    // Auto-trigger: Extract highlights and regenerate summaries after import
-    // Runs inline so failures are surfaced as warnings in the result
+    // Auto-trigger: Extract highlights and regenerate summaries after import.
+    // Runs inline so failures are surfaced as warnings in the result.
+    //
+    // #118: sample-flagged data (is_sample = 1) is excluded from extraction.
+    // Auto-extracting the bundled 100-employee sample dataset fires ~261
+    // sequential LLM calls — silently burning real API credits and freezing
+    // onboarding at 75% for 15-20 min whenever a provider key is present in the
+    // keychain. Sample insights aren't worth real tokens; the demo works
+    // without them.
     let mut warnings = Vec::new();
-    if !inserted_review_ids.is_empty() {
-        let employee_ids: Vec<String> = affected_employee_ids.into_iter().collect();
+    if !inserted_reviews.is_empty() {
+        let review_ids = reviews_eligible_for_extraction(pool, &inserted_reviews).await;
+        let sample_ids = fetch_sample_employee_ids(pool).await;
+        let employee_ids: Vec<String> = affected_employee_ids
+            .into_iter()
+            .filter(|emp_id| !sample_ids.contains(emp_id))
+            .collect();
+
         // Batch extract with rate limiting (100ms between API calls)
-        if let Err(e) = crate::highlights::extract_highlights_batch(pool, inserted_review_ids).await {
-            let msg = format!("[Auto-extract batch] Failed: {}", e);
-            log::warn!("{}", msg);
-            warnings.push(msg);
+        if !review_ids.is_empty() {
+            if let Err(e) = crate::highlights::extract_highlights_batch(pool, review_ids).await {
+                let msg = format!("[Auto-extract batch] Failed: {}", e);
+                log::warn!("{}", msg);
+                warnings.push(msg);
+            }
         }
-        // Regenerate summaries for all affected employees
+        // Regenerate summaries for all affected non-sample employees
         for emp_id in &employee_ids {
             if let Err(e) = crate::highlights::generate_employee_summary(pool, emp_id).await {
                 let msg = format!("[Auto-summary] Failed for employee {}: {}", emp_id, e);
@@ -343,6 +360,36 @@ pub async fn import_reviews_bulk(
     }
 
     Ok(BulkImportResult { inserted, errors, warnings })
+}
+
+/// IDs of all sample-flagged employees (is_sample = 1) — bundled sample /
+/// onboarding data (#106, migration 014).
+///
+/// On query failure this returns an empty set, so auto-extraction falls back to
+/// its prior behavior (extract everything) rather than silently dropping real
+/// users' reviews — a fail-open choice consistent with "extraction failures are
+/// warnings, not errors".
+async fn fetch_sample_employee_ids(pool: &DbPool) -> HashSet<String> {
+    let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM employees WHERE is_sample = 1")
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+    ids.into_iter().collect()
+}
+
+/// #118: of the freshly-inserted `(review_id, employee_id)` pairs, return only
+/// the review IDs whose employee is NOT sample-flagged — i.e. the reviews
+/// eligible for token-spending highlight auto-extraction.
+async fn reviews_eligible_for_extraction(
+    pool: &DbPool,
+    inserted_reviews: &[(String, String)],
+) -> Vec<String> {
+    let sample_ids = fetch_sample_employee_ids(pool).await;
+    inserted_reviews
+        .iter()
+        .filter(|(_, emp_id)| !sample_ids.contains(emp_id))
+        .map(|(review_id, _)| review_id.clone())
+        .collect()
 }
 
 /// Import eNPS responses with predefined IDs.
@@ -676,5 +723,43 @@ mod tests {
                 .await
                 .expect("count sample-flagged rows");
         assert_eq!(flagged, 1, "bulk-imported employees must be tagged is_sample = 1");
+    }
+
+    /// #118: auto-extraction of review highlights must skip reviews that belong
+    /// to sample-flagged (is_sample = 1) employees. Otherwise a fresh install
+    /// with a stored provider key silently spends real API credits analyzing
+    /// the bundled 100-employee sample dataset and stalls onboarding at 75%.
+    #[tokio::test]
+    async fn sample_employee_reviews_are_excluded_from_auto_extraction() {
+        let pool = test_pool().await;
+        // Both land via the bulk path (is_sample = 1); flip emp-real to a real
+        // employee so the pool holds one of each — schema-agnostic setup.
+        import_employees_bulk(
+            &pool,
+            vec![
+                make_employee("emp-sample", "sample@acmecorp.com"),
+                make_employee("emp-real", "real@example.com"),
+            ],
+        )
+        .await
+        .expect("import succeeded");
+        sqlx::query("UPDATE employees SET is_sample = 0 WHERE id = ?")
+            .bind("emp-real")
+            .execute(&pool)
+            .await
+            .expect("flip emp-real to non-sample");
+
+        let inserted = vec![
+            ("rev-sample".to_string(), "emp-sample".to_string()),
+            ("rev-real".to_string(), "emp-real".to_string()),
+        ];
+
+        let eligible = reviews_eligible_for_extraction(&pool, &inserted).await;
+
+        assert_eq!(
+            eligible,
+            vec!["rev-real".to_string()],
+            "only the non-sample employee's review should be queued for extraction"
+        );
     }
 }
