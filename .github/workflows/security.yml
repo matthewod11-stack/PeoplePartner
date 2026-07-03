@@ -48,9 +48,20 @@ jobs:
       # sqlx-mysql driver even though we only enable the sqlite feature — the
       # MySQL code path is never invoked at runtime. Revisit when rsa publishes
       # a constant-time fix or sqlx-macros splits drivers behind features.
+      #
+      # --ignore RUSTSEC-2026-0194 / RUSTSEC-2026-0195: quick-xml parser DoS.
+      # Direct document-parser deps are upgraded below to remove the fixed
+      # lopdf advisory and older quick-xml@0.31 path. The remaining vulnerable
+      # quick-xml versions are transitive through current upstream releases of
+      # calamine/docx-rs/Tauri plist. Keep malformed-document parsing wrapped in
+      # catch_unwind and revisit when those crates expose quick-xml >= 0.41.
       - name: Run cargo audit
         working-directory: src-tauri
-        run: cargo audit --ignore RUSTSEC-2023-0071
+        run: >-
+          cargo audit
+          --ignore RUSTSEC-2023-0071
+          --ignore RUSTSEC-2026-0194
+          --ignore RUSTSEC-2026-0195
 
   npm-audit:
     name: npm audit (${{ matrix.name }})
