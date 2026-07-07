@@ -2,7 +2,17 @@
 
 > Your company's HR brain — private, always in context, always ready to help.
 
+[![CI](https://github.com/matthewod11-stack/PeoplePartner/actions/workflows/ci.yml/badge.svg)](https://github.com/matthewod11-stack/PeoplePartner/actions/workflows/ci.yml)
+[![Security Audit](https://github.com/matthewod11-stack/PeoplePartner/actions/workflows/security.yml/badge.svg)](https://github.com/matthewod11-stack/PeoplePartner/actions/workflows/security.yml)
+![Tests](https://img.shields.io/badge/tests-790%20Rust-brightgreen)
+![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon%20%2B%20Intel)-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 People Partner is a local-first desktop AI assistant for HR professionals. It keeps employee data on your Mac while providing context-aware guidance on policies, compliance, performance, and people decisions.
+
+<p align="center">
+  <img src="assets/app-screenshot.png" alt="People Partner — employee profile with AI chat, weekly digest, and performance context" width="820">
+</p>
 
 **Product site:** [peoplepartner.io](https://peoplepartner.io)
 
@@ -52,6 +62,17 @@ For builders, it is also a reference implementation for a local-first HR app: Ta
 - PII redaction runs before sending supported AI requests to a provider.
 - Supported AI chat interactions write local audit records; broader backend egress auditing is still being hardened.
 - No cloud sync, telemetry, or third-party HR database is required for the desktop app.
+
+## How It's Built
+
+A local-first desktop app with a Rust core and a React shell, built for correctness and privacy over feature sprawl.
+
+- **~39K lines of Rust, ~24K of TypeScript**, with **790 backend tests** exercised in CI on every push.
+- **Provider abstraction** (`src-tauri/src/provider.rs`) — Claude, OpenAI, and Gemini sit behind one trait, so the app is model-agnostic and BYOK. Provider resolution is centralized, not hardcoded per call site.
+- **PII redaction before egress** (`src-tauri/src/pii.rs`) — financial identifiers (SSN, card, bank) are scanned and redacted before any request leaves the machine, with a local audit trail (`audit.rs`) for supported chat interactions.
+- **Secrets in the OS boundary** (`src-tauri/src/keyring.rs`) — API keys live in the macOS Keychain, never in app storage or logs. Licenses are cryptographically signed and verified offline (`license_signing.rs`).
+- **Signed, notarized releases** — GitHub Actions builds, code-signs, and notarizes universal macOS binaries (Apple Silicon + Intel) with a pre-notarize entitlements gate; a separate `cargo audit` / RustSec workflow runs on every change.
+- **Local-first data** — everything persists in on-device SQLite (SQLx, raw SQL, no ORM); the app is fully usable offline in read-only mode.
 
 ## Getting Started as a User
 
