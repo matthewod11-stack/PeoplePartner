@@ -14,6 +14,7 @@ import type {
   ImportType,
 } from '../../lib/types';
 import { getHrisPresets, normalizeHeaders } from '../../lib/tauri-commands';
+import { getUnmappedRequiredFields } from '../../lib/import-transforms';
 
 // =============================================================================
 // Types
@@ -65,7 +66,7 @@ export function ColumnMappingStep({
   }, []);
 
   // Check if all required fields are mapped
-  const unmappedRequired = requiredFields.filter((f) => !mapping[f]);
+  const unmappedRequired = getUnmappedRequiredFields(mapping, requiredFields);
   const canContinue = unmappedRequired.length === 0;
 
   // Get which source headers are already used in a mapping
