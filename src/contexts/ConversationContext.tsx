@@ -15,6 +15,13 @@ import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Message } from '../lib/types';
 import { categorizeError } from '../lib/error-utils';
 import {
+  appendChunk,
+  setMessageError,
+  setMessageVerification,
+  toApiMessages,
+  resolveRedaction,
+} from '../lib/message-updates';
+import {
   listConversations,
   getConversation,
   updateConversation,
@@ -353,9 +360,10 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
     let messageContent = content;
     try {
       const redactionResult = await scanPii(content);
+      const resolved = resolveRedaction(content, redactionResult);
+      messageContent = resolved.content;
       if (redactionResult.had_pii) {
-        messageContent = redactionResult.redacted_text;
-        setPiiNotification(redactionResult.summary);
+        setPiiNotification(resolved.notification);
       }
     } catch (err) {
       console.error('[PII] Scan failed:', err);
@@ -408,11 +416,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
 
         const chatError = categorizeError(new Error('Response timed out — no data received for 30 seconds. The AI provider may be experiencing issues.'));
         chatError.originalContent = content;
-        setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantId ? { ...msg, content: '', error: chatError } : msg
-          )
-        );
+        setMessages((prev) => setMessageError(prev, assistantId, chatError));
         streamingMessageId.current = null;
         setIsLoading(false);
       }, STREAM_TIMEOUT_MS);
@@ -434,13 +438,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       const chunkToApply = bufferedChunk;
       bufferedChunk = '';
 
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === assistantId
-            ? { ...msg, content: msg.content + chunkToApply }
-            : msg
-        )
-      );
+      setMessages((prev) => appendChunk(prev, assistantId, chunkToApply));
     };
 
     const scheduleBufferedFlush = () => {
@@ -477,13 +475,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
 
           // V2.1.4: Update message with verification result if present
           if (verification) {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantId
-                  ? { ...msg, verification }
-                  : msg
-              )
-            );
+            setMessages((prev) => setMessageVerification(prev, assistantId, verification));
           }
 
           // Create audit entry (fire-and-forget, don't block on errors)
@@ -521,12 +513,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
         });
       });
 
-      const apiMessages: ChatMessage[] = currentMessages
-        .slice(0, -1) // Exclude the empty assistant message
-        .map((m) => ({
-          role: m.role,
-          content: m.content,
-        }));
+      const apiMessages: ChatMessage[] = toApiMessages(currentMessages);
 
       // Build system prompt with context (prioritize selected employee if any)
       // V2.1.4: Now returns SystemPromptResult with aggregates for verification
@@ -556,17 +543,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       chatError.originalContent = content;
 
       // Update assistant message with error state
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === assistantId
-            ? {
-                ...msg,
-                content: '',
-                error: chatError,
-              }
-            : msg
-        )
-      );
+      setMessages((prev) => setMessageError(prev, assistantId, chatError));
       setIsLoading(false);
     } finally {
       flushBufferedChunkNow();

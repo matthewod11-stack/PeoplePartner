@@ -26,6 +26,7 @@ import {
   validateImportData,
   detectDuplicates,
 } from '../lib/tauri-commands';
+import { buildIssueRows, dropErrorRows } from '../lib/import-transforms';
 
 // =============================================================================
 // Types
@@ -194,24 +195,9 @@ export function useImportPipeline(
         }
 
         // Build issue rows
-        const issueRows: IssueRow[] = [];
-        if (!validationResult.isValid) {
-          const issuesByRow = new Map<number, typeof validationResult.issues>();
-          for (const issue of validationResult.issues) {
-            const existing = issuesByRow.get(issue.row) ?? [];
-            existing.push(issue);
-            issuesByRow.set(issue.row, existing);
-          }
-          for (const [rowIndex, issues] of issuesByRow) {
-            if (rowIndex - 1 < allRows.length) {
-              issueRows.push({
-                rowIndex: rowIndex - 1,
-                data: allRows[rowIndex - 1],
-                issues,
-              });
-            }
-          }
-        }
+        const issueRows: IssueRow[] = validationResult.isValid
+          ? []
+          : buildIssueRows(validationResult.issues, allRows);
 
         if (validationResult.isValid) {
           // Skip validation review, go to dedupe
@@ -302,24 +288,9 @@ export function useImportPipeline(
           };
         }
 
-        const issueRows: IssueRow[] = [];
-        if (!validationResult.isValid) {
-          const issuesByRow = new Map<number, typeof validationResult.issues>();
-          for (const issue of validationResult.issues) {
-            const existing = issuesByRow.get(issue.row) ?? [];
-            existing.push(issue);
-            issuesByRow.set(issue.row, existing);
-          }
-          for (const [rowIndex, issues] of issuesByRow) {
-            if (rowIndex - 1 < fixedRows.length) {
-              issueRows.push({
-                rowIndex: rowIndex - 1,
-                data: fixedRows[rowIndex - 1],
-                issues,
-              });
-            }
-          }
-        }
+        const issueRows: IssueRow[] = validationResult.isValid
+          ? []
+          : buildIssueRows(validationResult.issues, fixedRows);
 
         if (validationResult.isValid) {
           await runDedupeCheck(fixedRows, state.columnMapping);
@@ -346,13 +317,7 @@ export function useImportPipeline(
 
   const skipErrors = useCallback(() => {
     // Filter out rows with errors, keep rows with only warnings or no issues
-    const errorRowIndices = new Set(
-      (state.validationResult?.issues ?? [])
-        .filter((i) => i.severity === 'error')
-        .map((i) => i.row - 1)
-    );
-    const cleanRows = state.allRows.filter((_, i) => !errorRowIndices.has(i));
-
+    const cleanRows = dropErrorRows(state.allRows, state.validationResult?.issues ?? []);
     runDedupeCheck(cleanRows, state.columnMapping);
   }, [state.validationResult, state.allRows, state.columnMapping, runDedupeCheck]);
 
