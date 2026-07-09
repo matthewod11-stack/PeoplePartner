@@ -1,50 +1,86 @@
+# Dependabot version updates.
+#
+# Policy (2026-07-09, after the 15-PR pileup):
+# - Major bumps are NOT filed for cargo/npm — majors are deferred by decision
+#   (#74, the major-migrations queue) and get picked up as deliberate batches.
+#   Filing them as PRs just accumulates stale, failing PRs nobody consumes.
+# - Minor/patch bumps are grouped into one PR per ecosystem per run instead
+#   of one PR per dependency.
+# - Monthly cadence: this repo has no consumer of weekly bumps; security
+#   advisories are unaffected (Dependabot security updates fire immediately
+#   regardless of this schedule, and the cargo-audit/npm-audit CI jobs gate
+#   every push).
 version: 2
 updates:
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
+      interval: "monthly"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "rust"
     commit-message:
       prefix: "cargo"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      cargo-minor-patch:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
+      interval: "monthly"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "javascript"
     commit-message:
       prefix: "npm"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      npm-minor-patch:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "npm"
     directory: "/proxy"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 3
+      interval: "monthly"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "javascript"
       - "proxy"
     commit-message:
       prefix: "npm(proxy)"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      proxy-minor-patch:
+        update-types: ["minor", "patch"]
 
+  # GitHub Actions majors stay enabled — action bumps are usually majors
+  # (checkout 6→7) and usually trivial. Exception: tauri-apps/tauri-action
+  # touches the release/signing pipeline and must only be taken inside a
+  # release cycle with a real signed-install verification, so Dependabot
+  # doesn't file it at all.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 3
+      interval: "monthly"
+    open-pull-requests-limit: 2
     labels:
       - "dependencies"
       - "ci"
     commit-message:
       prefix: "ci"
+    ignore:
+      - dependency-name: "tauri-apps/tauri-action"
+    groups:
+      actions-all:
+        patterns: ["*"]
