@@ -86,6 +86,8 @@ pub trait ContentEnricher: Send + Sync {
 /// Production enricher that delegates to `exa::get_contents`.
 pub struct ExaContentEnricher {
     pub exa_api_key: String,
+    /// FHR-91: present in production so enrichment egress is audited.
+    pub audit: Option<exa::ExaAudit>,
 }
 
 #[async_trait]
@@ -97,7 +99,7 @@ impl ContentEnricher for ExaContentEnricher {
         if urls.is_empty() {
             return Err(EnrichError::Empty);
         }
-        let resp = exa::get_contents(urls, &self.exa_api_key).await?;
+        let resp = exa::get_contents(urls, &self.exa_api_key, self.audit.as_ref()).await?;
         // Thread Exa's reported per-call cost so `record` reconciles the budget
         // with the actual charge (spec §12), mirroring the discovery seam.
         let actual_cost = resp.cost_dollars.as_ref().map(|c| c.total);

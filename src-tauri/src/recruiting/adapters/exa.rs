@@ -186,6 +186,54 @@ pub enum ExaError {
 // Search
 // ============================================================================
 
+// ============================================================================
+// Egress audit (FHR-91)
+// ============================================================================
+
+/// DB handle for auditing Exa egress. `None` at a call site means "no pool
+/// available" (unit tests, non-Tauri contexts) — never "skip the audit on
+/// purpose" in production code.
+#[derive(Clone)]
+pub struct ExaAudit {
+    pool: crate::db::DbPool,
+}
+
+impl ExaAudit {
+    pub fn new(pool: crate::db::DbPool) -> Self {
+        Self { pool }
+    }
+}
+
+/// Write one audit row for an Exa request. Best-effort: an audit failure is
+/// logged, never propagated — the same log-and-continue contract the chat
+/// seam uses (#112).
+///
+/// The request text is redacted under the source's policy before it is stored.
+/// Unlike the LLM seam we do NOT redact what is *sent* — the candidate's name
+/// is the query — but a stray email must not land in an append-only table.
+async fn audit_exa_attempt(
+    audit: Option<&ExaAudit>,
+    source: crate::audit::EgressSource,
+    request: &str,
+    outcome: &crate::audit::EgressOutcome,
+) {
+    let Some(audit) = audit else { return };
+
+    let redacted = crate::pii::scan_and_redact_with(request, source.redaction_policy());
+    let ctx = crate::audit::EgressAudit {
+        source,
+        conversation_id: None,
+        employee_ids: vec![],
+        query_category: None,
+    };
+
+    if let Err(e) =
+        crate::audit::record_egress(&audit.pool, &ctx, &redacted.redacted_text, outcome).await
+    {
+        log::warn!("failed to audit exa egress ({}): {e}", source.as_str());
+    }
+}
+
 /// POST a JSON body to an Exa endpoint and deserialize the response.
 ///
 /// Shared by `search` / `search_with` / `get_contents` / `find_similar` — all
@@ -195,66 +243,151 @@ pub enum ExaError {
 /// `keyring::get_provider_api_key(EXA_PROVIDER_ID)`) and is responsible for
 /// translating `KeyringError::NotFound` into a higher-level "missing key"
 /// condition — this function only sees the key as an opaque `&str`.
-async fn exa_post<B, R>(url: &str, api_key: &str, body: &B) -> Result<R, ExaError>
+///
+/// FHR-91: every attempt past this point writes an audit row — success or
+/// failure. `request_desc` is the human-readable descriptor of what left the
+/// machine (the query, or the URLs fetched).
+async fn exa_post<B, R>(
+    url: &str,
+    api_key: &str,
+    body: &B,
+    audit: Option<&ExaAudit>,
+    source: crate::audit::EgressSource,
+    request_desc: &str,
+) -> Result<R, ExaError>
 where
     B: Serialize,
     R: DeserializeOwned,
 {
-    let response = Client::new()
+    use crate::audit::EgressOutcome;
+
+    let response = match Client::new()
         .post(url)
         .header("x-api-key", api_key)
         .header("content-type", "application/json")
         .json(body)
         .send()
-        .await?;
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            audit_exa_attempt(
+                audit,
+                source,
+                request_desc,
+                &EgressOutcome::Error {
+                    partial_chars: 0,
+                    error: e.to_string(),
+                },
+            )
+            .await;
+            return Err(e.into());
+        }
+    };
 
     let status = response.status();
     if status.is_success() {
         let text = response.text().await?;
+        audit_exa_attempt(
+            audit,
+            source,
+            request_desc,
+            &EgressOutcome::Ok {
+                response_chars: text.chars().count(),
+            },
+        )
+        .await;
         return serde_json::from_str(&text).map_err(|e| ExaError::InvalidResponse(e.to_string()));
     }
 
     let status_code = status.as_u16();
     let body = response.text().await.unwrap_or_default();
-    Err(match status_code {
+    let err = match status_code {
         401 => ExaError::InvalidKey,
         429 => ExaError::RateLimit { message: body },
         _ => ExaError::Api {
             status: status_code,
             body,
         },
-    })
+    };
+    audit_exa_attempt(
+        audit,
+        source,
+        request_desc,
+        &EgressOutcome::Error {
+            partial_chars: 0,
+            error: err.to_string(),
+        },
+    )
+    .await;
+    Err(err)
 }
 
 /// Execute a search against Exa's `/search` endpoint.
-pub async fn search(query: &str, api_key: &str) -> Result<ExaSearchResponse, ExaError> {
+pub async fn search(
+    query: &str,
+    api_key: &str,
+    audit: Option<&ExaAudit>,
+) -> Result<ExaSearchResponse, ExaError> {
     let body = ExaSearchRequest {
         query,
         num_results: DEFAULT_NUM_RESULTS,
         search_type: DEFAULT_SEARCH_TYPE,
     };
-    exa_post(EXA_SEARCH_URL, api_key, &body).await
+    exa_post(
+        EXA_SEARCH_URL,
+        api_key,
+        &body,
+        audit,
+        crate::audit::EgressSource::ExaSearch,
+        query,
+    )
+    .await
 }
 
 /// Fetch full document text for the given URLs via Exa's `/contents` endpoint.
 /// Backs the intake `crawl_url` step — the caller hands us a URL it already
 /// has (e.g. a company website the user pasted) and we return its text.
-pub async fn get_contents(urls: &[String], api_key: &str) -> Result<ExaSearchResponse, ExaError> {
+pub async fn get_contents(
+    urls: &[String],
+    api_key: &str,
+    audit: Option<&ExaAudit>,
+) -> Result<ExaSearchResponse, ExaError> {
     let body = ExaContentsRequest { urls, text: true };
-    exa_post(EXA_CONTENTS_URL, api_key, &body).await
+    exa_post(
+        EXA_CONTENTS_URL,
+        api_key,
+        &body,
+        audit,
+        crate::audit::EgressSource::ExaContents,
+        &urls.join(", "),
+    )
+    .await
 }
 
 /// Find pages similar to a seed URL via Exa's `/findSimilar` endpoint. Feeds
 /// team-seeded candidate discovery ("find people like these team members").
 /// `excludeSourceDomain: true` prevents the seed's own domain from showing up
 /// in results (mirrors the TS adapter fidelity requirement).
-pub async fn find_similar(url: &str, api_key: &str) -> Result<ExaSearchResponse, ExaError> {
+pub async fn find_similar(
+    url: &str,
+    api_key: &str,
+    audit: Option<&ExaAudit>,
+) -> Result<ExaSearchResponse, ExaError> {
     let body = ExaFindSimilarRequest {
         url,
         num_results: DEFAULT_NUM_RESULTS,
         exclude_source_domain: true,
     };
-    exa_post(EXA_FIND_SIMILAR_URL, api_key, &body).await
+    exa_post(
+        EXA_FIND_SIMILAR_URL,
+        api_key,
+        &body,
+        audit,
+        crate::audit::EgressSource::ExaFindSimilar,
+        url,
+    )
+    .await
 }
 
 /// Full-fidelity search: passes per-query result caps + domain filters +
@@ -264,14 +397,105 @@ pub async fn search_with(
     query: &str,
     opts: &ExaSearchOpts<'_>,
     api_key: &str,
+    audit: Option<&ExaAudit>,
 ) -> Result<ExaSearchResponse, ExaError> {
     let body = ExaSearchRequestFull::from_parts(query, opts);
-    exa_post(EXA_SEARCH_URL, api_key, &body).await
+    exa_post(
+        EXA_SEARCH_URL,
+        api_key,
+        &body,
+        audit,
+        crate::audit::EgressSource::ExaSearch,
+        query,
+    )
+    .await
 }
 
 // ============================================================================
 // Tests
 // ============================================================================
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    use crate::audit::{EgressOutcome, EgressSource};
+
+    async fn test_pool() -> crate::db::DbPool {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("migrations");
+        pool
+    }
+
+    #[tokio::test]
+    async fn exa_attempt_writes_audit_row() {
+        let pool = test_pool().await;
+        let audit = ExaAudit::new(pool.clone());
+        audit_exa_attempt(
+            Some(&audit),
+            EgressSource::ExaSearch,
+            "staff engineer at Acme",
+            &EgressOutcome::Ok { response_chars: 10 },
+        )
+        .await;
+
+        let (source, request): (String, String) = sqlx::query_as(
+            "SELECT source, request_redacted FROM audit_log ORDER BY rowid DESC LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("exa search must leave an audit row");
+        assert_eq!(source, "exa_search");
+        assert_eq!(request, "staff engineer at Acme");
+    }
+
+    #[tokio::test]
+    async fn exa_attempt_redacts_email_in_audited_request() {
+        let pool = test_pool().await;
+        let audit = ExaAudit::new(pool.clone());
+        audit_exa_attempt(
+            Some(&audit),
+            EgressSource::ExaContents,
+            "https://x.com/p?contact=sarah.chen@acme.com",
+            &EgressOutcome::Ok { response_chars: 1 },
+        )
+        .await;
+
+        let request: String = sqlx::query_scalar(
+            "SELECT request_redacted FROM audit_log ORDER BY rowid DESC LIMIT 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(
+            !request.contains("sarah.chen@acme.com"),
+            "candidate email persisted to the append-only audit log: {request}"
+        );
+        assert!(request.contains("[EMAIL_REDACTED]"));
+    }
+
+    #[tokio::test]
+    async fn exa_attempt_without_audit_context_is_a_noop() {
+        // The adapter is also used from contexts with no DB pool (tests,
+        // future CLI); absence of a pool must not panic or block the request.
+        audit_exa_attempt(
+            None,
+            EgressSource::ExaSearch,
+            "query",
+            &EgressOutcome::Ok { response_chars: 0 },
+        )
+        .await;
+    }
+}
 
 #[cfg(test)]
 mod tests {

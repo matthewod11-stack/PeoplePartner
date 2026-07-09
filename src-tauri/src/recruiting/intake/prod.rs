@@ -155,6 +155,9 @@ pub struct AppIntakeProvider {
     pool: crate::db::DbPool,
     provider_id: String,
     model_id: Option<String>,
+    /// FHR-91: distinguishes intake egress from scoring egress in the audit
+    /// log. FHR-90: also selects the redaction policy applied before send.
+    source: crate::audit::EgressSource,
 }
 
 impl AppIntakeProvider {
@@ -167,12 +170,20 @@ impl AppIntakeProvider {
             pool,
             provider_id: provider_id.into(),
             model_id,
+            source: crate::audit::EgressSource::RecruitingIntake,
         }
+    }
+
+    /// Relabel this provider's egress (e.g. scoring reuses the intake provider
+    /// shape but must audit under its own source).
+    pub fn with_source(mut self, source: crate::audit::EgressSource) -> Self {
+        self.source = source;
+        self
     }
 
     fn egress_audit(&self) -> crate::audit::EgressAudit {
         crate::audit::EgressAudit {
-            source: crate::audit::EgressSource::RecruitingIntake,
+            source: self.source,
             conversation_id: None,
             employee_ids: vec![],
             query_category: None,
@@ -268,6 +279,8 @@ pub struct ExaContentResearch {
     exa_api_key: String,
     provider: Arc<dyn IntakeProvider>,
     clock: Arc<dyn Clock>,
+    /// FHR-91: present in production so intake research egress is audited.
+    audit: Option<exa::ExaAudit>,
 }
 
 impl ExaContentResearch {
@@ -280,7 +293,14 @@ impl ExaContentResearch {
             exa_api_key,
             provider,
             clock,
+            audit: None,
         }
+    }
+
+    /// Attach the DB pool so this adapter's Exa egress writes audit rows.
+    pub fn with_audit(mut self, audit: exa::ExaAudit) -> Self {
+        self.audit = Some(audit);
+        self
     }
 }
 
@@ -330,7 +350,7 @@ fn profile_input_url(input: &ProfileInput) -> Option<String> {
 impl ContentResearch for ExaContentResearch {
     async fn crawl_url(&self, url: &str) -> Result<CrawledContent, IntakeError> {
         let urls = [url.to_string()];
-        let resp = exa::get_contents(&urls, &self.exa_api_key)
+        let resp = exa::get_contents(&urls, &self.exa_api_key, self.audit.as_ref())
             .await
             .map_err(|e| IntakeError::Research(e.to_string()))?;
         let hit =
@@ -438,7 +458,7 @@ impl ContentResearch for ExaContentResearch {
         let Some(seed) = urls.first() else {
             return Ok(vec![]);
         };
-        let resp = exa::find_similar(seed, &self.exa_api_key)
+        let resp = exa::find_similar(seed, &self.exa_api_key, self.audit.as_ref())
             .await
             .map_err(|e| IntakeError::Research(e.to_string()))?;
         Ok(resp
@@ -461,15 +481,15 @@ pub fn production_intake_deps(
     llm_provider_id: &str,
     llm_model_id: Option<String>,
     exa_api_key: String,
+    source: crate::audit::EgressSource,
 ) -> IntakeDeps {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+    let exa_audit = exa::ExaAudit::new(pool.clone());
     let provider: Arc<dyn IntakeProvider> =
-        Arc::new(AppIntakeProvider::new(pool, llm_provider_id, llm_model_id));
-    let research: Arc<dyn ContentResearch> = Arc::new(ExaContentResearch::new(
-        exa_api_key,
-        provider.clone(),
-        clock.clone(),
-    ));
+        Arc::new(AppIntakeProvider::new(pool, llm_provider_id, llm_model_id).with_source(source));
+    let research: Arc<dyn ContentResearch> = Arc::new(
+        ExaContentResearch::new(exa_api_key, provider.clone(), clock.clone()).with_audit(exa_audit),
+    );
     IntakeDeps {
         provider,
         research,
@@ -685,8 +705,42 @@ mod tests {
         // produces usable trait objects. (#112: the provider now carries the
         // DB pool for egress audit rows.)
         let pool = test_migrated_pool().await;
-        let deps = production_intake_deps(pool, "anthropic", None, "exa-key".into());
+        let deps = production_intake_deps(
+            pool,
+            "anthropic",
+            None,
+            "exa-key".into(),
+            crate::audit::EgressSource::RecruitingIntake,
+        );
         assert!(!deps.clock.now_iso8601().is_empty());
+    }
+
+    // ========================================================================
+    // FHR-90/91: the provider's egress source drives both the audit `source`
+    // column and the redaction policy applied before send.
+    // ========================================================================
+
+    #[tokio::test]
+    async fn provider_defaults_to_recruiting_intake_source() {
+        let pool = test_migrated_pool().await;
+        let provider = AppIntakeProvider::new(pool, "anthropic", None);
+        assert_eq!(provider.egress_audit().source.as_str(), "recruiting_intake");
+    }
+
+    #[tokio::test]
+    async fn provider_with_source_labels_scoring_egress() {
+        let pool = test_migrated_pool().await;
+        let provider = AppIntakeProvider::new(pool, "anthropic", None)
+            .with_source(crate::audit::EgressSource::RecruitingScoring);
+        assert_eq!(
+            provider.egress_audit().source.as_str(),
+            "recruiting_scoring"
+        );
+        assert_eq!(
+            provider.egress_audit().source.redaction_policy(),
+            crate::pii::RedactionPolicy::CandidateEgress,
+            "scoring egress carries candidate emails and must redact them"
+        );
     }
 
     async fn test_migrated_pool() -> crate::db::DbPool {

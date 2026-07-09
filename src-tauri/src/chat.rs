@@ -276,16 +276,19 @@ fn redact_api_keys(text: &str) -> String {
 ///
 /// Returns (redacted messages, redacted system prompt, combined summary).
 /// The combined summary is suitable for emitting to the UI via a Tauri event.
+/// The `policy` comes from the call's `EgressSource` (FHR-90) — recruiting
+/// payloads additionally redact candidate emails.
 fn redact_chat_payload(
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
+    policy: crate::pii::RedactionPolicy,
 ) -> (Vec<ChatMessage>, Option<String>, Option<String>) {
     let mut summary_parts: Vec<String> = Vec::new();
 
     let redacted_messages: Vec<ChatMessage> = messages
         .into_iter()
         .map(|m| {
-            let result = crate::pii::scan_and_redact(&m.content);
+            let result = crate::pii::scan_and_redact_with(&m.content, policy);
             if result.had_pii {
                 if let Some(s) = result.summary {
                     summary_parts.push(s);
@@ -299,7 +302,7 @@ fn redact_chat_payload(
         .collect();
 
     let redacted_system_prompt = system_prompt.map(|sp| {
-        let result = crate::pii::scan_and_redact(&sp);
+        let result = crate::pii::scan_and_redact_with(&sp, policy);
         if result.had_pii {
             if let Some(s) = result.summary {
                 summary_parts.push(s);
@@ -466,7 +469,8 @@ pub async fn send_message_with_temperature(
     // Enforce PII redaction before anything leaves the machine. This covers
     // backend-initiated calls (memory summarization, highlight extraction)
     // that don't have an AppHandle to emit an event from — summary is dropped.
-    let (messages, system_prompt, _pii_summary) = redact_chat_payload(messages, system_prompt);
+    let (messages, system_prompt, _pii_summary) =
+        redact_chat_payload(messages, system_prompt, audit.source.redaction_policy());
     let request_redacted = last_user_message(&messages);
 
     let result = async {
@@ -646,7 +650,7 @@ async fn write_egress_audit(
     request_redacted: &str,
     outcome: &crate::audit::EgressOutcome,
 ) {
-    if let Err(e) = crate::audit::record_llm_egress(pool, audit, request_redacted, outcome).await {
+    if let Err(e) = crate::audit::record_egress(pool, audit, request_redacted, outcome).await {
         log::warn!(
             "egress audit write failed (source={}): {e}",
             audit.source.as_str()
@@ -745,7 +749,8 @@ pub async fn send_message_streaming<R: tauri::Runtime>(
     let api_key = get_api_key_for_provider(provider_id)?;
 
     // Enforce PII redaction before anything leaves the machine.
-    let (messages, system_prompt, pii_summary) = redact_chat_payload(messages, system_prompt);
+    let (messages, system_prompt, pii_summary) =
+        redact_chat_payload(messages, system_prompt, audit.source.redaction_policy());
     if let Some(summary) = pii_summary {
         let _ = app.emit("chat-pii-redacted", &summary);
     }
@@ -829,7 +834,8 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
 
     // Enforce PII redaction before anything leaves the machine (proxy is still
     // "off-device" — the user's data hits Cloudflare + Anthropic).
-    let (messages, system_prompt, pii_summary) = redact_chat_payload(messages, system_prompt);
+    let (messages, system_prompt, pii_summary) =
+        redact_chat_payload(messages, system_prompt, audit.source.redaction_policy());
     if let Some(summary) = pii_summary {
         let _ = app.emit("chat-pii-redacted", &summary);
     }
@@ -1182,6 +1188,50 @@ mod tests {
     // PII redaction — defense-in-depth regression tests
     // ============================================================================
 
+    // FHR-90: the redaction policy is chosen by the egress source, so a
+    // recruiting call redacts candidate emails while HR chat does not.
+
+    #[test]
+    fn redact_chat_payload_redacts_email_on_recruiting_egress() {
+        let messages = vec![make_message(
+            "user",
+            "Candidate Sarah Chen, reachable at sarah.chen@acme.com, staff engineer.",
+        )];
+        let (redacted, _, summary) = redact_chat_payload(
+            messages,
+            None,
+            crate::audit::EgressSource::RecruitingIntake.redaction_policy(),
+        );
+
+        assert!(
+            !redacted[0].content.contains("sarah.chen@acme.com"),
+            "candidate email leaked to the provider: {}",
+            redacted[0].content
+        );
+        assert!(redacted[0].content.contains("[EMAIL_REDACTED]"));
+        assert!(
+            redacted[0].content.contains("Sarah Chen"),
+            "candidate name must survive — evidence grounding is name-keyed"
+        );
+        assert!(summary.is_some());
+    }
+
+    #[test]
+    fn redact_chat_payload_preserves_email_on_hr_chat_egress() {
+        let messages = vec![make_message("user", "Draft a note to sarah@acme.com.")];
+        let (redacted, _, summary) = redact_chat_payload(
+            messages,
+            None,
+            crate::audit::EgressSource::Interactive.redaction_policy(),
+        );
+
+        assert!(
+            redacted[0].content.contains("sarah@acme.com"),
+            "HR chat behavior must be unchanged by FHR-90"
+        );
+        assert!(summary.is_none());
+    }
+
     #[test]
     fn redact_chat_payload_strips_ssn_from_messages() {
         let messages = vec![
@@ -1191,7 +1241,8 @@ mod tests {
             ),
             make_message("assistant", "Got it."),
         ];
-        let (redacted, sys, summary) = redact_chat_payload(messages, None);
+        let (redacted, sys, summary) =
+            redact_chat_payload(messages, None, crate::pii::RedactionPolicy::Standard);
 
         assert!(sys.is_none());
         assert!(
@@ -1208,7 +1259,8 @@ mod tests {
         // An employee record leaked a CC into the context builder.
         let system =
             Some("Employee Sarah Chen. Company card on file: 4111-1111-1111-1111.".to_string());
-        let (_, sys, summary) = redact_chat_payload(vec![], system);
+        let (_, sys, summary) =
+            redact_chat_payload(vec![], system, crate::pii::RedactionPolicy::Standard);
 
         let sys = sys.expect("system prompt preserved");
         assert!(
@@ -1223,7 +1275,11 @@ mod tests {
     fn redact_chat_payload_noop_when_no_pii_present() {
         let messages = vec![make_message("user", "How many employees are in marketing?")];
         let system = Some("You are a helpful HR assistant.".to_string());
-        let (redacted, sys, summary) = redact_chat_payload(messages.clone(), system.clone());
+        let (redacted, sys, summary) = redact_chat_payload(
+            messages.clone(),
+            system.clone(),
+            crate::pii::RedactionPolicy::Standard,
+        );
 
         assert_eq!(redacted[0].content, messages[0].content);
         assert_eq!(sys, system);
@@ -1237,7 +1293,8 @@ mod tests {
             "user",
             "Terminate employee with bank account 123456789012 in the records.",
         )];
-        let (redacted, _, _) = redact_chat_payload(messages, None);
+        let (redacted, _, _) =
+            redact_chat_payload(messages, None, crate::pii::RedactionPolicy::Standard);
         let provider_messages = to_provider_messages(redacted);
 
         let serialized = serde_json::to_string(&provider_messages[0].content).unwrap();

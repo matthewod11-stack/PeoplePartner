@@ -51,6 +51,30 @@ pub enum PiiType {
     StreetAddress,
     /// Medical Information (heuristic keyword match)
     MedicalInfo,
+    /// Email address. Only redacted under `RedactionPolicy::CandidateEgress`
+    /// (FHR-90) — HR chat passes emails through.
+    Email,
+}
+
+/// Which detector set runs against a payload before it leaves the machine.
+///
+/// FHR-90: candidate names must survive egress (Exa search and evidence
+/// grounding are name-keyed), but candidate emails — the contactable
+/// identifier — must not enter a prompt. HR chat behavior is unchanged, so
+/// the two paths need different detector sets rather than one global one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedactionPolicy {
+    /// HR chat and backend-initiated HR calls: financial, phone, address, medical.
+    Standard,
+    /// Recruiting egress: everything in `Standard`, plus email addresses.
+    CandidateEgress,
+}
+
+impl RedactionPolicy {
+    /// Whether this policy redacts email addresses.
+    fn redacts_email(&self) -> bool {
+        matches!(self, RedactionPolicy::CandidateEgress)
+    }
 }
 
 impl PiiType {
@@ -64,6 +88,7 @@ impl PiiType {
             PiiType::PhoneNumber => "[PHONE_REDACTED]",
             PiiType::StreetAddress => "[ADDRESS_REDACTED]",
             PiiType::MedicalInfo => "[MEDICAL_INFO_REDACTED]",
+            PiiType::Email => "[EMAIL_REDACTED]",
         }
     }
 
@@ -77,6 +102,7 @@ impl PiiType {
             PiiType::PhoneNumber => "Phone Number",
             PiiType::StreetAddress => "Street Address",
             PiiType::MedicalInfo => "Medical Information",
+            PiiType::Email => "Email Address",
         }
     }
 }
@@ -219,6 +245,13 @@ static PHONE_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
         ",
     )
     .expect("Phone regex should compile")
+});
+
+// Email pattern (FHR-90). Requires a local part, an @, and a dotted domain
+// with a 2+ char TLD — a bare "@" (as in "sync @ 3pm") must not match.
+static EMAIL_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}")
+        .expect("Email regex should compile")
 });
 
 // Street address pattern (heuristic):
@@ -468,6 +501,19 @@ pub fn detect_street_addresses(text: &str) -> Vec<PiiMatch> {
         .collect()
 }
 
+/// Detect email addresses (FHR-90; candidate-egress policy only)
+pub fn detect_emails(text: &str) -> Vec<PiiMatch> {
+    EMAIL_PATTERN
+        .find_iter(text)
+        .map(|m| PiiMatch {
+            pii_type: PiiType::Email,
+            start: m.start(),
+            end: m.end(),
+            matched_text: m.as_str().to_string(),
+        })
+        .collect()
+}
+
 /// Detect medical information by keyword
 pub fn detect_medical_info(text: &str) -> Vec<PiiMatch> {
     MEDICAL_KEYWORDS_PATTERN
@@ -485,9 +531,20 @@ pub fn detect_medical_info(text: &str) -> Vec<PiiMatch> {
 // Main Scanning and Redaction
 // ============================================================================
 
-/// Scan text for all types of PII
+/// Scan text for all types of PII under the standard (HR chat) policy.
 pub fn scan_for_pii(text: &str) -> Vec<PiiMatch> {
+    scan_for_pii_with(text, RedactionPolicy::Standard)
+}
+
+/// Scan text for PII under an explicit policy.
+pub fn scan_for_pii_with(text: &str, policy: RedactionPolicy) -> Vec<PiiMatch> {
     let mut all_matches = Vec::new();
+
+    // Email runs first so it claims the whole address span before the phone
+    // detector can match a digit run inside a local part (5551234567@x.com).
+    if policy.redacts_email() {
+        all_matches.extend(detect_emails(text));
+    }
 
     // Detect each PII type. SSN runs before EIN so a 3-2-4 match claims the
     // span first; downstream de-duplication drops overlapping shorter matches.
@@ -516,9 +573,14 @@ pub fn scan_for_pii(text: &str) -> Vec<PiiMatch> {
     filtered_matches
 }
 
-/// Scan text and redact any PII found
+/// Scan text and redact any PII found, under the standard (HR chat) policy.
 pub fn scan_and_redact(text: &str) -> RedactionResult {
-    let matches = scan_for_pii(text);
+    scan_and_redact_with(text, RedactionPolicy::Standard)
+}
+
+/// Scan text and redact any PII found, under an explicit policy.
+pub fn scan_and_redact_with(text: &str, policy: RedactionPolicy) -> RedactionResult {
+    let matches = scan_for_pii_with(text, policy);
 
     if matches.is_empty() {
         return RedactionResult {
@@ -564,6 +626,7 @@ fn build_redaction_summary(matches: &[PiiMatch]) -> String {
     let mut phone_count = 0;
     let mut address_count = 0;
     let mut medical_count = 0;
+    let mut email_count = 0;
 
     for m in matches {
         match m.pii_type {
@@ -574,6 +637,7 @@ fn build_redaction_summary(matches: &[PiiMatch]) -> String {
             PiiType::PhoneNumber => phone_count += 1,
             PiiType::StreetAddress => address_count += 1,
             PiiType::MedicalInfo => medical_count += 1,
+            PiiType::Email => email_count += 1,
         }
     }
 
@@ -612,6 +676,13 @@ fn build_redaction_summary(matches: &[PiiMatch]) -> String {
             "{} phone number{}",
             phone_count,
             if phone_count > 1 { "s" } else { "" }
+        ));
+    }
+    if email_count > 0 {
+        parts.push(format!(
+            "{} email address{}",
+            email_count,
+            if email_count > 1 { "es" } else { "" }
         ));
     }
     if address_count > 0 {
@@ -1038,5 +1109,73 @@ mod tests {
         assert_eq!(PiiType::PhoneNumber.label(), "Phone Number");
         assert_eq!(PiiType::StreetAddress.label(), "Street Address");
         assert_eq!(PiiType::MedicalInfo.label(), "Medical Information");
+    }
+
+    // ========================================================================
+    // FHR-90: candidate-egress policy — emails redacted, names passed through
+    // ========================================================================
+
+    #[test]
+    fn standard_policy_leaves_email_untouched() {
+        let text = "Draft a note to sarah.chen@acme.com about her review.";
+        let result = scan_and_redact_with(text, RedactionPolicy::Standard);
+        assert_eq!(
+            result.redacted_text, text,
+            "standard (HR chat) policy must not redact emails — FHR-90 is scoped to candidate egress"
+        );
+        assert!(!result.had_pii);
+    }
+
+    #[test]
+    fn candidate_egress_policy_redacts_email() {
+        let text = "Contact sarah.chen@acme.com for the staff engineer role.";
+        let result = scan_and_redact_with(text, RedactionPolicy::CandidateEgress);
+        assert!(
+            !result.redacted_text.contains("sarah.chen@acme.com"),
+            "raw email leaked through candidate-egress redaction: {}",
+            result.redacted_text
+        );
+        assert!(result.redacted_text.contains("[EMAIL_REDACTED]"));
+        assert!(result.had_pii);
+    }
+
+    #[test]
+    fn candidate_egress_policy_passes_names_through() {
+        let text = "Sarah Chen is a staff engineer at Acme Corp.";
+        let result = scan_and_redact_with(text, RedactionPolicy::CandidateEgress);
+        assert_eq!(
+            result.redacted_text, text,
+            "names must survive candidate egress — Exa search and evidence grounding are name-keyed"
+        );
+    }
+
+    #[test]
+    fn candidate_egress_policy_still_redacts_financial_pii() {
+        let text = "Candidate SSN is 123-45-6789 and email is x@y.com.";
+        let result = scan_and_redact_with(text, RedactionPolicy::CandidateEgress);
+        assert!(!result.redacted_text.contains("123-45-6789"));
+        assert!(!result.redacted_text.contains("x@y.com"));
+        assert!(result.redacted_text.contains("[SSN_REDACTED]"));
+        assert!(result.redacted_text.contains("[EMAIL_REDACTED]"));
+    }
+
+    #[test]
+    fn scan_and_redact_defaults_to_standard_policy() {
+        let text = "reach me at hi@example.com";
+        assert_eq!(
+            scan_and_redact(text).redacted_text,
+            scan_and_redact_with(text, RedactionPolicy::Standard).redacted_text,
+            "the no-policy entry point must remain the standard policy (HR chat behavior unchanged)"
+        );
+    }
+
+    #[test]
+    fn email_detector_ignores_bare_at_sign() {
+        let text = "Sync @ 3pm with the team @ HQ.";
+        let result = scan_and_redact_with(text, RedactionPolicy::CandidateEgress);
+        assert_eq!(
+            result.redacted_text, text,
+            "bare @ must not trigger the email detector"
+        );
     }
 }
