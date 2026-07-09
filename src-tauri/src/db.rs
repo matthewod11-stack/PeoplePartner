@@ -239,6 +239,7 @@ const MIGRATIONS: &[(i64, &str, &str)] = &[
     (12, "license_signed_token", include_str!("../migrations/012_license_signed_token.sql")),
     (13, "recruiting", include_str!("../migrations/013_recruiting.sql")),
     (14, "employee_is_sample", include_str!("../migrations/014_employee_is_sample.sql")),
+    (15, "audit_egress_source_status", include_str!("../migrations/015_audit_egress_source_status.sql")),
 ];
 
 /// Highest version that the pre-versioning runner may have applied. Used only

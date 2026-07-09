@@ -1,13 +1,23 @@
 // People Partner - Audit Logging Module
-// Records all Claude API interactions for compliance tracking
+// Records all LLM egress for compliance tracking
 //
 // Key responsibilities:
-// 1. Create audit entries after each Claude API interaction
+// 1. Record one row per LLM egress attempt (`record_llm_egress`), written
+//    backend-side at the chat seam (#112) — interactive chat, memory
+//    summaries, review highlights, title generation, recruiting intake —
+//    including partial rows for errored/cancelled streams
 // 2. List/filter audit entries for review
 // 3. Export audit log to CSV format
 //
-// Design: Audit entries are created AFTER streaming completes.
-// Failures are logged but never block the chat flow.
+// Design: the seam writes the row after the attempt resolves; audit
+// failures are logged but never block the chat flow. The frontend has
+// read-only access — there is no frontend write path to spoof.
+//
+// Retention position (#112): append-only, forever. Migration 011's triggers
+// block UPDATE/DELETE at the DB layer and there is no deletion UI. Auditors
+// export via CSV; purging the log means deleting the local database, which
+// the user owns. A configurable retention window is a potential future
+// enterprise feature — revisit before any enterprise push.
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -63,6 +73,134 @@ pub struct AuditEntry {
     pub created_at: String,
     /// V2.4.2: Query category for filtering (e.g., "dei")
     pub query_category: Option<String>,
+    /// #112: Where the egress originated (see `EgressSource`). NULL on rows
+    /// written by the retired frontend path (pre-migration-015).
+    pub source: Option<String>,
+    /// #112: How the attempt ended: "ok" | "error" | "cancelled". NULL on
+    /// pre-015 rows (all success-only by construction).
+    pub status: Option<String>,
+}
+
+// ============================================================================
+// Backend egress audit (#112)
+// ============================================================================
+
+/// Where an LLM egress originated. The `as_str` labels are the audit log's
+/// public vocabulary (CSV export, filters) — treat them as append-only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EgressSource {
+    /// User-initiated chat (streaming or non-streaming command).
+    Interactive,
+    /// Cross-conversation memory summarization.
+    MemorySummary,
+    /// Performance-review highlight extraction.
+    HighlightExtraction,
+    /// Per-employee highlight summary generation.
+    HighlightSummary,
+    /// Conversation title generation.
+    TitleGeneration,
+    /// Recruiting intake LLM calls (company/profile analysis, seed
+    /// extraction). These share the chat seam, so they audit here; the full
+    /// recruiting choke point (incl. Exa egress) is FHR-91.
+    RecruitingIntake,
+}
+
+impl EgressSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EgressSource::Interactive => "interactive",
+            EgressSource::MemorySummary => "memory_summary",
+            EgressSource::HighlightExtraction => "highlight_extraction",
+            EgressSource::HighlightSummary => "highlight_summary",
+            EgressSource::TitleGeneration => "title_generation",
+            EgressSource::RecruitingIntake => "recruiting_intake",
+        }
+    }
+}
+
+/// How an egress attempt ended. Error/Cancelled rows are partial: the request
+/// left the machine, the response did not complete. `partial_chars` records
+/// how much of a response had streamed back before the interruption.
+#[derive(Debug, Clone)]
+pub enum EgressOutcome {
+    Ok { response_chars: usize },
+    Error { partial_chars: usize, error: String },
+    Cancelled { partial_chars: usize },
+}
+
+/// Caller-supplied context for an egress audit row. Constructed at the call
+/// site (which knows the conversation/employee context) and handed to the
+/// chat seam, which writes the row itself — call sites can't forget to audit.
+#[derive(Debug, Clone)]
+pub struct EgressAudit {
+    pub source: EgressSource,
+    pub conversation_id: Option<String>,
+    pub employee_ids: Vec<String>,
+    pub query_category: Option<String>,
+}
+
+/// Bound on the error-class fragment embedded in an error row's metadata.
+/// Provider error bodies echo request fragments and are unbounded; the audit
+/// row keeps a prefix sufficient to classify the failure.
+const EGRESS_ERROR_PREVIEW_CHARS: usize = 200;
+
+/// Record one LLM egress attempt in the audit log.
+///
+/// The single backend write path for #112: called by the chat seam after
+/// every attempt — success, provider/stream error, or user cancel. Failures
+/// here must never block the chat flow; callers log-and-continue.
+pub async fn record_llm_egress(
+    pool: &DbPool,
+    ctx: &EgressAudit,
+    request_redacted: &str,
+    outcome: &EgressOutcome,
+) -> Result<(), AuditError> {
+    let id = Uuid::new_v4().to_string();
+
+    let (status, response_metadata) = match outcome {
+        EgressOutcome::Ok { response_chars } => (
+            "ok",
+            format!("[REDACTED_RESPONSE length={response_chars} chars]"),
+        ),
+        EgressOutcome::Error { partial_chars, error } => (
+            "error",
+            format!(
+                "[STREAM_ERROR after {partial_chars} chars: {}]",
+                truncate_preview(error, EGRESS_ERROR_PREVIEW_CHARS)
+            ),
+        ),
+        EgressOutcome::Cancelled { partial_chars } => (
+            "cancelled",
+            format!("[STREAM_CANCELLED after {partial_chars} chars]"),
+        ),
+    };
+
+    let context_used = if ctx.employee_ids.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(&ctx.employee_ids).map_err(|e| {
+            AuditError::InvalidInput(format!("Failed to serialize employee IDs: {}", e))
+        })?)
+    };
+
+    sqlx::query(
+        r#"
+        INSERT INTO audit_log (id, conversation_id, request_redacted, response_text, context_used, query_category, source, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        "#,
+    )
+    .bind(&id)
+    .bind(&ctx.conversation_id)
+    .bind(request_redacted)
+    .bind(&response_metadata)
+    .bind(&context_used)
+    .bind(&ctx.query_category)
+    .bind(ctx.source.as_str())
+    .bind(status)
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
 
 /// Lightweight audit entry for list display
@@ -74,17 +212,6 @@ pub struct AuditListItem {
     pub response_preview: String, // First 100 chars
     pub employee_count: usize,
     pub created_at: String,
-}
-
-/// Input for creating an audit entry
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateAuditEntry {
-    pub conversation_id: Option<String>,
-    pub request_redacted: String,
-    pub response_text: String,
-    pub employee_ids_used: Vec<String>,
-    /// V2.4.2: Optional category for filtering (e.g., "dei")
-    pub query_category: Option<String>,
 }
 
 /// Filter options for listing/exporting audit entries
@@ -108,52 +235,15 @@ pub struct ExportResult {
 // Core Functions
 // ============================================================================
 
-/// Create a new audit log entry
-///
-/// Called by frontend after streaming response completes.
-/// Employee IDs are serialized to JSON for storage.
-pub async fn create_audit_entry(
-    pool: &DbPool,
-    input: CreateAuditEntry,
-) -> Result<AuditEntry, AuditError> {
-    let id = Uuid::new_v4().to_string();
-    let response_metadata = format!(
-        "[REDACTED_RESPONSE length={} chars]",
-        input.response_text.chars().count()
-    );
-
-    // Serialize employee IDs to JSON
-    let context_used = if input.employee_ids_used.is_empty() {
-        None
-    } else {
-        Some(serde_json::to_string(&input.employee_ids_used).map_err(|e| {
-            AuditError::InvalidInput(format!("Failed to serialize employee IDs: {}", e))
-        })?)
-    };
-
-    sqlx::query(
-        r#"
-        INSERT INTO audit_log (id, conversation_id, request_redacted, response_text, context_used, query_category, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-        "#,
-    )
-    .bind(&id)
-    .bind(&input.conversation_id)
-    .bind(&input.request_redacted)
-    .bind(&response_metadata)
-    .bind(&context_used)
-    .bind(&input.query_category)
-    .execute(pool)
-    .await?;
-
-    get_audit_entry(pool, &id).await
-}
+// #112: `create_audit_entry` (the frontend-facing write) was removed —
+// `record_llm_egress` above is the single write path, called from the chat
+// seam. The frontend keeps read-only access.
 
 /// Get an audit entry by ID
 pub async fn get_audit_entry(pool: &DbPool, id: &str) -> Result<AuditEntry, AuditError> {
     let entry = sqlx::query_as::<_, AuditEntry>(
         r#"
-        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category
+        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category, source, status
         FROM audit_log
         WHERE id = ?
         "#,
@@ -205,7 +295,7 @@ pub async fn list_audit_entries(
 
     let query = format!(
         r#"
-        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category
+        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category, source, status
         FROM audit_log
         WHERE {}
         ORDER BY created_at DESC
@@ -331,7 +421,7 @@ pub async fn export_to_csv(
 
     let query = format!(
         r#"
-        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category
+        SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category, source, status
         FROM audit_log
         WHERE {}
         ORDER BY created_at DESC
@@ -350,8 +440,8 @@ pub async fn export_to_csv(
     // Build CSV content
     let mut csv = String::new();
 
-    // Header row (V2.4.2: added query_category)
-    csv.push_str("id,timestamp,conversation_id,query_category,request_redacted,response_preview,employee_ids_used\n");
+    // Header row (V2.4.2: added query_category; #112: source + status)
+    csv.push_str("id,timestamp,conversation_id,query_category,source,status,request_redacted,response_preview,employee_ids_used\n");
 
     // Data rows
     for entry in &entries {
@@ -363,11 +453,13 @@ pub async fn export_to_csv(
             .unwrap_or_default();
 
         csv.push_str(&format!(
-            "{},{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{},{}\n",
             escape_csv(&entry.id),
             escape_csv(&entry.created_at),
             escape_csv(&entry.conversation_id.clone().unwrap_or_default()),
             escape_csv(&entry.query_category.clone().unwrap_or_default()),
+            escape_csv(entry.source.as_deref().unwrap_or_default()),
+            escape_csv(entry.status.as_deref().unwrap_or_default()),
             escape_csv(&entry.request_redacted),
             escape_csv(&truncate_preview(&entry.response_text, 500)),
             escape_csv(&employee_ids),
@@ -542,23 +634,6 @@ mod tests {
     }
 
     #[test]
-    fn test_create_audit_entry_input() {
-        let input = CreateAuditEntry {
-            conversation_id: Some("conv-123".to_string()),
-            request_redacted: "What is Sarah's rating?".to_string(),
-            response_text: "Sarah has a rating of 4.2".to_string(),
-            employee_ids_used: vec!["emp-1".to_string(), "emp-2".to_string()],
-            query_category: Some("dei".to_string()),
-        };
-
-        // Verify serialization works
-        let json = serde_json::to_string(&input).unwrap();
-        assert!(json.contains("conv-123"));
-        assert!(json.contains("emp-1"));
-        assert!(json.contains("dei"));
-    }
-
-    #[test]
     fn test_employee_ids_json_serialization() {
         let ids = vec!["emp-1".to_string(), "emp-2".to_string(), "emp-3".to_string()];
         let json = serde_json::to_string(&ids).unwrap();
@@ -607,6 +682,206 @@ mod tests {
         .execute(pool)
         .await
         .expect("insert audit row");
+    }
+
+    // ========================================================================
+    // record_llm_egress (issue #112): the single backend write path for LLM
+    // egress audit rows. Every chat-seam call records one row per attempt —
+    // success, error, or user cancel — so the audit log matches what actually
+    // left the machine, not just what streamed back successfully.
+    // ========================================================================
+
+    #[tokio::test]
+    async fn record_llm_egress_ok_writes_full_row() {
+        let pool = test_pool_with_migrations().await;
+        let ctx = EgressAudit {
+            source: EgressSource::MemorySummary,
+            conversation_id: Some("conv-1".into()),
+            employee_ids: vec!["emp-1".into(), "emp-2".into()],
+            query_category: None,
+        };
+
+        record_llm_egress(
+            &pool,
+            &ctx,
+            "User: what is Sarah's rating?",
+            &EgressOutcome::Ok { response_chars: 42 },
+        )
+        .await
+        .expect("egress row must write");
+
+        let entry: AuditEntry = sqlx::query_as(
+            "SELECT id, conversation_id, request_redacted, response_text, context_used, created_at, query_category, source, status FROM audit_log",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(entry.source.as_deref(), Some("memory_summary"));
+        assert_eq!(entry.status.as_deref(), Some("ok"));
+        assert_eq!(entry.conversation_id.as_deref(), Some("conv-1"));
+        assert_eq!(entry.request_redacted, "User: what is Sarah's rating?");
+        assert_eq!(entry.response_text, "[REDACTED_RESPONSE length=42 chars]");
+        assert_eq!(
+            entry.context_used.as_deref(),
+            Some(r#"["emp-1","emp-2"]"#),
+            "employee ids must serialize into context_used"
+        );
+    }
+
+    #[tokio::test]
+    async fn record_llm_egress_error_writes_partial_row() {
+        let pool = test_pool_with_migrations().await;
+        let ctx = EgressAudit {
+            source: EgressSource::Interactive,
+            conversation_id: None,
+            employee_ids: vec![],
+            query_category: None,
+        };
+
+        record_llm_egress(
+            &pool,
+            &ctx,
+            "redacted question",
+            &EgressOutcome::Error {
+                partial_chars: 17,
+                error: "HTTP 429: rate limited".into(),
+            },
+        )
+        .await
+        .expect("partial row must write");
+
+        let (source, status, response): (Option<String>, Option<String>, String) = sqlx::query_as(
+            "SELECT source, status, response_text FROM audit_log",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(source.as_deref(), Some("interactive"));
+        assert_eq!(status.as_deref(), Some("error"));
+        assert!(
+            response.contains("[STREAM_ERROR after 17 chars"),
+            "error row must record how much streamed before failure: {response}"
+        );
+        assert!(
+            response.contains("HTTP 429"),
+            "error row must carry the error class: {response}"
+        );
+    }
+
+    #[tokio::test]
+    async fn record_llm_egress_cancelled_writes_partial_row() {
+        let pool = test_pool_with_migrations().await;
+        let ctx = EgressAudit {
+            source: EgressSource::Interactive,
+            conversation_id: Some("conv-9".into()),
+            employee_ids: vec![],
+            query_category: None,
+        };
+
+        record_llm_egress(
+            &pool,
+            &ctx,
+            "redacted question",
+            &EgressOutcome::Cancelled { partial_chars: 250 },
+        )
+        .await
+        .expect("cancelled row must write");
+
+        let (status, response): (Option<String>, String) =
+            sqlx::query_as("SELECT status, response_text FROM audit_log")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(status.as_deref(), Some("cancelled"));
+        assert_eq!(response, "[STREAM_CANCELLED after 250 chars]");
+    }
+
+    #[tokio::test]
+    async fn record_llm_egress_truncates_oversized_error_messages() {
+        // Provider error bodies are attacker-adjacent (they echo request
+        // fragments) and unbounded; the audit row keeps a bounded prefix.
+        let pool = test_pool_with_migrations().await;
+        let ctx = EgressAudit {
+            source: EgressSource::HighlightExtraction,
+            conversation_id: None,
+            employee_ids: vec![],
+            query_category: None,
+        };
+
+        let huge_error = "x".repeat(2000);
+        record_llm_egress(
+            &pool,
+            &ctx,
+            "req",
+            &EgressOutcome::Error { partial_chars: 0, error: huge_error },
+        )
+        .await
+        .unwrap();
+
+        let (response,): (String,) = sqlx::query_as("SELECT response_text FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(
+            response.chars().count() < 500,
+            "error metadata must stay bounded, got {} chars",
+            response.chars().count()
+        );
+    }
+
+    #[test]
+    fn egress_source_labels_are_stable() {
+        // These strings are the audit log's public vocabulary — CSV exports
+        // and future UI filters key on them. Renaming one silently forks the
+        // history, so pin them.
+        assert_eq!(EgressSource::Interactive.as_str(), "interactive");
+        assert_eq!(EgressSource::MemorySummary.as_str(), "memory_summary");
+        assert_eq!(EgressSource::HighlightExtraction.as_str(), "highlight_extraction");
+        assert_eq!(EgressSource::HighlightSummary.as_str(), "highlight_summary");
+        assert_eq!(EgressSource::TitleGeneration.as_str(), "title_generation");
+        assert_eq!(EgressSource::RecruitingIntake.as_str(), "recruiting_intake");
+    }
+
+    // ========================================================================
+    // Migration 015: additive source + status columns (issue #112).
+    // Backend egress audit rows record where the call originated
+    // (interactive / memory_summary / …) and how it ended (ok / error /
+    // cancelled). Columns are nullable so pre-015 rows stay valid.
+    // ========================================================================
+
+    #[tokio::test]
+    async fn migration_015_adds_source_and_status_columns() {
+        let pool = test_pool_with_migrations().await;
+        sqlx::query(
+            "INSERT INTO audit_log (id, conversation_id, request_redacted, response_text, source, status, created_at)
+             VALUES ('a1', NULL, 'redacted', '[REDACTED_RESPONSE length=5 chars]', 'memory_summary', 'ok', datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert with source/status must work after migration 015");
+
+        let (source, status): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT source, status FROM audit_log WHERE id = 'a1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(source.as_deref(), Some("memory_summary"));
+        assert_eq!(status.as_deref(), Some("ok"));
+    }
+
+    #[tokio::test]
+    async fn migration_015_keeps_append_only_triggers_intact() {
+        let pool = test_pool_with_migrations().await;
+        insert_audit_row(&pool, "a1", None).await;
+
+        let err = sqlx::query("UPDATE audit_log SET status = 'tampered' WHERE id = 'a1'")
+            .execute(&pool)
+            .await
+            .expect_err("UPDATE of new column must still be blocked");
+        assert!(
+            err.to_string().contains("append-only"),
+            "expected append-only abort, got: {err}"
+        );
     }
 
     #[tokio::test]

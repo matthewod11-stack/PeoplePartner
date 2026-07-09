@@ -330,20 +330,40 @@ The title should capture the main topic or question.
 Do not use quotes or punctuation at the end.
 Just respond with the title, nothing else."#;
 
-/// Generate a title for a conversation using Claude
+/// Generate a title for a conversation using the user's active provider
 ///
-/// Takes the first user message and generates a 3-5 word title
-pub async fn generate_title(first_message: &str) -> Result<String, ConversationError> {
-    use crate::chat::{send_message, ChatMessage};
+/// Takes the first user message and generates a 3-5 word title. The
+/// provider comes from settings (#108 — this call site previously hardcoded
+/// the Anthropic provider id, silently degrading OpenAI/Gemini/trial users
+/// to the truncation fallback).
+pub async fn generate_title(pool: &DbPool, first_message: &str) -> Result<String, ConversationError> {
+    use crate::chat::{resolve_active_provider, send_message, ChatMessage};
 
     let messages = vec![ChatMessage {
         role: "user".to_string(),
         content: format!("Generate a title for: {}", first_message),
     }];
 
-    let response = send_message(messages, Some(TITLE_SYSTEM_PROMPT.to_string()), "anthropic", None)
+    let active = resolve_active_provider(pool)
         .await
-        .map_err(|e| ConversationError::Database(format!("Title generation failed: {}", e)))?;
+        .map_err(|e| ConversationError::Database(e.to_string()))?;
+    // #112: the chat seam writes the audit row for this egress.
+    let audit = crate::audit::EgressAudit {
+        source: crate::audit::EgressSource::TitleGeneration,
+        conversation_id: None,
+        employee_ids: vec![],
+        query_category: None,
+    };
+    let response = send_message(
+        pool,
+        audit,
+        messages,
+        Some(TITLE_SYSTEM_PROMPT.to_string()),
+        &active.provider_id,
+        active.model_id.as_deref(),
+    )
+    .await
+    .map_err(|e| ConversationError::Database(format!("Title generation failed: {}", e)))?;
 
     // Clean up the response - remove quotes, periods, extra whitespace
     let title = response
@@ -370,9 +390,9 @@ pub async fn generate_title(first_message: &str) -> Result<String, ConversationE
 
 /// Generate a title from the first message (fallback: truncation)
 ///
-/// Tries Claude first, falls back to simple truncation if that fails
-pub async fn generate_title_with_fallback(first_message: &str) -> String {
-    match generate_title(first_message).await {
+/// Tries the active provider first, falls back to simple truncation if that fails
+pub async fn generate_title_with_fallback(pool: &DbPool, first_message: &str) -> String {
+    match generate_title(pool, first_message).await {
         Ok(title) => title,
         Err(_) => {
             // Fallback: truncate first message
@@ -383,6 +403,24 @@ pub async fn generate_title_with_fallback(first_message: &str) -> String {
                 truncated
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod provider_lock_tests {
+    /// #108 regression lock (title-generation path): titles must use the
+    /// user's active provider from settings, never a hardcoded one. This
+    /// call site was missed by the original #108 sweep — its truncation
+    /// fallback masked the failure for OpenAI/Gemini/trial users. The needle
+    /// is built at runtime so this test's own source can't satisfy it.
+    #[test]
+    fn no_hardcoded_provider_in_title_path() {
+        let src = include_str!("conversations.rs");
+        let needle = format!("\"{}{}\"", "anthro", "pic");
+        assert!(
+            !src.contains(&needle),
+            "conversations.rs hardcodes a provider id — resolve it via chat::resolve_active_provider (#108)"
+        );
     }
 }
 

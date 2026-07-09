@@ -71,6 +71,10 @@ security-framework-sys = "2.15"
 [dev-dependencies]
 tempfile = "3"
 base64 = "0.22"  # license_signing tests construct Ed25519 PEMs manually (issue #22)
+# #112 egress-audit seam tests: mock AppHandle + local one-shot SSE server.
+# Dev-only feature unification — release builds keep tauri features = [].
+tauri = { version = "2", features = ["test"] }
+tokio = { version = "1", features = ["net", "time", "io-util"] }
 
 [profile.release]
 panic = "abort"

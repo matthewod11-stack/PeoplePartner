@@ -423,17 +423,26 @@ pub async fn resolve_active_provider(
 /// Send a message to an AI provider and get a response (non-streaming).
 /// Uses the provider's default temperature.
 pub async fn send_message(
+    pool: &crate::db::DbPool,
+    audit: crate::audit::EgressAudit,
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
     provider_id: &str,
     model_id: Option<&str>,
 ) -> Result<ChatResponse, ChatError> {
-    send_message_with_temperature(messages, system_prompt, provider_id, model_id, None).await
+    send_message_with_temperature(pool, audit, messages, system_prompt, provider_id, model_id, None)
+        .await
 }
 
 /// Send a message to an AI provider with an explicit generation temperature.
 /// `None` defers to the provider's configured default.
+///
+/// #112: every attempt past the redaction point writes an audit row via
+/// `audit` — success or failure. Only a missing API key exits row-less
+/// (nothing was redacted, nothing left the machine).
 pub async fn send_message_with_temperature(
+    pool: &crate::db::DbPool,
+    audit: crate::audit::EgressAudit,
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
     provider_id: &str,
@@ -447,40 +456,59 @@ pub async fn send_message_with_temperature(
     // backend-initiated calls (memory summarization, highlight extraction)
     // that don't have an AppHandle to emit an event from — summary is dropped.
     let (messages, system_prompt, _pii_summary) = redact_chat_payload(messages, system_prompt);
+    let request_redacted = last_user_message(&messages);
 
-    // Trim conversation to fit within token budget (silently drops oldest messages)
-    let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
-    let provider_messages = to_provider_messages(trimmed_messages);
+    let result = async {
+        // Trim conversation to fit within token budget (silently drops oldest messages)
+        let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
+        let provider_messages = to_provider_messages(trimmed_messages);
 
-    // Build and send the request via the provider
-    let client = SHARED_CLIENT.clone();
-    let request_builder = provider.build_request(&client, &provider_messages, &system_prompt, &api_key, temperature);
-    let response = request_builder.send().await?;
+        // Build and send the request via the provider
+        let client = SHARED_CLIENT.clone();
+        let request_builder =
+            provider.build_request(&client, &provider_messages, &system_prompt, &api_key, temperature);
+        let response = request_builder.send().await?;
 
-    // Check for HTTP errors
-    let status = response.status();
-    if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        let parsed = provider.parse_error_response(&error_text);
-        return Err(ChatError::ApiError(redact_api_keys(&format!(
-            "HTTP {}: {}",
-            status.as_u16(),
-            parsed
-        ))));
+        // Check for HTTP errors
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            let parsed = provider.parse_error_response(&error_text);
+            return Err(ChatError::ApiError(redact_api_keys(&format!(
+                "HTTP {}: {}",
+                status.as_u16(),
+                parsed
+            ))));
+        }
+
+        // Parse successful response via the provider
+        let body_text = response
+            .text()
+            .await
+            .map_err(|e| ChatError::ParseError(e.to_string()))?;
+
+        let provider_response = provider
+            .parse_response(&body_text)
+            .map_err(ChatError::ParseError)?;
+
+        Ok(ChatResponse {
+            content: provider_response.content,
+            input_tokens: provider_response.input_tokens,
+            output_tokens: provider_response.output_tokens,
+        })
     }
+    .await;
 
-    // Parse successful response via the provider
-    let body_text = response.text().await
-        .map_err(|e| ChatError::ParseError(e.to_string()))?;
+    let outcome = stream_outcome(
+        &result,
+        result
+            .as_ref()
+            .map(|r: &ChatResponse| r.content.chars().count())
+            .unwrap_or(0),
+    );
+    write_egress_audit(pool, &audit, &request_redacted, &outcome).await;
 
-    let provider_response = provider.parse_response(&body_text)
-        .map_err(|e| ChatError::ParseError(e))?;
-
-    Ok(ChatResponse {
-        content: provider_response.content,
-        input_tokens: provider_response.input_tokens,
-        output_tokens: provider_response.output_tokens,
-    })
+    result
 }
 
 /// Process an SSE stream response, emitting "chat-stream" events to the frontend.
@@ -491,14 +519,19 @@ pub async fn send_message_with_temperature(
 /// `ChatError::Cancelled`; dropping the response here closes the reqwest
 /// connection, which stops the upstream provider from streaming further
 /// tokens (the billing event we care about).
-async fn process_sse_stream(
-    app: &AppHandle,
+/// On success returns the full accumulated response text (the caller audits
+/// its length). `chars_streamed` is updated as deltas arrive so that on error
+/// or cancel the caller can record how much streamed before the interruption
+/// (#112 partial audit rows).
+async fn process_sse_stream<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     response: reqwest::Response,
     provider: &dyn Provider,
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
     cancel_token: CancellationToken,
-) -> Result<(), ChatError> {
+    chars_streamed: &mut usize,
+) -> Result<String, ChatError> {
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut full_response = String::new();
@@ -518,6 +551,8 @@ async fn process_sse_stream(
         };
         let Some(chunk_result) = next else { break };
         let chunk = chunk_result.map_err(|e| ChatError::RequestError(e.to_string()))?;
+        // (chunk errors above return with `chars_streamed` already reflecting
+        // everything that arrived — the partial audit row stays truthful)
         let chunk_str = String::from_utf8_lossy(&chunk);
         buffer.push_str(&chunk_str);
 
@@ -533,6 +568,7 @@ async fn process_sse_stream(
                         match delta {
                             StreamDelta::TextDelta(text) => {
                                 full_response.push_str(&text);
+                                *chars_streamed = full_response.chars().count();
 
                                 let _ = app.emit("chat-stream", StreamChunk {
                                     chunk: text,
@@ -565,7 +601,45 @@ async fn process_sse_stream(
         }
     }
 
-    Ok(())
+    Ok(full_response)
+}
+
+/// The last user-role message of a redacted payload — what an audit row
+/// records as "what was asked". Uniform across interactive chat (the user's
+/// latest message) and backend egress (the single constructed user prompt).
+fn last_user_message(messages: &[ChatMessage]) -> String {
+    messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map(|m| m.content.clone())
+        .unwrap_or_default()
+}
+
+/// Write the egress audit row for one attempt (#112). Best-effort by design:
+/// audit failures are logged, never allowed to fail the chat flow.
+async fn write_egress_audit(
+    pool: &crate::db::DbPool,
+    audit: &crate::audit::EgressAudit,
+    request_redacted: &str,
+    outcome: &crate::audit::EgressOutcome,
+) {
+    if let Err(e) =
+        crate::audit::record_llm_egress(pool, audit, request_redacted, outcome).await
+    {
+        log::warn!("egress audit write failed (source={}): {e}", audit.source.as_str());
+    }
+}
+
+/// Map a streaming result to its audit outcome. `streamed` is how many chars
+/// arrived before the stream ended (equals the full length on success).
+fn stream_outcome<T>(result: &Result<T, ChatError>, streamed: usize) -> crate::audit::EgressOutcome {
+    use crate::audit::EgressOutcome;
+    match result {
+        Ok(_) => EgressOutcome::Ok { response_chars: streamed },
+        Err(ChatError::Cancelled) => EgressOutcome::Cancelled { partial_chars: streamed },
+        Err(e) => EgressOutcome::Error { partial_chars: streamed, error: e.to_string() },
+    }
 }
 
 /// Check HTTP response status and return an error if not successful.
@@ -615,10 +689,12 @@ fn compute_trial_signature(
 /// that the UI later passes to `cancel_stream` if the user hits Stop. The
 /// guard at the top of this function ensures the registry entry is removed
 /// on every exit path.
-pub async fn send_message_streaming(
-    app: AppHandle,
+pub async fn send_message_streaming<R: tauri::Runtime>(
+    app: AppHandle<R>,
     registry: &StreamRegistry,
     stream_id: String,
+    pool: &crate::db::DbPool,
+    audit: crate::audit::EgressAudit,
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
     aggregates: Option<crate::context::OrgAggregates>,
@@ -640,31 +716,51 @@ pub async fn send_message_streaming(
     if let Some(summary) = pii_summary {
         let _ = app.emit("chat-pii-redacted", &summary);
     }
+    let request_redacted = last_user_message(&messages);
 
-    // Trim and convert messages
-    let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
-    let provider_messages = to_provider_messages(trimmed_messages);
+    let mut streamed = 0usize;
+    let result = async {
+        // Trim and convert messages
+        let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
+        let provider_messages = to_provider_messages(trimmed_messages);
 
-    // Build and send the request via the provider
-    let client = SHARED_CLIENT.clone();
-    let request_builder = provider.build_streaming_request(
-        &client,
-        &provider_messages,
-        &system_prompt,
-        &api_key,
-    );
-    let response = request_builder.send().await?;
+        // Build and send the request via the provider
+        let client = SHARED_CLIENT.clone();
+        let request_builder = provider.build_streaming_request(
+            &client,
+            &provider_messages,
+            &system_prompt,
+            &api_key,
+        );
+        let response = request_builder.send().await?;
 
-    let status = response.status();
-    if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        return Err(match check_http_error_status(status, &error_text, &*provider) {
-            Err(err) => err,
-            Ok(()) => unreachable!(),
-        });
+        let status = response.status();
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(match check_http_error_status(status, &error_text, &*provider) {
+                Err(err) => err,
+                Ok(()) => unreachable!(),
+            });
+        }
+
+        process_sse_stream(
+            &app,
+            response,
+            &*provider,
+            aggregates,
+            query_type,
+            cancel_token,
+            &mut streamed,
+        )
+        .await
     }
+    .await;
 
-    process_sse_stream(&app, response, &*provider, aggregates, query_type, cancel_token).await
+    let final_streamed = result.as_ref().map(|full| full.chars().count()).unwrap_or(streamed);
+    let outcome = stream_outcome(&result, final_streamed);
+    write_egress_audit(pool, &audit, &request_redacted, &outcome).await;
+
+    result.map(|_| ())
 }
 
 /// Send a message through the trial proxy with streaming response.
@@ -675,10 +771,12 @@ pub async fn send_message_streaming(
 /// trial stream mid-flight still counts against the trial quota on the
 /// proxy side (the request was accepted) but stops downstream token
 /// delivery — the cost saving is on the Anthropic bill behind the proxy.
-pub async fn send_message_streaming_trial(
-    app: AppHandle,
+pub async fn send_message_streaming_trial<R: tauri::Runtime>(
+    app: AppHandle<R>,
     registry: &StreamRegistry,
     stream_id: String,
+    pool: &crate::db::DbPool,
+    audit: crate::audit::EgressAudit,
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
     proxy_url: &str,
@@ -701,63 +799,86 @@ pub async fn send_message_streaming_trial(
     if let Some(summary) = pii_summary {
         let _ = app.emit("chat-pii-redacted", &summary);
     }
+    let request_redacted = last_user_message(&messages);
 
-    // Trim and convert messages
-    let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
-    let provider_messages = to_provider_messages(trimmed_messages);
+    let mut streamed = 0usize;
+    let result = async {
+        // Trim and convert messages
+        let trimmed_messages = trim_conversation_to_budget(messages, &system_prompt);
+        let provider_messages = to_provider_messages(trimmed_messages);
 
-    // Build the serializable request body for the proxy (trial always uses default temperature)
-    let request = anthropic.build_message_request(&provider_messages, &system_prompt, true, None);
-    let body_json = serde_json::to_string(&request)
-        .map_err(|e| ChatError::ParseError(e.to_string()))?;
+        // Build the serializable request body for the proxy (trial always uses default temperature)
+        let request = anthropic.build_message_request(&provider_messages, &system_prompt, true, None);
+        let body_json = serde_json::to_string(&request)
+            .map_err(|e| ChatError::ParseError(e.to_string()))?;
 
-    let client = SHARED_CLIENT.clone();
-    let endpoint = format!("{}/v1/messages", proxy_url.trim_end_matches('/'));
-    let mut request_builder = client
-        .post(&endpoint)
-        .header("x-device-id", device_id)
-        .header("content-type", "application/json")
-        .header("origin", "tauri://localhost")
-        .body(body_json.clone());
+        let client = SHARED_CLIENT.clone();
+        let endpoint = format!("{}/v1/messages", proxy_url.trim_end_matches('/'));
+        let mut request_builder = client
+            .post(&endpoint)
+            .header("x-device-id", device_id)
+            .header("content-type", "application/json")
+            .header("origin", "tauri://localhost")
+            .body(body_json.clone());
 
-    if let Some(secret) = proxy_signing_secret {
-        let timestamp = chrono::Utc::now().timestamp().to_string();
-        let signature = compute_trial_signature(secret, device_id, &timestamp, &body_json)?;
-        request_builder = request_builder
-            .header("x-trial-timestamp", timestamp)
-            .header("x-trial-signature", signature);
-    }
+        if let Some(secret) = proxy_signing_secret {
+            let timestamp = chrono::Utc::now().timestamp().to_string();
+            let signature = compute_trial_signature(secret, device_id, &timestamp, &body_json)?;
+            request_builder = request_builder
+                .header("x-trial-timestamp", timestamp)
+                .header("x-trial-signature", signature);
+        }
 
-    let response = request_builder.send().await?;
+        let response = request_builder.send().await?;
 
-    let status = response.status();
-    let mut usage = parse_trial_usage_headers(response.headers());
-    if !status.is_success() {
-        let error_text = response.text().await.unwrap_or_default();
-        if status.as_u16() == 402 {
-            if let Ok(proxy_error) = serde_json::from_str::<ProxyErrorResponse>(&error_text) {
-                if proxy_error.error == "trial_limit_reached" {
-                    if usage.used.is_none() {
-                        usage.used = proxy_error.used;
+        let status = response.status();
+        let mut usage = parse_trial_usage_headers(response.headers());
+        if !status.is_success() {
+            let error_text = response.text().await.unwrap_or_default();
+            if status.as_u16() == 402 {
+                if let Ok(proxy_error) = serde_json::from_str::<ProxyErrorResponse>(&error_text) {
+                    if proxy_error.error == "trial_limit_reached" {
+                        if usage.used.is_none() {
+                            usage.used = proxy_error.used;
+                        }
+                        if usage.limit.is_none() {
+                            usage.limit = proxy_error.limit;
+                        }
+                        return Err(ChatError::TrialLimitReached {
+                            used: usage.used,
+                            limit: usage.limit,
+                        });
                     }
-                    if usage.limit.is_none() {
-                        usage.limit = proxy_error.limit;
-                    }
-                    return Err(ChatError::TrialLimitReached {
-                        used: usage.used,
-                        limit: usage.limit,
-                    });
                 }
             }
+            return Err(match check_http_error_status(status, &error_text, &anthropic) {
+                Err(err) => err,
+                Ok(()) => unreachable!(),
+            });
         }
-        return Err(match check_http_error_status(status, &error_text, &anthropic) {
-            Err(err) => err,
-            Ok(()) => unreachable!(),
-        });
-    }
 
-    process_sse_stream(&app, response, &anthropic, aggregates, query_type, cancel_token).await?;
-    Ok(usage)
+        let full = process_sse_stream(
+            &app,
+            response,
+            &anthropic,
+            aggregates,
+            query_type,
+            cancel_token,
+            &mut streamed,
+        )
+        .await?;
+        Ok((usage, full))
+    }
+    .await;
+
+    let final_streamed = result
+        .as_ref()
+        .map(|(_, full): &(TrialUsageMetadata, String)| full.chars().count())
+        .unwrap_or(streamed);
+    let outcome = stream_outcome(&result, final_streamed);
+    write_egress_audit(pool, &audit, &request_redacted, &outcome).await;
+
+    result.map(|(usage, _)| usage)
 }
 
 #[cfg(test)]
@@ -1142,5 +1263,214 @@ mod tests {
         let msg = "Item code sk-shortidx and SKU sk-100 unaffected.";
         let out = redact_api_keys(msg);
         assert_eq!(out, msg, "short sk- substrings must not match (false positive)");
+    }
+
+    // ============================================================================
+    // #112 — egress audit at the streaming seam.
+    //
+    // These drive the REAL trial streaming path end-to-end against a local
+    // one-shot HTTP server (the `proxy_url` param is the injection seam) with
+    // a mock AppHandle, and assert the audit row the seam writes: ok on
+    // completion, error partial row on provider failure, cancelled partial
+    // row on user cancel. The BYOK path shares process_sse_stream and the
+    // same outcome→row mapping.
+    // ============================================================================
+
+    fn egress_ctx() -> crate::audit::EgressAudit {
+        crate::audit::EgressAudit {
+            source: crate::audit::EgressSource::Interactive,
+            conversation_id: Some("conv-1".into()),
+            employee_ids: vec![],
+            query_category: None,
+        }
+    }
+
+    /// One-shot HTTP server: accepts a single connection, reads the request,
+    /// writes `response` verbatim, then closes (EOF-terminated body).
+    async fn spawn_one_shot_server(response: String) -> String {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 8192];
+            let _ = sock.read(&mut buf).await;
+            let _ = sock.write_all(response.as_bytes()).await;
+            let _ = sock.shutdown().await;
+        });
+        format!("http://{addr}")
+    }
+
+    async fn fetch_single_audit_row(
+        pool: &crate::db::DbPool,
+    ) -> (Option<String>, Option<String>, String, String) {
+        sqlx::query_as(
+            "SELECT source, status, request_redacted, response_text FROM audit_log",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("exactly one audit row must exist")
+    }
+
+    #[tokio::test]
+    async fn trial_stream_success_writes_ok_audit_row_with_redacted_request() {
+        let pool = test_pool().await;
+        let sse = concat!(
+            "data: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"Hello\"}}\n\n",
+            "data: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \" world\"}}\n\n",
+            "data: {\"type\": \"message_stop\"}\n\n",
+        );
+        let url = spawn_one_shot_server(format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\n{sse}"
+        ))
+        .await;
+
+        let app = tauri::test::mock_app();
+        let registry = StreamRegistry::new();
+        let messages = vec![make_message(
+            "user",
+            "Sarah's SSN is 123-45-6789, summarize her file.",
+        )];
+
+        let result = send_message_streaming_trial(
+            app.handle().clone(),
+            &registry,
+            "stream-ok".to_string(),
+            &pool,
+            egress_ctx(),
+            messages,
+            None,
+            &url,
+            "device-1",
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert!(result.is_ok(), "stream should complete: {result:?}");
+
+        let (source, status, request, response_meta) = fetch_single_audit_row(&pool).await;
+        assert_eq!(source.as_deref(), Some("interactive"));
+        assert_eq!(status.as_deref(), Some("ok"));
+        assert!(
+            !request.contains("123-45-6789"),
+            "raw SSN must never reach the audit log: {request}"
+        );
+        assert!(
+            request.contains("[SSN_REDACTED]"),
+            "audit row must record the redacted request: {request}"
+        );
+        // "Hello world" = 11 chars
+        assert_eq!(response_meta, "[REDACTED_RESPONSE length=11 chars]");
+    }
+
+    #[tokio::test]
+    async fn trial_stream_http_error_writes_error_audit_row() {
+        let pool = test_pool().await;
+        let body = r#"{"type":"error","error":{"type":"api_error","message":"boom"}}"#;
+        let url = spawn_one_shot_server(format!(
+            "HTTP/1.1 500 Internal Server Error\r\ncontent-type: application/json\r\nconnection: close\r\n\r\n{body}"
+        ))
+        .await;
+
+        let app = tauri::test::mock_app();
+        let registry = StreamRegistry::new();
+        let messages = vec![make_message("user", "hello")];
+
+        let result = send_message_streaming_trial(
+            app.handle().clone(),
+            &registry,
+            "stream-err".to_string(),
+            &pool,
+            egress_ctx(),
+            messages,
+            None,
+            &url,
+            "device-1",
+            None,
+            None,
+            None,
+        )
+        .await;
+        assert!(result.is_err(), "HTTP 500 must surface as an error");
+
+        let (_, status, _, response_meta) = fetch_single_audit_row(&pool).await;
+        assert_eq!(status.as_deref(), Some("error"));
+        assert!(
+            response_meta.contains("[STREAM_ERROR after 0 chars"),
+            "error row must record zero streamed chars: {response_meta}"
+        );
+        assert!(
+            response_meta.contains("500"),
+            "error row must carry the failure class: {response_meta}"
+        );
+    }
+
+    #[tokio::test]
+    async fn trial_stream_cancel_writes_cancelled_audit_row() {
+        let pool = test_pool().await;
+        // Server sends headers + one delta, then holds the connection open —
+        // the stream can only end via cancellation.
+        let url = {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let addr = listener.local_addr().unwrap();
+            tokio::spawn(async move {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = [0u8; 8192];
+                let _ = sock.read(&mut buf).await;
+                let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\nconnection: close\r\n\r\ndata: {\"type\": \"content_block_delta\", \"index\": 0, \"delta\": {\"type\": \"text_delta\", \"text\": \"Hel\"}}\n\n";
+                let _ = sock.write_all(head.as_bytes()).await;
+                // Hold open far longer than the test will run.
+                tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            });
+            format!("http://{addr}")
+        };
+
+        let app = tauri::test::mock_app();
+        let registry = std::sync::Arc::new(StreamRegistry::new());
+        let pool_for_task = pool.clone();
+        let registry_for_task = registry.clone();
+        let handle = app.handle().clone();
+
+        let send_task = tokio::spawn(async move {
+            send_message_streaming_trial(
+                handle,
+                &registry_for_task,
+                "stream-cancel".to_string(),
+                &pool_for_task,
+                egress_ctx(),
+                vec![make_message("user", "hello")],
+                None,
+                &url,
+                "device-1",
+                None,
+                None,
+                None,
+            )
+            .await
+        });
+
+        // The stream registers its id synchronously at entry; poll until the
+        // cancel lands, then the seam must observe it and write the row.
+        loop {
+            if registry.cancel("stream-cancel") {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+
+        let result = send_task.await.unwrap();
+        assert!(
+            matches!(result, Err(ChatError::Cancelled)),
+            "cancel must surface as ChatError::Cancelled: {result:?}"
+        );
+
+        let (_, status, _, response_meta) = fetch_single_audit_row(&pool).await;
+        assert_eq!(status.as_deref(), Some("cancelled"));
+        assert!(
+            response_meta.starts_with("[STREAM_CANCELLED after"),
+            "cancelled row must record partial progress: {response_meta}"
+        );
     }
 }

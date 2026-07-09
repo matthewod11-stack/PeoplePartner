@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/matthewod11-stack/PeoplePartner/actions/workflows/ci.yml/badge.svg)](https://github.com/matthewod11-stack/PeoplePartner/actions/workflows/ci.yml)
 [![Security Audit](https://github.com/matthewod11-stack/PeoplePartner/actions/workflows/security.yml/badge.svg)](https://github.com/matthewod11-stack/PeoplePartner/actions/workflows/security.yml)
-![Tests](https://img.shields.io/badge/tests-790%20Rust-brightgreen)
+![Tests](https://img.shields.io/badge/tests-799%20Rust-brightgreen)
 ![Platform](https://img.shields.io/badge/platform-macOS%20(Apple%20Silicon%20%2B%20Intel)-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
@@ -34,7 +34,7 @@ The repo is intentionally open source because HR software should be more inspect
 
 - **Knows Your Company** — Import employee data and company documents. Get answers that understand your specific context, not generic advice.
 - **Remembers Conversations** — References past discussions naturally, building institutional knowledge over time.
-- **Protects Sensitive Data** — PII auto-redaction, local-first storage, and local audit trails for supported AI chat interactions.
+- **Protects Sensitive Data** — PII auto-redaction, local-first storage, and a tamper-resistant local audit log covering every AI request the app sends.
 - **Works Offline** — Browse employees, review past conversations, and access your data even without internet.
 - **Experiments with Recruiting Workflows** — Includes early work that brings Sourcerer-style candidate sourcing and scoring concepts into the desktop HR workspace.
 
@@ -60,16 +60,17 @@ For builders, it is also a reference implementation for a local-first HR app: Ta
 - All app data is stored locally in SQLite on your Mac.
 - API keys are stored in macOS Keychain.
 - PII redaction runs before sending supported AI requests to a provider.
-- Supported AI chat interactions write local audit records; broader backend egress auditing is still being hardened.
+- Every AI request the app sends — interactive chat, memory summaries, review highlights, title generation, recruiting intake — writes a local audit record at the same seam that enforces redaction, including partial records for failed or cancelled streams.
+- **Audit retention:** the log is append-only by design — database triggers block edits and deletion, and there is no delete UI. Auditors export via CSV from Settings. Purging means deleting the local database, which you own and control. A configurable retention window is a possible future enterprise feature, not a current one.
 - No cloud sync, telemetry, or third-party HR database is required for the desktop app.
 
 ## How It's Built
 
 A local-first desktop app with a Rust core and a React shell, built for correctness and privacy over feature sprawl.
 
-- **~39K lines of Rust, ~24K of TypeScript**, with **790 backend tests** exercised in CI on every push.
+- **~39K lines of Rust, ~24K of TypeScript**, with **~800 backend tests** exercised in CI on every push.
 - **Provider abstraction** (`src-tauri/src/provider.rs`) — Claude, OpenAI, and Gemini sit behind one trait, so the app is model-agnostic and BYOK. Provider resolution is centralized, not hardcoded per call site.
-- **PII redaction before egress** (`src-tauri/src/pii.rs`) — financial identifiers (SSN, card, bank) are scanned and redacted before any request leaves the machine, with a local audit trail (`audit.rs`) for supported chat interactions.
+- **PII redaction + audit at one seam** (`src-tauri/src/pii.rs`, `audit.rs`) — financial identifiers (SSN, card, bank) are scanned and redacted before any request leaves the machine, and the same chat seam writes an append-only audit row for every egress attempt (source, outcome, redacted request) — call sites can't skip it.
 - **Secrets in the OS boundary** (`src-tauri/src/keyring.rs`) — API keys live in the macOS Keychain, never in app storage or logs. Licenses are cryptographically signed and verified offline (`license_signing.rs`).
 - **Signed, notarized releases** — GitHub Actions builds, code-signs, and notarizes universal macOS binaries (Apple Silicon + Intel) with a pre-notarize entitlements gate; a separate `cargo audit` / RustSec workflow runs on every change.
 - **Local-first data** — everything persists in on-device SQLite (SQLx, raw SQL, no ORM); the app is fully usable offline in read-only mode.

@@ -32,15 +32,10 @@ pub(crate) fn scan_pii(text: String) -> pii::RedactionResult {
     pii::scan_and_redact(&text)
 }
 
-/// Create an audit log entry after a Claude API interaction
-/// Called by frontend after streaming response completes
-#[tauri::command]
-pub(crate) async fn create_audit_entry(
-    state: tauri::State<'_, Database>,
-    input: audit::CreateAuditEntry,
-) -> Result<audit::AuditEntry, audit::AuditError> {
-    audit::create_audit_entry(&state.pool, input).await
-}
+// #112: the create_audit_entry command was removed. Audit rows are written
+// backend-side at the chat seam (`chat.rs` → `audit::record_llm_egress`);
+// exposing a frontend write path would let compromised webview JS spoof
+// audit history. The frontend keeps read-only access (get/list/count/export).
 
 /// Get a single audit entry by ID
 #[tauri::command]
