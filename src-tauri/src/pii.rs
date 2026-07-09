@@ -135,9 +135,8 @@ static SSN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
 // EIN (Employer Identification Number) pattern: XX-XXXXXXX (2 digits, dash, 7 digits).
 // Ubiquitous on W-9s, 1099s, and HR tax paperwork. The 2-7 split disambiguates
 // EIN from SSN (SSN is 3-2-4).
-static EIN_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[0-9]{2}-[0-9]{7}\b").expect("EIN regex should compile")
-});
+static EIN_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[0-9]{2}-[0-9]{7}\b").expect("EIN regex should compile"));
 
 // Credit card patterns:
 // - Visa: 4XXX XXXX XXXX XXXX (16 digits starting with 4)
@@ -185,15 +184,13 @@ static BANK_CONTEXT_KEYWORDS: &[&str] = &[
 // Bank account number pattern (requires context)
 // Typically 8-17 digits, but we look for 8-12 as most common
 // Must appear near a context keyword
-static BANK_ACCOUNT_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[0-9]{8,17}\b").expect("Bank account regex should compile")
-});
+static BANK_ACCOUNT_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[0-9]{8,17}\b").expect("Bank account regex should compile"));
 
 // Routing number pattern (9 digits, specific format)
 // ABA routing numbers have a checksum, but we'll be lenient
-static ROUTING_NUMBER_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b[0-9]{9}\b").expect("Routing number regex should compile")
-});
+static ROUTING_NUMBER_PATTERN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b[0-9]{9}\b").expect("Routing number regex should compile"));
 
 // Phone number patterns:
 // - (555) 123-4567
@@ -688,7 +685,11 @@ mod tests {
         // For PII detection, we detect 666 area codes (historically invalid but should still be redacted)
         let text = "SSN: 666-12-3456";
         let matches = detect_ssn(text);
-        assert_eq!(matches.len(), 1, "SSN with area 666 should be detected for redaction");
+        assert_eq!(
+            matches.len(),
+            1,
+            "SSN with area 666 should be detected for redaction"
+        );
     }
 
     #[test]
@@ -696,7 +697,11 @@ mod tests {
         // For PII detection, we detect 900+ area codes (reserved but should still be redacted)
         let text = "SSN: 900-12-3456";
         let matches = detect_ssn(text);
-        assert_eq!(matches.len(), 1, "SSN with area 900+ should be detected for redaction");
+        assert_eq!(
+            matches.len(),
+            1,
+            "SSN with area 900+ should be detected for redaction"
+        );
     }
 
     #[test]
@@ -712,7 +717,11 @@ mod tests {
     fn test_detect_ssn_serial_0000_is_redacted() {
         let text = "Invalid but SSN-shaped: 123-45-0000";
         let matches = detect_ssn(text);
-        assert_eq!(matches.len(), 1, "SSN with serial 0000 must still be redacted");
+        assert_eq!(
+            matches.len(),
+            1,
+            "SSN with serial 0000 must still be redacted"
+        );
     }
 
     #[test]
@@ -721,7 +730,11 @@ mod tests {
         // but we skip it to avoid false-positive noise on obvious dummy data.
         let text = "Placeholder 000-00-0000 and 111-11-1111";
         let matches = detect_ssn(text);
-        assert_eq!(matches.len(), 0, "all-identical-digit SSN is treated as sentinel");
+        assert_eq!(
+            matches.len(),
+            0,
+            "all-identical-digit SSN is treated as sentinel"
+        );
     }
 
     #[test]
@@ -746,8 +759,14 @@ mod tests {
         // Ensure we classify each correctly.
         let text = "EIN 12-3456789, SSN 123-45-6789";
         let all_matches = scan_for_pii(text);
-        let ssn_matches: Vec<_> = all_matches.iter().filter(|m| m.pii_type == PiiType::Ssn).collect();
-        let ein_matches: Vec<_> = all_matches.iter().filter(|m| m.pii_type == PiiType::Ein).collect();
+        let ssn_matches: Vec<_> = all_matches
+            .iter()
+            .filter(|m| m.pii_type == PiiType::Ssn)
+            .collect();
+        let ein_matches: Vec<_> = all_matches
+            .iter()
+            .filter(|m| m.pii_type == PiiType::Ein)
+            .collect();
         assert_eq!(ssn_matches.len(), 1);
         assert_eq!(ein_matches.len(), 1);
     }
@@ -1005,7 +1024,10 @@ mod tests {
         assert_eq!(PiiType::BankAccount.placeholder(), "[BANK_ACCT_REDACTED]");
         assert_eq!(PiiType::PhoneNumber.placeholder(), "[PHONE_REDACTED]");
         assert_eq!(PiiType::StreetAddress.placeholder(), "[ADDRESS_REDACTED]");
-        assert_eq!(PiiType::MedicalInfo.placeholder(), "[MEDICAL_INFO_REDACTED]");
+        assert_eq!(
+            PiiType::MedicalInfo.placeholder(),
+            "[MEDICAL_INFO_REDACTED]"
+        );
     }
 
     #[test]

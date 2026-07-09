@@ -296,7 +296,12 @@ async fn deps_from_env(pool: &crate::db::DbPool) -> Result<IntakeDeps, IntakeCom
         }
     };
 
-    Ok(production_intake_deps(pool.clone(), &provider_id, model_id, exa_key))
+    Ok(production_intake_deps(
+        pool.clone(),
+        &provider_id,
+        model_id,
+        exa_key,
+    ))
 }
 
 /// Seed input for `recruiting_intake_start_from_seed`. Exactly one of

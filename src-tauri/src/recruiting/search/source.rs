@@ -39,10 +39,8 @@ pub trait CandidateSource: Send + Sync {
         num_results: u32,
     ) -> Result<(Vec<ExaHit>, Option<f64>), SearchError>;
 
-    async fn find_similar(
-        &self,
-        seed_url: &str,
-    ) -> Result<(Vec<ExaHit>, Option<f64>), SearchError>;
+    async fn find_similar(&self, seed_url: &str)
+        -> Result<(Vec<ExaHit>, Option<f64>), SearchError>;
 }
 
 // ---------------------------------------------------------------------------

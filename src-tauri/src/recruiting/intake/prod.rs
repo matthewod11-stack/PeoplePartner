@@ -271,7 +271,11 @@ pub struct ExaContentResearch {
 }
 
 impl ExaContentResearch {
-    pub fn new(exa_api_key: String, provider: Arc<dyn IntakeProvider>, clock: Arc<dyn Clock>) -> Self {
+    pub fn new(
+        exa_api_key: String,
+        provider: Arc<dyn IntakeProvider>,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
         Self {
             exa_api_key,
             provider,
@@ -329,11 +333,10 @@ impl ContentResearch for ExaContentResearch {
         let resp = exa::get_contents(&urls, &self.exa_api_key)
             .await
             .map_err(|e| IntakeError::Research(e.to_string()))?;
-        let hit = resp
-            .results
-            .into_iter()
-            .next()
-            .ok_or_else(|| IntakeError::Research(format!("Exa returned no contents for {url}")))?;
+        let hit =
+            resp.results.into_iter().next().ok_or_else(|| {
+                IntakeError::Research(format!("Exa returned no contents for {url}"))
+            })?;
         Ok(crawled_content_from_hit(hit, self.clock.now_iso8601()))
     }
 
@@ -360,10 +363,16 @@ impl ContentResearch for ExaContentResearch {
         // it deserializes into CompanyIntel. The calling node overwrites both
         // afterward, but a complete struct keeps this method self-contained and
         // matches `FakeResearch::analyze_company`.
-        let mut v = self.provider.structured_output(messages, "CompanyIntel").await?;
+        let mut v = self
+            .provider
+            .structured_output(messages, "CompanyIntel")
+            .await?;
         if let Some(obj) = v.as_object_mut() {
             obj.insert("url".into(), serde_json::json!(content.url));
-            obj.insert("analyzedAt".into(), serde_json::json!(self.clock.now_iso8601()));
+            obj.insert(
+                "analyzedAt".into(),
+                serde_json::json!(self.clock.now_iso8601()),
+            );
         }
         serde_json::from_value(v).map_err(|e| IntakeError::Deserialize(e.to_string()))
     }
@@ -432,7 +441,11 @@ impl ContentResearch for ExaContentResearch {
         let resp = exa::find_similar(seed, &self.exa_api_key)
             .await
             .map_err(|e| IntakeError::Research(e.to_string()))?;
-        Ok(resp.results.into_iter().map(similar_result_from_hit).collect())
+        Ok(resp
+            .results
+            .into_iter()
+            .map(similar_result_from_hit)
+            .collect())
     }
 }
 
@@ -452,8 +465,11 @@ pub fn production_intake_deps(
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let provider: Arc<dyn IntakeProvider> =
         Arc::new(AppIntakeProvider::new(pool, llm_provider_id, llm_model_id));
-    let research: Arc<dyn ContentResearch> =
-        Arc::new(ExaContentResearch::new(exa_api_key, provider.clone(), clock.clone()));
+    let research: Arc<dyn ContentResearch> = Arc::new(ExaContentResearch::new(
+        exa_api_key,
+        provider.clone(),
+        clock.clone(),
+    ));
     IntakeDeps {
         provider,
         research,
@@ -526,10 +542,22 @@ mod tests {
     #[test]
     fn split_messages_separates_system_from_conversation() {
         let msgs = vec![
-            Message { role: MessageRole::System, content: "sys A".into() },
-            Message { role: MessageRole::System, content: "sys B".into() },
-            Message { role: MessageRole::User, content: "hello".into() },
-            Message { role: MessageRole::Assistant, content: "hi".into() },
+            Message {
+                role: MessageRole::System,
+                content: "sys A".into(),
+            },
+            Message {
+                role: MessageRole::System,
+                content: "sys B".into(),
+            },
+            Message {
+                role: MessageRole::User,
+                content: "hello".into(),
+            },
+            Message {
+                role: MessageRole::Assistant,
+                content: "hi".into(),
+            },
         ];
         let (system, chat) = split_messages(msgs);
         assert_eq!(system, "sys A\n\nsys B");
@@ -577,7 +605,10 @@ mod tests {
             "github_url"
         );
         assert_eq!(
-            profile_input_type(&ProfileInput::NameCompany { name: "n".into(), company: "c".into() }),
+            profile_input_type(&ProfileInput::NameCompany {
+                name: "n".into(),
+                company: "c".into()
+            }),
             "name_company"
         );
     }
@@ -605,8 +636,14 @@ mod tests {
         };
         let intel = research.analyze_company(&content).await.unwrap();
         assert_eq!(intel.name, "Acme");
-        assert_eq!(intel.url, "https://acme.com", "url injected from crawled content");
-        assert_eq!(intel.analyzed_at, "2026-06-01T12:00:00Z", "analyzedAt injected from clock");
+        assert_eq!(
+            intel.url, "https://acme.com",
+            "url injected from crawled content"
+        );
+        assert_eq!(
+            intel.analyzed_at, "2026-06-01T12:00:00Z",
+            "analyzedAt injected from clock"
+        );
         assert_eq!(intel.tech_stack, vec!["rust".to_string(), "go".to_string()]);
     }
 
@@ -621,9 +658,15 @@ mod tests {
         let clock: Arc<dyn Clock> = Arc::new(FixedClock::new("2026-06-01T12:00:00Z"));
         let research = ExaContentResearch::new("test-key".into(), provider, clock);
 
-        let input = ProfileInput::NameCompany { name: "Jane".into(), company: "Stripe".into() };
+        let input = ProfileInput::NameCompany {
+            name: "Jane".into(),
+            company: "Stripe".into(),
+        };
         let analysis = research.analyze_profile(&input).await.unwrap();
-        assert_eq!(analysis.input_type, "name_company", "inputType filled from the serde tag");
+        assert_eq!(
+            analysis.input_type, "name_company",
+            "inputType filled from the serde tag"
+        );
         assert_eq!(analysis.analyzed_at, "2026-06-01T12:00:00Z");
         assert_eq!(analysis.name.as_deref(), Some("Jane"));
     }

@@ -211,8 +211,7 @@ where
     let status = response.status();
     if status.is_success() {
         let text = response.text().await?;
-        return serde_json::from_str(&text)
-            .map_err(|e| ExaError::InvalidResponse(e.to_string()));
+        return serde_json::from_str(&text).map_err(|e| ExaError::InvalidResponse(e.to_string()));
     }
 
     let status_code = status.as_u16();
@@ -374,7 +373,10 @@ mod tests {
         assert_eq!(parsed.results.len(), 1);
         let hit = &parsed.results[0];
         assert_eq!(hit.url, "https://acme.com");
-        assert_eq!(hit.title.as_deref(), Some("Acme — Developer Infrastructure"));
+        assert_eq!(
+            hit.title.as_deref(),
+            Some("Acme — Developer Infrastructure")
+        );
         assert!(
             hit.text.as_deref().unwrap().contains("Rust and Go"),
             "contents must populate the document text crawl_url reads"
@@ -388,7 +390,11 @@ mod tests {
         assert_eq!(parsed.results.len(), 1);
         let hit = &parsed.results[0];
         assert_eq!(hit.url, "https://github.com/similar-dev");
-        assert_eq!(hit.score, Some(0.91), "similarity score drives SimilarResult");
+        assert_eq!(
+            hit.score,
+            Some(0.91),
+            "similarity score drives SimilarResult"
+        );
     }
 
     #[test]
@@ -405,10 +411,17 @@ mod tests {
 
     #[test]
     fn find_similar_request_serializes_camelcase_num_results() {
-        let body = ExaFindSimilarRequest { url: "https://x.com", num_results: 10, exclude_source_domain: true };
+        let body = ExaFindSimilarRequest {
+            url: "https://x.com",
+            num_results: 10,
+            exclude_source_domain: true,
+        };
         let v = serde_json::to_value(&body).unwrap();
         assert_eq!(v["url"], "https://x.com");
-        assert_eq!(v["numResults"], 10, "num_results must serialize as numResults");
+        assert_eq!(
+            v["numResults"], 10,
+            "num_results must serialize as numResults"
+        );
     }
 
     #[test]
@@ -433,10 +446,18 @@ mod tests {
 
     #[test]
     fn search_with_omits_none_params() {
-        let opts = ExaSearchOpts { num_results: 10, include_domains: None, exclude_domains: None, category: None };
+        let opts = ExaSearchOpts {
+            num_results: 10,
+            include_domains: None,
+            exclude_domains: None,
+            category: None,
+        };
         let body = ExaSearchRequestFull::from_parts("q", &opts);
         let v = serde_json::to_value(&body).unwrap();
-        assert!(v.get("includeDomains").is_none(), "None include_domains must be omitted");
+        assert!(
+            v.get("includeDomains").is_none(),
+            "None include_domains must be omitted"
+        );
         assert!(v.get("excludeDomains").is_none());
         assert!(v.get("category").is_none());
         assert_eq!(v["numResults"], 10);
@@ -444,21 +465,33 @@ mod tests {
 
     #[test]
     fn find_similar_request_carries_exclude_source_domain() {
-        let body = ExaFindSimilarRequest { url: "https://x.com/a", num_results: 10, exclude_source_domain: true };
+        let body = ExaFindSimilarRequest {
+            url: "https://x.com/a",
+            num_results: 10,
+            exclude_source_domain: true,
+        };
         let v = serde_json::to_value(&body).unwrap();
-        assert_eq!(v["excludeSourceDomain"], true, "fidelity: findSimilar must exclude the seed's own domain");
+        assert_eq!(
+            v["excludeSourceDomain"], true,
+            "fidelity: findSimilar must exclude the seed's own domain"
+        );
     }
 
     #[test]
     fn response_deserializes_cost_dollars_total() {
-        let json = r#"{"results":[{"id":"a","url":"https://e.com"}],"costDollars":{"total":0.012}}"#;
+        let json =
+            r#"{"results":[{"id":"a","url":"https://e.com"}],"costDollars":{"total":0.012}}"#;
         let parsed: ExaSearchResponse = serde_json::from_str(json).expect("parse with costDollars");
         assert_eq!(parsed.cost_dollars.as_ref().unwrap().total, 0.012);
     }
 
     #[test]
     fn existing_sparse_fixture_still_parses_without_cost_dollars() {
-        let parsed: ExaSearchResponse = serde_json::from_str(FIXTURE_SPARSE).expect("sparse still parses");
-        assert!(parsed.cost_dollars.is_none(), "costDollars is Option, absent in sparse fixture");
+        let parsed: ExaSearchResponse =
+            serde_json::from_str(FIXTURE_SPARSE).expect("sparse still parses");
+        assert!(
+            parsed.cost_dollars.is_none(),
+            "costDollars is Option, absent in sparse fixture"
+        );
     }
 }

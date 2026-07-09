@@ -140,7 +140,10 @@ pub enum ChatError {
     #[error("Failed to parse response: {0}")]
     ParseError(String),
     #[error("Trial message limit reached. Upgrade to continue chatting.")]
-    TrialLimitReached { used: Option<u32>, limit: Option<u32> },
+    TrialLimitReached {
+        used: Option<u32>,
+        limit: Option<u32>,
+    },
     #[error("Trial mode error: {0}")]
     TrialError(String),
     #[error("Stream cancelled")]
@@ -430,8 +433,16 @@ pub async fn send_message(
     provider_id: &str,
     model_id: Option<&str>,
 ) -> Result<ChatResponse, ChatError> {
-    send_message_with_temperature(pool, audit, messages, system_prompt, provider_id, model_id, None)
-        .await
+    send_message_with_temperature(
+        pool,
+        audit,
+        messages,
+        system_prompt,
+        provider_id,
+        model_id,
+        None,
+    )
+    .await
 }
 
 /// Send a message to an AI provider with an explicit generation temperature.
@@ -465,8 +476,13 @@ pub async fn send_message_with_temperature(
 
         // Build and send the request via the provider
         let client = SHARED_CLIENT.clone();
-        let request_builder =
-            provider.build_request(&client, &provider_messages, &system_prompt, &api_key, temperature);
+        let request_builder = provider.build_request(
+            &client,
+            &provider_messages,
+            &system_prompt,
+            &api_key,
+            temperature,
+        );
         let response = request_builder.send().await?;
 
         // Check for HTTP errors
@@ -570,11 +586,14 @@ async fn process_sse_stream<R: tauri::Runtime>(
                                 full_response.push_str(&text);
                                 *chars_streamed = full_response.chars().count();
 
-                                let _ = app.emit("chat-stream", StreamChunk {
-                                    chunk: text,
-                                    done: false,
-                                    verification: None,
-                                });
+                                let _ = app.emit(
+                                    "chat-stream",
+                                    StreamChunk {
+                                        chunk: text,
+                                        done: false,
+                                        verification: None,
+                                    },
+                                );
                             }
                             StreamDelta::Done => {
                                 let verification = query_type.map(|qt| {
@@ -585,11 +604,14 @@ async fn process_sse_stream<R: tauri::Runtime>(
                                     )
                                 });
 
-                                let _ = app.emit("chat-stream", StreamChunk {
-                                    chunk: String::new(),
-                                    done: true,
-                                    verification,
-                                });
+                                let _ = app.emit(
+                                    "chat-stream",
+                                    StreamChunk {
+                                        chunk: String::new(),
+                                        done: true,
+                                        verification,
+                                    },
+                                );
                             }
                             StreamDelta::Error(msg) => {
                                 return Err(ChatError::ApiError(redact_api_keys(&msg)));
@@ -624,21 +646,32 @@ async fn write_egress_audit(
     request_redacted: &str,
     outcome: &crate::audit::EgressOutcome,
 ) {
-    if let Err(e) =
-        crate::audit::record_llm_egress(pool, audit, request_redacted, outcome).await
-    {
-        log::warn!("egress audit write failed (source={}): {e}", audit.source.as_str());
+    if let Err(e) = crate::audit::record_llm_egress(pool, audit, request_redacted, outcome).await {
+        log::warn!(
+            "egress audit write failed (source={}): {e}",
+            audit.source.as_str()
+        );
     }
 }
 
 /// Map a streaming result to its audit outcome. `streamed` is how many chars
 /// arrived before the stream ended (equals the full length on success).
-fn stream_outcome<T>(result: &Result<T, ChatError>, streamed: usize) -> crate::audit::EgressOutcome {
+fn stream_outcome<T>(
+    result: &Result<T, ChatError>,
+    streamed: usize,
+) -> crate::audit::EgressOutcome {
     use crate::audit::EgressOutcome;
     match result {
-        Ok(_) => EgressOutcome::Ok { response_chars: streamed },
-        Err(ChatError::Cancelled) => EgressOutcome::Cancelled { partial_chars: streamed },
-        Err(e) => EgressOutcome::Error { partial_chars: streamed, error: e.to_string() },
+        Ok(_) => EgressOutcome::Ok {
+            response_chars: streamed,
+        },
+        Err(ChatError::Cancelled) => EgressOutcome::Cancelled {
+            partial_chars: streamed,
+        },
+        Err(e) => EgressOutcome::Error {
+            partial_chars: streamed,
+            error: e.to_string(),
+        },
     }
 }
 
@@ -726,21 +759,19 @@ pub async fn send_message_streaming<R: tauri::Runtime>(
 
         // Build and send the request via the provider
         let client = SHARED_CLIENT.clone();
-        let request_builder = provider.build_streaming_request(
-            &client,
-            &provider_messages,
-            &system_prompt,
-            &api_key,
-        );
+        let request_builder =
+            provider.build_streaming_request(&client, &provider_messages, &system_prompt, &api_key);
         let response = request_builder.send().await?;
 
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(match check_http_error_status(status, &error_text, &*provider) {
-                Err(err) => err,
-                Ok(()) => unreachable!(),
-            });
+            return Err(
+                match check_http_error_status(status, &error_text, &*provider) {
+                    Err(err) => err,
+                    Ok(()) => unreachable!(),
+                },
+            );
         }
 
         process_sse_stream(
@@ -756,7 +787,10 @@ pub async fn send_message_streaming<R: tauri::Runtime>(
     }
     .await;
 
-    let final_streamed = result.as_ref().map(|full| full.chars().count()).unwrap_or(streamed);
+    let final_streamed = result
+        .as_ref()
+        .map(|full| full.chars().count())
+        .unwrap_or(streamed);
     let outcome = stream_outcome(&result, final_streamed);
     write_egress_audit(pool, &audit, &request_redacted, &outcome).await;
 
@@ -808,9 +842,10 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
         let provider_messages = to_provider_messages(trimmed_messages);
 
         // Build the serializable request body for the proxy (trial always uses default temperature)
-        let request = anthropic.build_message_request(&provider_messages, &system_prompt, true, None);
-        let body_json = serde_json::to_string(&request)
-            .map_err(|e| ChatError::ParseError(e.to_string()))?;
+        let request =
+            anthropic.build_message_request(&provider_messages, &system_prompt, true, None);
+        let body_json =
+            serde_json::to_string(&request).map_err(|e| ChatError::ParseError(e.to_string()))?;
 
         let client = SHARED_CLIENT.clone();
         let endpoint = format!("{}/v1/messages", proxy_url.trim_end_matches('/'));
@@ -851,10 +886,12 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
                     }
                 }
             }
-            return Err(match check_http_error_status(status, &error_text, &anthropic) {
-                Err(err) => err,
-                Ok(()) => unreachable!(),
-            });
+            return Err(
+                match check_http_error_status(status, &error_text, &anthropic) {
+                    Err(err) => err,
+                    Ok(()) => unreachable!(),
+                },
+            );
         }
 
         let full = process_sse_stream(
@@ -972,7 +1009,10 @@ mod tests {
 
         let cancelled = reg.cancel("stream-1");
         assert!(cancelled, "cancel must report a match");
-        assert!(token.is_cancelled(), "token held by streaming task must observe cancel");
+        assert!(
+            token.is_cancelled(),
+            "token held by streaming task must observe cancel"
+        );
     }
 
     #[test]
@@ -1063,7 +1103,7 @@ mod tests {
     #[test]
     fn test_estimate_conversation_tokens() {
         let messages = vec![
-            make_message("user", "Hello"),      // 6 tokens
+            make_message("user", "Hello"),         // 6 tokens
             make_message("assistant", "Hi there"), // ceil(8/4) + 4 = 6 tokens
         ];
         assert_eq!(estimate_conversation_tokens(&messages), 12);
@@ -1145,7 +1185,10 @@ mod tests {
     #[test]
     fn redact_chat_payload_strips_ssn_from_messages() {
         let messages = vec![
-            make_message("user", "Sarah's SSN is 123-45-6789, please reset her access."),
+            make_message(
+                "user",
+                "Sarah's SSN is 123-45-6789, please reset her access.",
+            ),
             make_message("assistant", "Got it."),
         ];
         let (redacted, sys, summary) = redact_chat_payload(messages, None);
@@ -1221,7 +1264,8 @@ mod tests {
 
     #[test]
     fn redact_api_keys_strips_openai_project_key() {
-        let msg = "HTTP 401: invalid_api_key: sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 is not valid";
+        let msg =
+            "HTTP 401: invalid_api_key: sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 is not valid";
         let out = redact_api_keys(msg);
         assert!(
             !out.contains("sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"),
@@ -1253,7 +1297,8 @@ mod tests {
 
     #[test]
     fn redact_api_keys_passthrough_when_no_key_present() {
-        let msg = "HTTP 503: service_unavailable: Anthropic API is temporarily overloaded. Try again.";
+        let msg =
+            "HTTP 503: service_unavailable: Anthropic API is temporarily overloaded. Try again.";
         assert_eq!(redact_api_keys(msg), msg);
     }
 
@@ -1262,7 +1307,10 @@ mod tests {
         // Avoid false positives on short product SKUs like sk-100 or sk-pro.
         let msg = "Item code sk-shortidx and SKU sk-100 unaffected.";
         let out = redact_api_keys(msg);
-        assert_eq!(out, msg, "short sk- substrings must not match (false positive)");
+        assert_eq!(
+            out, msg,
+            "short sk- substrings must not match (false positive)"
+        );
     }
 
     // ============================================================================
@@ -1304,12 +1352,10 @@ mod tests {
     async fn fetch_single_audit_row(
         pool: &crate::db::DbPool,
     ) -> (Option<String>, Option<String>, String, String) {
-        sqlx::query_as(
-            "SELECT source, status, request_redacted, response_text FROM audit_log",
-        )
-        .fetch_one(pool)
-        .await
-        .expect("exactly one audit row must exist")
+        sqlx::query_as("SELECT source, status, request_redacted, response_text FROM audit_log")
+            .fetch_one(pool)
+            .await
+            .expect("exactly one audit row must exist")
     }
 
     #[tokio::test]
