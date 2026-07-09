@@ -187,6 +187,7 @@ pub(crate) fn recruiting_delete_exa_key() -> Result<(), String> {
 /// of treating it as an error.
 #[tauri::command]
 pub(crate) async fn recruiting_search_exa(
+    state: tauri::State<'_, Database>,
     query: String,
 ) -> Result<ExaSearchResponse, RecruitingSearchError> {
     ensure_recruiting_enabled()?;
@@ -200,7 +201,10 @@ pub(crate) async fn recruiting_search_exa(
         }
     };
 
-    exa::search(&query, &api_key).await.map_err(Into::into)
+    let exa_audit = crate::recruiting::adapters::exa::ExaAudit::new(state.pool.clone());
+    exa::search(&query, &api_key, Some(&exa_audit))
+        .await
+        .map_err(Into::into)
 }
 
 // ============================================================================
@@ -267,7 +271,12 @@ impl From<IntakeError> for IntakeCommandError {
 /// Assemble production intake deps from settings (LLM provider + model) and the
 /// Keychain (Exa key). Returns typed missing-key errors so the UI can route the
 /// user to Settings. This is the one piece of new wireable logic.
-async fn deps_from_env(pool: &crate::db::DbPool) -> Result<IntakeDeps, IntakeCommandError> {
+/// `source` labels every LLM egress this deps bundle makes — it drives both the
+/// audit `source` column (FHR-91) and the redaction policy (FHR-90).
+async fn deps_from_env(
+    pool: &crate::db::DbPool,
+    source: crate::audit::EgressSource,
+) -> Result<IntakeDeps, IntakeCommandError> {
     let provider_id = settings::get_setting(pool, "active_provider")
         .await
         .map_err(|e| IntakeCommandError::Internal {
@@ -296,7 +305,13 @@ async fn deps_from_env(pool: &crate::db::DbPool) -> Result<IntakeDeps, IntakeCom
         }
     };
 
-    Ok(production_intake_deps(pool.clone(), &provider_id, model_id, exa_key))
+    Ok(production_intake_deps(
+        pool.clone(),
+        &provider_id,
+        model_id,
+        exa_key,
+        source,
+    ))
 }
 
 /// Seed input for `recruiting_intake_start_from_seed`. Exactly one of
@@ -349,7 +364,7 @@ pub(crate) async fn recruiting_intake_start_from_seed(
     seed: IntakeSeedInput,
 ) -> Result<IntakeTurn, IntakeCommandError> {
     ensure_recruiting_enabled()?;
-    let deps = deps_from_env(&state.pool).await?; // preflight LLM/Exa keys
+    let deps = deps_from_env(&state.pool, crate::audit::EgressSource::RecruitingIntake).await?; // preflight LLM/Exa keys
     let text = resolve_seed_text(&seed)?;
     let redacted = crate::pii::scan_and_redact(&text).redacted_text; // financial-scope (names/emails = FHR-90)
     let extraction = extract_seed(&redacted, &deps).await?;
@@ -370,7 +385,7 @@ pub(crate) async fn recruiting_intake_start(
 ) -> Result<IntakeTurn, IntakeCommandError> {
     ensure_recruiting_enabled()?;
     // Fail fast on missing LLM/Exa keys before creating any conversation state.
-    let deps = deps_from_env(&state.pool).await?;
+    let deps = deps_from_env(&state.pool, crate::audit::EgressSource::RecruitingIntake).await?;
     let mut engine = create_intake_engine(&deps, None);
     let prompt = engine.get_prompt().await;
     Ok(IntakeTurn {
@@ -393,7 +408,7 @@ pub(crate) async fn recruiting_intake_step(
     response: String,
 ) -> Result<IntakeTurn, IntakeCommandError> {
     ensure_recruiting_enabled()?;
-    let deps = deps_from_env(&state.pool).await?;
+    let deps = deps_from_env(&state.pool, crate::audit::EgressSource::RecruitingIntake).await?;
     let mut engine = restore_intake_engine(&conversation_state)?;
     engine.submit_response(&response, &deps).await?;
     let prompt = engine.get_prompt().await;
@@ -411,7 +426,7 @@ pub(crate) async fn recruiting_intake_extract(
     conversation_state: String,
 ) -> Result<IntakeResultDto, IntakeCommandError> {
     ensure_recruiting_enabled()?;
-    let deps = deps_from_env(&state.pool).await?;
+    let deps = deps_from_env(&state.pool, crate::audit::EgressSource::RecruitingIntake).await?;
     let engine = restore_intake_engine(&conversation_state)?;
     let result = extract_intake_result(engine.context(), &deps).await?;
     Ok(IntakeResultDto {
@@ -447,7 +462,7 @@ pub(crate) async fn recruiting_score_candidates(
     config: Option<ScoringConfig>,
 ) -> Result<Vec<ScoredCandidate>, IntakeCommandError> {
     ensure_recruiting_enabled()?;
-    let deps = deps_from_env(&state.pool).await?;
+    let deps = deps_from_env(&state.pool, crate::audit::EgressSource::RecruitingScoring).await?;
     let cfg = config.unwrap_or_default();
     let retrieved_at = deps.clock.now_iso8601();
     score_candidates(
@@ -587,6 +602,7 @@ pub(crate) async fn run_search_inner<S: CandidateSource>(
 /// production source + enricher, and calls `run_search_inner`.
 #[tauri::command]
 pub(crate) async fn recruiting_run_search(
+    state: tauri::State<'_, Database>,
     search_config: SearchConfig,
 ) -> Result<RunSearchResult, RecruitingSearchError> {
     ensure_recruiting_enabled()?;
@@ -600,10 +616,14 @@ pub(crate) async fn recruiting_run_search(
         }
     };
 
+    // FHR-91: both Exa seams audit into the same append-only log as LLM egress.
+    let exa_audit = crate::recruiting::adapters::exa::ExaAudit::new(state.pool.clone());
+
     // source takes the clone; enricher moves the original — both own a copy.
-    let source = ExaCandidateSource::new(api_key.clone());
+    let source = ExaCandidateSource::new(api_key.clone()).with_audit(exa_audit.clone());
     let enricher = ExaContentEnricher {
         exa_api_key: api_key,
+        audit: Some(exa_audit),
     };
     let arbiter = NoopArbiter;
 
@@ -875,29 +895,12 @@ mod tests {
         assert_eq!(v["kind"], "FeatureDisabled");
     }
 
-    #[tokio::test]
-    async fn search_exa_is_gated_when_flag_off() {
-        if RECRUITING_ENABLED {
-            return; // dev-flipped build: gate open, nothing to assert
-        }
-        let res = recruiting_search_exa("anyone".into()).await;
-        assert!(
-            matches!(res, Err(RecruitingSearchError::FeatureDisabled)),
-            "gate must fire before any Keychain or network access"
-        );
-    }
-
-    #[tokio::test]
-    async fn run_search_is_gated_when_flag_off() {
-        if RECRUITING_ENABLED {
-            return;
-        }
-        let res = recruiting_run_search(sample_search_config()).await;
-        assert!(
-            matches!(res, Err(RecruitingSearchError::FeatureDisabled)),
-            "gate must fire before any Keychain or network access"
-        );
-    }
+    // `search_exa_is_gated_when_flag_off` / `run_search_is_gated_when_flag_off`
+    // were removed in FHR-91: both commands now take `tauri::State` (needed for
+    // the Exa egress audit pool), which a unit test cannot construct. Their
+    // guarantee — the gate fires before any Keychain or network access — is
+    // preserved and strengthened by the source sweep below, which now asserts
+    // gate-before-keyring ordering for *every* recruiting command, not just two.
 
     #[test]
     fn exa_key_commands_are_gated_when_flag_off() {
@@ -932,10 +935,25 @@ mod tests {
                 .nth(1)
                 .and_then(|s| s.split('(').next())
                 .unwrap_or("<unparsed>");
+            let gate_at = seg.find("ensure_recruiting_enabled()");
             assert!(
-                seg.contains("ensure_recruiting_enabled()"),
+                gate_at.is_some(),
                 "recruiting command `{name}` does not call ensure_recruiting_enabled()"
             );
+
+            // FHR-91: the gate must fire BEFORE the command touches the
+            // Keychain or the network. Absorbs the guarantee of the two
+            // direct-invocation tests removed when these commands gained
+            // `tauri::State`.
+            let gate_at = gate_at.unwrap();
+            for sink in ["keyring::", "exa::", "deps_from_env("] {
+                if let Some(sink_at) = seg.find(sink) {
+                    assert!(
+                        gate_at < sink_at,
+                        "recruiting command `{name}` reaches `{sink}` before the feature gate"
+                    );
+                }
+            }
         }
     }
 

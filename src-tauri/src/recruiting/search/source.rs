@@ -39,10 +39,8 @@ pub trait CandidateSource: Send + Sync {
         num_results: u32,
     ) -> Result<(Vec<ExaHit>, Option<f64>), SearchError>;
 
-    async fn find_similar(
-        &self,
-        seed_url: &str,
-    ) -> Result<(Vec<ExaHit>, Option<f64>), SearchError>;
+    async fn find_similar(&self, seed_url: &str)
+        -> Result<(Vec<ExaHit>, Option<f64>), SearchError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -52,11 +50,23 @@ pub trait CandidateSource: Send + Sync {
 /// Wires `CandidateSource` to the live Exa API.
 pub struct ExaCandidateSource {
     pub exa_api_key: String,
+    /// FHR-91: present in production so discovery egress is audited; `None`
+    /// only in unit tests, which have no DB pool.
+    audit: Option<crate::recruiting::adapters::exa::ExaAudit>,
 }
 
 impl ExaCandidateSource {
     pub fn new(exa_api_key: String) -> Self {
-        Self { exa_api_key }
+        Self {
+            exa_api_key,
+            audit: None,
+        }
+    }
+
+    /// Attach the DB pool so this source's Exa egress writes audit rows.
+    pub fn with_audit(mut self, audit: crate::recruiting::adapters::exa::ExaAudit) -> Self {
+        self.audit = Some(audit);
+        self
     }
 }
 
@@ -73,9 +83,13 @@ impl CandidateSource for ExaCandidateSource {
             exclude_domains: query.exclude_domains.as_deref(),
             category: Some("people"),
         };
-        let resp =
-            crate::recruiting::adapters::exa::search_with(&query.text, &opts, &self.exa_api_key)
-                .await?;
+        let resp = crate::recruiting::adapters::exa::search_with(
+            &query.text,
+            &opts,
+            &self.exa_api_key,
+            self.audit.as_ref(),
+        )
+        .await?;
         let actual_cost = resp.cost_dollars.as_ref().map(|c| c.total);
         Ok((resp.results, actual_cost))
     }
@@ -84,8 +98,12 @@ impl CandidateSource for ExaCandidateSource {
         &self,
         seed_url: &str,
     ) -> Result<(Vec<ExaHit>, Option<f64>), SearchError> {
-        let resp =
-            crate::recruiting::adapters::exa::find_similar(seed_url, &self.exa_api_key).await?;
+        let resp = crate::recruiting::adapters::exa::find_similar(
+            seed_url,
+            &self.exa_api_key,
+            self.audit.as_ref(),
+        )
+        .await?;
         let actual_cost = resp.cost_dollars.as_ref().map(|c| c.total);
         Ok((resp.results, actual_cost))
     }

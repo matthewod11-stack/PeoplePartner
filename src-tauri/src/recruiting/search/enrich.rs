@@ -86,6 +86,8 @@ pub trait ContentEnricher: Send + Sync {
 /// Production enricher that delegates to `exa::get_contents`.
 pub struct ExaContentEnricher {
     pub exa_api_key: String,
+    /// FHR-91: present in production so enrichment egress is audited.
+    pub audit: Option<exa::ExaAudit>,
 }
 
 #[async_trait]
@@ -97,7 +99,7 @@ impl ContentEnricher for ExaContentEnricher {
         if urls.is_empty() {
             return Err(EnrichError::Empty);
         }
-        let resp = exa::get_contents(urls, &self.exa_api_key).await?;
+        let resp = exa::get_contents(urls, &self.exa_api_key, self.audit.as_ref()).await?;
         // Thread Exa's reported per-call cost so `record` reconciles the budget
         // with the actual charge (spec §12), mirroring the discovery seam.
         let actual_cost = resp.cost_dollars.as_ref().map(|c| c.total);
@@ -182,8 +184,7 @@ impl FakeEnricher {
 
     /// Number of `fetch_contents` calls received so far.
     pub fn call_count(&self) -> usize {
-        self.call_count
-            .load(std::sync::atomic::Ordering::SeqCst)
+        self.call_count.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
 
@@ -508,7 +509,13 @@ mod tests {
         let mut resolved = resolved_candidates(7);
         let enricher = FakeEnricher::echo();
         let mut cost = tracker(1000.0);
-        let out = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
+        let out = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
         assert_eq!(enricher.call_count(), 2, "ceil(7/5) = 2 calls");
         assert!(
             resolved.iter().all(|c| c.page_text.is_some()),
@@ -526,8 +533,18 @@ mod tests {
         let mut resolved = resolved_candidates(10);
         let enricher = FakeEnricher::fail_batch(0);
         let mut cost = tracker(1000.0);
-        let out = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
-        assert_eq!(out.failures.len(), 5, "all 5 URLs in the failing batch are recorded as failures");
+        let out = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
+        assert_eq!(
+            out.failures.len(),
+            5,
+            "all 5 URLs in the failing batch are recorded as failures"
+        );
         // The second batch (indices 5..10) must have succeeded.
         assert!(
             resolved.iter().skip(5).all(|c| c.page_text.is_some()),
@@ -550,7 +567,10 @@ mod tests {
     #[tokio::test]
     async fn run_condition_gating_always() {
         let candidates = resolved_candidates(3);
-        assert!(should_run_exa_enrichment(Some(&prio("always")), &candidates));
+        assert!(should_run_exa_enrichment(
+            Some(&prio("always")),
+            &candidates
+        ));
     }
 
     #[tokio::test]
@@ -606,8 +626,17 @@ mod tests {
         let mut resolved = resolved_candidates(5);
         let enricher = FakeEnricher::fail_batch_rate_limit(0);
         let mut cost = tracker(1000.0);
-        let out = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
-        assert!(!out.failures.is_empty(), "failures must be non-empty on rate limit");
+        let out = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
+        assert!(
+            !out.failures.is_empty(),
+            "failures must be non-empty on rate limit"
+        );
         assert!(
             out.failures.iter().all(|f| f.retryable),
             "all failures from 429 must be retryable"
@@ -619,7 +648,13 @@ mod tests {
         let mut resolved = resolved_candidates(5);
         let enricher = FakeEnricher::fail_batch(0); // returns Api{500}
         let mut cost = tracker(1000.0);
-        let out = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
+        let out = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
         assert!(!out.failures.is_empty());
         assert!(
             out.failures.iter().all(|f| !f.retryable),
@@ -639,8 +674,17 @@ mod tests {
         ];
         let enricher = FakeEnricher::echo();
         let mut cost = tracker(1000.0);
-        let out = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
-        assert_eq!(out.skipped_no_url, 3, "3 url-less candidates must be counted");
+        let out = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
+        assert_eq!(
+            out.skipped_no_url, 3,
+            "3 url-less candidates must be counted"
+        );
         assert_eq!(out.enriched, 2, "2 candidates with URLs must be enriched");
         // url-less candidates must remain untouched (no page_text).
         assert!(resolved[1].page_text.is_none());
@@ -656,8 +700,18 @@ mod tests {
         let mut resolved = resolved_candidates_no_url(5);
         let enricher = FakeEnricher::echo();
         let mut cost = tracker(1000.0);
-        let out = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
-        assert_eq!(enricher.call_count(), 0, "no fetch calls when all candidates lack URLs");
+        let out = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
+        assert_eq!(
+            enricher.call_count(),
+            0,
+            "no fetch calls when all candidates lack URLs"
+        );
         assert_eq!(out.skipped_no_url, 5);
         assert_eq!(out.enriched, 0);
     }
@@ -670,7 +724,13 @@ mod tests {
         let mut resolved = resolved_candidates(5); // exactly one batch of 5
         let enricher = FakeEnricher::echo_with_cost(0.0123);
         let mut cost = tracker(1000.0);
-        let _ = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
+        let _ = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
         assert_eq!(enricher.call_count(), 1, "exactly one batch");
         assert!(
             (cost.total_usd() - 0.0123).abs() < 1e-9,
@@ -682,7 +742,7 @@ mod tests {
     #[tokio::test]
     async fn exa_enrichment_priority_finds_exa_entry() {
         use crate::recruiting::intake::schemas::{
-            AntiFilter, SearchQuery, SearchQueryTier, ScoringWeights, TierThresholds,
+            AntiFilter, ScoringWeights, SearchQuery, SearchQueryTier, TierThresholds,
         };
 
         let ep = EnrichmentPriority {
@@ -724,7 +784,13 @@ mod tests {
         let mut resolved = resolved_candidates(1);
         let enricher = FakeEnricher::echo();
         let mut cost = tracker(1000.0);
-        let out = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
+        let out = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
         assert_eq!(enricher.call_count(), 1);
         assert_eq!(out.enriched, 1);
         assert!(resolved[0].page_text.is_some());
@@ -735,7 +801,13 @@ mod tests {
         let mut resolved = resolved_candidates(5);
         let enricher = FakeEnricher::echo();
         let mut cost = tracker(1000.0);
-        let out = enrich_candidates(&mut resolved, &enricher, &mut cost, &EnrichConfig::default()).await;
+        let out = enrich_candidates(
+            &mut resolved,
+            &enricher,
+            &mut cost,
+            &EnrichConfig::default(),
+        )
+        .await;
         assert_eq!(enricher.call_count(), 1, "exactly 5 URLs = exactly 1 batch");
         assert_eq!(out.enriched, 5);
     }

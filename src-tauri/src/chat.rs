@@ -140,7 +140,10 @@ pub enum ChatError {
     #[error("Failed to parse response: {0}")]
     ParseError(String),
     #[error("Trial message limit reached. Upgrade to continue chatting.")]
-    TrialLimitReached { used: Option<u32>, limit: Option<u32> },
+    TrialLimitReached {
+        used: Option<u32>,
+        limit: Option<u32>,
+    },
     #[error("Trial mode error: {0}")]
     TrialError(String),
     #[error("Stream cancelled")]
@@ -273,16 +276,19 @@ fn redact_api_keys(text: &str) -> String {
 ///
 /// Returns (redacted messages, redacted system prompt, combined summary).
 /// The combined summary is suitable for emitting to the UI via a Tauri event.
+/// The `policy` comes from the call's `EgressSource` (FHR-90) — recruiting
+/// payloads additionally redact candidate emails.
 fn redact_chat_payload(
     messages: Vec<ChatMessage>,
     system_prompt: Option<String>,
+    policy: crate::pii::RedactionPolicy,
 ) -> (Vec<ChatMessage>, Option<String>, Option<String>) {
     let mut summary_parts: Vec<String> = Vec::new();
 
     let redacted_messages: Vec<ChatMessage> = messages
         .into_iter()
         .map(|m| {
-            let result = crate::pii::scan_and_redact(&m.content);
+            let result = crate::pii::scan_and_redact_with(&m.content, policy);
             if result.had_pii {
                 if let Some(s) = result.summary {
                     summary_parts.push(s);
@@ -296,7 +302,7 @@ fn redact_chat_payload(
         .collect();
 
     let redacted_system_prompt = system_prompt.map(|sp| {
-        let result = crate::pii::scan_and_redact(&sp);
+        let result = crate::pii::scan_and_redact_with(&sp, policy);
         if result.had_pii {
             if let Some(s) = result.summary {
                 summary_parts.push(s);
@@ -430,8 +436,16 @@ pub async fn send_message(
     provider_id: &str,
     model_id: Option<&str>,
 ) -> Result<ChatResponse, ChatError> {
-    send_message_with_temperature(pool, audit, messages, system_prompt, provider_id, model_id, None)
-        .await
+    send_message_with_temperature(
+        pool,
+        audit,
+        messages,
+        system_prompt,
+        provider_id,
+        model_id,
+        None,
+    )
+    .await
 }
 
 /// Send a message to an AI provider with an explicit generation temperature.
@@ -455,7 +469,8 @@ pub async fn send_message_with_temperature(
     // Enforce PII redaction before anything leaves the machine. This covers
     // backend-initiated calls (memory summarization, highlight extraction)
     // that don't have an AppHandle to emit an event from — summary is dropped.
-    let (messages, system_prompt, _pii_summary) = redact_chat_payload(messages, system_prompt);
+    let (messages, system_prompt, _pii_summary) =
+        redact_chat_payload(messages, system_prompt, audit.source.redaction_policy());
     let request_redacted = last_user_message(&messages);
 
     let result = async {
@@ -465,8 +480,13 @@ pub async fn send_message_with_temperature(
 
         // Build and send the request via the provider
         let client = SHARED_CLIENT.clone();
-        let request_builder =
-            provider.build_request(&client, &provider_messages, &system_prompt, &api_key, temperature);
+        let request_builder = provider.build_request(
+            &client,
+            &provider_messages,
+            &system_prompt,
+            &api_key,
+            temperature,
+        );
         let response = request_builder.send().await?;
 
         // Check for HTTP errors
@@ -570,11 +590,14 @@ async fn process_sse_stream<R: tauri::Runtime>(
                                 full_response.push_str(&text);
                                 *chars_streamed = full_response.chars().count();
 
-                                let _ = app.emit("chat-stream", StreamChunk {
-                                    chunk: text,
-                                    done: false,
-                                    verification: None,
-                                });
+                                let _ = app.emit(
+                                    "chat-stream",
+                                    StreamChunk {
+                                        chunk: text,
+                                        done: false,
+                                        verification: None,
+                                    },
+                                );
                             }
                             StreamDelta::Done => {
                                 let verification = query_type.map(|qt| {
@@ -585,11 +608,14 @@ async fn process_sse_stream<R: tauri::Runtime>(
                                     )
                                 });
 
-                                let _ = app.emit("chat-stream", StreamChunk {
-                                    chunk: String::new(),
-                                    done: true,
-                                    verification,
-                                });
+                                let _ = app.emit(
+                                    "chat-stream",
+                                    StreamChunk {
+                                        chunk: String::new(),
+                                        done: true,
+                                        verification,
+                                    },
+                                );
                             }
                             StreamDelta::Error(msg) => {
                                 return Err(ChatError::ApiError(redact_api_keys(&msg)));
@@ -624,21 +650,32 @@ async fn write_egress_audit(
     request_redacted: &str,
     outcome: &crate::audit::EgressOutcome,
 ) {
-    if let Err(e) =
-        crate::audit::record_llm_egress(pool, audit, request_redacted, outcome).await
-    {
-        log::warn!("egress audit write failed (source={}): {e}", audit.source.as_str());
+    if let Err(e) = crate::audit::record_egress(pool, audit, request_redacted, outcome).await {
+        log::warn!(
+            "egress audit write failed (source={}): {e}",
+            audit.source.as_str()
+        );
     }
 }
 
 /// Map a streaming result to its audit outcome. `streamed` is how many chars
 /// arrived before the stream ended (equals the full length on success).
-fn stream_outcome<T>(result: &Result<T, ChatError>, streamed: usize) -> crate::audit::EgressOutcome {
+fn stream_outcome<T>(
+    result: &Result<T, ChatError>,
+    streamed: usize,
+) -> crate::audit::EgressOutcome {
     use crate::audit::EgressOutcome;
     match result {
-        Ok(_) => EgressOutcome::Ok { response_chars: streamed },
-        Err(ChatError::Cancelled) => EgressOutcome::Cancelled { partial_chars: streamed },
-        Err(e) => EgressOutcome::Error { partial_chars: streamed, error: e.to_string() },
+        Ok(_) => EgressOutcome::Ok {
+            response_chars: streamed,
+        },
+        Err(ChatError::Cancelled) => EgressOutcome::Cancelled {
+            partial_chars: streamed,
+        },
+        Err(e) => EgressOutcome::Error {
+            partial_chars: streamed,
+            error: e.to_string(),
+        },
     }
 }
 
@@ -712,7 +749,8 @@ pub async fn send_message_streaming<R: tauri::Runtime>(
     let api_key = get_api_key_for_provider(provider_id)?;
 
     // Enforce PII redaction before anything leaves the machine.
-    let (messages, system_prompt, pii_summary) = redact_chat_payload(messages, system_prompt);
+    let (messages, system_prompt, pii_summary) =
+        redact_chat_payload(messages, system_prompt, audit.source.redaction_policy());
     if let Some(summary) = pii_summary {
         let _ = app.emit("chat-pii-redacted", &summary);
     }
@@ -726,21 +764,19 @@ pub async fn send_message_streaming<R: tauri::Runtime>(
 
         // Build and send the request via the provider
         let client = SHARED_CLIENT.clone();
-        let request_builder = provider.build_streaming_request(
-            &client,
-            &provider_messages,
-            &system_prompt,
-            &api_key,
-        );
+        let request_builder =
+            provider.build_streaming_request(&client, &provider_messages, &system_prompt, &api_key);
         let response = request_builder.send().await?;
 
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await.unwrap_or_default();
-            return Err(match check_http_error_status(status, &error_text, &*provider) {
-                Err(err) => err,
-                Ok(()) => unreachable!(),
-            });
+            return Err(
+                match check_http_error_status(status, &error_text, &*provider) {
+                    Err(err) => err,
+                    Ok(()) => unreachable!(),
+                },
+            );
         }
 
         process_sse_stream(
@@ -756,7 +792,10 @@ pub async fn send_message_streaming<R: tauri::Runtime>(
     }
     .await;
 
-    let final_streamed = result.as_ref().map(|full| full.chars().count()).unwrap_or(streamed);
+    let final_streamed = result
+        .as_ref()
+        .map(|full| full.chars().count())
+        .unwrap_or(streamed);
     let outcome = stream_outcome(&result, final_streamed);
     write_egress_audit(pool, &audit, &request_redacted, &outcome).await;
 
@@ -795,7 +834,8 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
 
     // Enforce PII redaction before anything leaves the machine (proxy is still
     // "off-device" — the user's data hits Cloudflare + Anthropic).
-    let (messages, system_prompt, pii_summary) = redact_chat_payload(messages, system_prompt);
+    let (messages, system_prompt, pii_summary) =
+        redact_chat_payload(messages, system_prompt, audit.source.redaction_policy());
     if let Some(summary) = pii_summary {
         let _ = app.emit("chat-pii-redacted", &summary);
     }
@@ -808,9 +848,10 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
         let provider_messages = to_provider_messages(trimmed_messages);
 
         // Build the serializable request body for the proxy (trial always uses default temperature)
-        let request = anthropic.build_message_request(&provider_messages, &system_prompt, true, None);
-        let body_json = serde_json::to_string(&request)
-            .map_err(|e| ChatError::ParseError(e.to_string()))?;
+        let request =
+            anthropic.build_message_request(&provider_messages, &system_prompt, true, None);
+        let body_json =
+            serde_json::to_string(&request).map_err(|e| ChatError::ParseError(e.to_string()))?;
 
         let client = SHARED_CLIENT.clone();
         let endpoint = format!("{}/v1/messages", proxy_url.trim_end_matches('/'));
@@ -851,10 +892,12 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
                     }
                 }
             }
-            return Err(match check_http_error_status(status, &error_text, &anthropic) {
-                Err(err) => err,
-                Ok(()) => unreachable!(),
-            });
+            return Err(
+                match check_http_error_status(status, &error_text, &anthropic) {
+                    Err(err) => err,
+                    Ok(()) => unreachable!(),
+                },
+            );
         }
 
         let full = process_sse_stream(
@@ -972,7 +1015,10 @@ mod tests {
 
         let cancelled = reg.cancel("stream-1");
         assert!(cancelled, "cancel must report a match");
-        assert!(token.is_cancelled(), "token held by streaming task must observe cancel");
+        assert!(
+            token.is_cancelled(),
+            "token held by streaming task must observe cancel"
+        );
     }
 
     #[test]
@@ -1063,7 +1109,7 @@ mod tests {
     #[test]
     fn test_estimate_conversation_tokens() {
         let messages = vec![
-            make_message("user", "Hello"),      // 6 tokens
+            make_message("user", "Hello"),         // 6 tokens
             make_message("assistant", "Hi there"), // ceil(8/4) + 4 = 6 tokens
         ];
         assert_eq!(estimate_conversation_tokens(&messages), 12);
@@ -1142,13 +1188,63 @@ mod tests {
     // PII redaction — defense-in-depth regression tests
     // ============================================================================
 
+    // FHR-90: the redaction policy is chosen by the egress source, so a
+    // recruiting call redacts candidate emails while HR chat does not.
+
+    #[test]
+    fn redact_chat_payload_redacts_email_on_recruiting_egress() {
+        let messages = vec![make_message(
+            "user",
+            "Candidate Sarah Chen, reachable at sarah.chen@acme.com, staff engineer.",
+        )];
+        let (redacted, _, summary) = redact_chat_payload(
+            messages,
+            None,
+            crate::audit::EgressSource::RecruitingIntake.redaction_policy(),
+        );
+
+        assert!(
+            !redacted[0].content.contains("sarah.chen@acme.com"),
+            "candidate email leaked to the provider: {}",
+            redacted[0].content
+        );
+        assert!(redacted[0].content.contains("[EMAIL_REDACTED]"));
+        assert!(
+            redacted[0].content.contains("Sarah Chen"),
+            "candidate name must survive — evidence grounding is name-keyed"
+        );
+        assert!(summary.is_some());
+    }
+
+    /// Load-bearing: encodes a product decision (app #148, 2026-07-09), not an
+    /// oversight. HR chat deliberately passes user-typed emails through.
+    #[test]
+    fn redact_chat_payload_preserves_email_on_hr_chat_egress() {
+        let messages = vec![make_message("user", "Draft a note to sarah@acme.com.")];
+        let (redacted, _, summary) = redact_chat_payload(
+            messages,
+            None,
+            crate::audit::EgressSource::Interactive.redaction_policy(),
+        );
+
+        assert!(
+            redacted[0].content.contains("sarah@acme.com"),
+            "HR chat behavior must be unchanged by FHR-90"
+        );
+        assert!(summary.is_none());
+    }
+
     #[test]
     fn redact_chat_payload_strips_ssn_from_messages() {
         let messages = vec![
-            make_message("user", "Sarah's SSN is 123-45-6789, please reset her access."),
+            make_message(
+                "user",
+                "Sarah's SSN is 123-45-6789, please reset her access.",
+            ),
             make_message("assistant", "Got it."),
         ];
-        let (redacted, sys, summary) = redact_chat_payload(messages, None);
+        let (redacted, sys, summary) =
+            redact_chat_payload(messages, None, crate::pii::RedactionPolicy::Standard);
 
         assert!(sys.is_none());
         assert!(
@@ -1165,7 +1261,8 @@ mod tests {
         // An employee record leaked a CC into the context builder.
         let system =
             Some("Employee Sarah Chen. Company card on file: 4111-1111-1111-1111.".to_string());
-        let (_, sys, summary) = redact_chat_payload(vec![], system);
+        let (_, sys, summary) =
+            redact_chat_payload(vec![], system, crate::pii::RedactionPolicy::Standard);
 
         let sys = sys.expect("system prompt preserved");
         assert!(
@@ -1180,7 +1277,11 @@ mod tests {
     fn redact_chat_payload_noop_when_no_pii_present() {
         let messages = vec![make_message("user", "How many employees are in marketing?")];
         let system = Some("You are a helpful HR assistant.".to_string());
-        let (redacted, sys, summary) = redact_chat_payload(messages.clone(), system.clone());
+        let (redacted, sys, summary) = redact_chat_payload(
+            messages.clone(),
+            system.clone(),
+            crate::pii::RedactionPolicy::Standard,
+        );
 
         assert_eq!(redacted[0].content, messages[0].content);
         assert_eq!(sys, system);
@@ -1194,7 +1295,8 @@ mod tests {
             "user",
             "Terminate employee with bank account 123456789012 in the records.",
         )];
-        let (redacted, _, _) = redact_chat_payload(messages, None);
+        let (redacted, _, _) =
+            redact_chat_payload(messages, None, crate::pii::RedactionPolicy::Standard);
         let provider_messages = to_provider_messages(redacted);
 
         let serialized = serde_json::to_string(&provider_messages[0].content).unwrap();
@@ -1221,7 +1323,8 @@ mod tests {
 
     #[test]
     fn redact_api_keys_strips_openai_project_key() {
-        let msg = "HTTP 401: invalid_api_key: sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 is not valid";
+        let msg =
+            "HTTP 401: invalid_api_key: sk-proj-abcdefghijklmnopqrstuvwxyz1234567890 is not valid";
         let out = redact_api_keys(msg);
         assert!(
             !out.contains("sk-proj-abcdefghijklmnopqrstuvwxyz1234567890"),
@@ -1253,7 +1356,8 @@ mod tests {
 
     #[test]
     fn redact_api_keys_passthrough_when_no_key_present() {
-        let msg = "HTTP 503: service_unavailable: Anthropic API is temporarily overloaded. Try again.";
+        let msg =
+            "HTTP 503: service_unavailable: Anthropic API is temporarily overloaded. Try again.";
         assert_eq!(redact_api_keys(msg), msg);
     }
 
@@ -1262,7 +1366,10 @@ mod tests {
         // Avoid false positives on short product SKUs like sk-100 or sk-pro.
         let msg = "Item code sk-shortidx and SKU sk-100 unaffected.";
         let out = redact_api_keys(msg);
-        assert_eq!(out, msg, "short sk- substrings must not match (false positive)");
+        assert_eq!(
+            out, msg,
+            "short sk- substrings must not match (false positive)"
+        );
     }
 
     // ============================================================================
@@ -1304,12 +1411,10 @@ mod tests {
     async fn fetch_single_audit_row(
         pool: &crate::db::DbPool,
     ) -> (Option<String>, Option<String>, String, String) {
-        sqlx::query_as(
-            "SELECT source, status, request_redacted, response_text FROM audit_log",
-        )
-        .fetch_one(pool)
-        .await
-        .expect("exactly one audit row must exist")
+        sqlx::query_as("SELECT source, status, request_redacted, response_text FROM audit_log")
+            .fetch_one(pool)
+            .await
+            .expect("exactly one audit row must exist")
     }
 
     #[tokio::test]
