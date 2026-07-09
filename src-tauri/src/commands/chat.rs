@@ -15,12 +15,24 @@ pub(crate) async fn send_chat_message(
     state: tauri::State<'_, Database>,
     messages: Vec<chat::ChatMessage>,
     system_prompt: Option<String>,
+    conversation_id: Option<String>,
+    employee_ids_used: Option<Vec<String>>,
 ) -> Result<chat::ChatResponse, chat::ChatError> {
     let active = chat::resolve_active_provider(&state.pool)
         .await
         .map_err(|e| chat::ChatError::RequestError(e.to_string()))?;
 
+    // #112: the chat seam writes the audit row for every attempt.
+    let audit = crate::audit::EgressAudit {
+        source: crate::audit::EgressSource::Interactive,
+        conversation_id,
+        employee_ids: employee_ids_used.unwrap_or_default(),
+        query_category: None,
+    };
+
     chat::send_message(
+        &state.pool,
+        audit,
         messages,
         system_prompt,
         &active.provider_id,
@@ -53,8 +65,20 @@ pub(crate) async fn send_chat_message_streaming(
     system_prompt: Option<String>,
     aggregates: Option<context::OrgAggregates>,
     query_type: Option<context::QueryType>,
+    conversation_id: Option<String>,
+    employee_ids_used: Option<Vec<String>>,
 ) -> Result<(), chat::ChatError> {
     let stream_id = stream_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    // #112: the chat seam writes the audit row for every attempt (success,
+    // stream error, cancel). conversation_id/employee_ids come from the
+    // frontend, which owns that context; absent values degrade to an
+    // unattributed-but-present row, never a missing one.
+    let audit = crate::audit::EgressAudit {
+        source: crate::audit::EgressSource::Interactive,
+        conversation_id,
+        employee_ids: employee_ids_used.unwrap_or_default(),
+        query_category: None,
+    };
     let has_license = trial::has_license_key(&state.pool)
         .await
         .map_err(|e| chat::ChatError::TrialError(e.to_string()))?;
@@ -84,6 +108,8 @@ pub(crate) async fn send_chat_message_streaming(
             app,
             &registry,
             stream_id,
+            &state.pool,
+            audit,
             messages,
             system_prompt,
             &proxy_url,
@@ -123,8 +149,8 @@ pub(crate) async fn send_chat_message_streaming(
             .map_err(|e| chat::ChatError::RequestError(e.to_string()))?;
 
         chat::send_message_streaming(
-            app, &registry, stream_id, messages, system_prompt, aggregates, query_type,
-            &provider_id, model_id.as_deref(),
+            app, &registry, stream_id, &state.pool, audit, messages, system_prompt,
+            aggregates, query_type, &provider_id, model_id.as_deref(),
         ).await
     }
 }

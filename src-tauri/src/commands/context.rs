@@ -163,7 +163,8 @@ pub(crate) async fn delete_conversation(
 /// Generate a title for a conversation
 #[tauri::command]
 pub(crate) async fn generate_conversation_title(
+    state: tauri::State<'_, Database>,
     first_message: String,
 ) -> Result<String, conversations::ConversationError> {
-    Ok(conversations::generate_title_with_fallback(&first_message).await)
+    Ok(conversations::generate_title_with_fallback(&state.pool, &first_message).await)
 }

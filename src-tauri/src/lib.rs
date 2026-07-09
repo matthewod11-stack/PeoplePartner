@@ -196,8 +196,8 @@ pub fn run() {
             commands::context::get_personas,
             // PII scanning
             commands::system::scan_pii,
-            // Audit logging
-            commands::system::create_audit_entry,
+            // Audit logging (read-only from the frontend — #112 moved the
+            // write path backend-side to the chat seam)
             commands::system::get_audit_entry,
             commands::system::list_audit_entries,
             commands::system::count_audit_entries,

@@ -195,7 +195,27 @@ async fn narrative_grounding_cites_only_real_evidence() {
         return;
     }
     let fx = load_fixture();
-    let provider: Arc<dyn IntakeProvider> = Arc::new(AppIntakeProvider::new("anthropic", None));
+    // #112: the provider carries a DB pool for egress audit rows; a migrated
+    // in-memory pool keeps the manual run's audit writes valid.
+    let pool = {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(std::time::Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("run migrations");
+        pool
+    };
+    let provider: Arc<dyn IntakeProvider> =
+        Arc::new(AppIntakeProvider::new(pool, "anthropic", None));
     let profile = eval_talent_profile();
 
     let mut failures: Vec<String> = Vec::new();

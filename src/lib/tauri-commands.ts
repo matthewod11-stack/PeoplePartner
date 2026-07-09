@@ -235,18 +235,24 @@ export async function sendChatMessage(
  * @param systemPrompt Optional system prompt for context
  * @param aggregates V2.1.4: Optional org aggregates for answer verification
  * @param queryType V2.1.4: Optional query type for answer verification
+ * @param conversationId #112: attributes the backend-written audit row
+ * @param employeeIdsUsed #112: employee context recorded in the audit row
  */
 export async function sendChatMessageStreaming(
   messages: ChatMessage[],
   systemPrompt?: string,
   aggregates?: OrgAggregates | null,
-  queryType?: QueryType | null
+  queryType?: QueryType | null,
+  conversationId?: string | null,
+  employeeIdsUsed?: string[]
 ): Promise<void> {
   return invoke('send_chat_message_streaming', {
     messages,
     systemPrompt: systemPrompt ?? null,
     aggregates: aggregates ?? null,
     queryType: queryType ?? null,
+    conversationId: conversationId ?? null,
+    employeeIdsUsed: employeeIdsUsed ?? null,
   });
 }
 
@@ -1413,16 +1419,6 @@ export interface AuditListItem {
 }
 
 /**
- * Input for creating an audit entry
- */
-export interface CreateAuditEntryInput {
-  conversation_id?: string;
-  request_redacted: string;
-  response_text: string;
-  employee_ids_used: string[];
-}
-
-/**
  * Filter options for listing/exporting audit entries
  */
 export interface AuditFilter {
@@ -1439,16 +1435,8 @@ export interface ExportResult {
   row_count: number;
 }
 
-/**
- * Create an audit log entry after a Claude API interaction
- * Called by frontend after streaming response completes
- * @param input - Audit entry data (conversation_id, redacted request, response, employee IDs)
- */
-export async function createAuditEntry(
-  input: CreateAuditEntryInput
-): Promise<AuditEntry> {
-  return invoke('create_audit_entry', { input });
-}
+// #112: createAuditEntry was removed — audit rows are written backend-side
+// at the chat seam. The frontend can read the log, never write it.
 
 /**
  * Get a single audit entry by ID

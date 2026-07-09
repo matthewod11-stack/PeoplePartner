@@ -33,7 +33,6 @@ import {
   generateConversationSummary,
   saveConversationSummary,
   scanPii,
-  createAuditEntry,
   type ConversationListItem,
   type ChatMessage,
   type StreamChunk,
@@ -172,10 +171,9 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
   const prevIsLoading = useRef(false);
 
   // ---------------------------------------------------------------------------
-  // Audit logging state (refs to avoid re-renders)
+  // Streaming accumulation state (ref to avoid re-renders). Audit logging
+  // moved backend-side (#112) — the chat seam writes the row itself.
   // ---------------------------------------------------------------------------
-  const redactedMessageRef = useRef<string | null>(null);
-  const employeeIdsRef = useRef<string[]>([]);
   const accumulatedResponseRef = useRef<string>('');
 
   // ---------------------------------------------------------------------------
@@ -377,9 +375,6 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       return;
     }
 
-    // Store redacted message for audit logging
-    redactedMessageRef.current = messageContent;
-
     // Add user message (with potentially redacted content)
     const userMessage: Message = {
       id: crypto.randomUUID(),
@@ -470,29 +465,16 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
           // Ensure any buffered chunks are rendered before final message updates
           flushBufferedChunkNow();
 
-          // Get the full accumulated response before resetting
-          const fullResponse = accumulatedResponseRef.current;
-
           // V2.1.4: Update message with verification result if present
           if (verification) {
             setMessages((prev) => setMessageVerification(prev, assistantId, verification));
           }
 
-          // Create audit entry (fire-and-forget, don't block on errors)
-          // Use conversationIdRef to avoid stale closure if user switched conversations during streaming
-          createAuditEntry({
-            conversation_id: conversationIdRef.current,
-            request_redacted: redactedMessageRef.current ?? '',
-            response_text: fullResponse,
-            employee_ids_used: employeeIdsRef.current,
-          }).catch((err) => {
-            // Log but don't fail - audit is non-critical
-            console.error('[Audit] Failed to create entry:', err);
-          });
+          // #112: the audit row is now written backend-side at the chat seam
+          // (every attempt, including errors/cancels the old frontend
+          // fire-and-forget here silently skipped).
 
           // Reset refs for next message
-          redactedMessageRef.current = null;
-          employeeIdsRef.current = [];
           accumulatedResponseRef.current = '';
 
           streamingMessageId.current = null;
@@ -518,7 +500,6 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       // Build system prompt with context (prioritize selected employee if any)
       // V2.1.4: Now returns SystemPromptResult with aggregates for verification
       const promptResult = await getSystemPrompt(content, selectedEmployeeId);
-      employeeIdsRef.current = promptResult.employee_ids_used;
 
       // Reset accumulated response for this message
       accumulatedResponseRef.current = '';
@@ -528,11 +509,16 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
 
       // Call Claude API with streaming
       // V2.1.4: Pass aggregates and query_type for answer verification
+      // #112: conversation id + employee ids ride along so the backend's
+      // audit row (written at the chat seam) is fully attributed. Use the
+      // ref to avoid a stale closure if the user switches conversations.
       await sendChatMessageStreaming(
         apiMessages,
         promptResult.system_prompt,
         promptResult.aggregates,
-        promptResult.query_type
+        promptResult.query_type,
+        conversationIdRef.current,
+        promptResult.employee_ids_used
       );
     } catch (error) {
       clearStreamTimeout();

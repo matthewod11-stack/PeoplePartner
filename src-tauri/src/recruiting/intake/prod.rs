@@ -150,15 +150,32 @@ const JSON_ONLY_INSTRUCTION: &str =
 /// provider id (e.g. `"anthropic"`) and an optional model override; the API
 /// key and PII redaction are handled inside `crate::chat::send_message`.
 pub struct AppIntakeProvider {
+    /// #112: the chat seam writes an egress audit row per attempt and needs
+    /// the DB pool. `DbPool` is an `Arc`-backed sqlx pool — cloning is cheap.
+    pool: crate::db::DbPool,
     provider_id: String,
     model_id: Option<String>,
 }
 
 impl AppIntakeProvider {
-    pub fn new(provider_id: impl Into<String>, model_id: Option<String>) -> Self {
+    pub fn new(
+        pool: crate::db::DbPool,
+        provider_id: impl Into<String>,
+        model_id: Option<String>,
+    ) -> Self {
         Self {
+            pool,
             provider_id: provider_id.into(),
             model_id,
+        }
+    }
+
+    fn egress_audit(&self) -> crate::audit::EgressAudit {
+        crate::audit::EgressAudit {
+            source: crate::audit::EgressSource::RecruitingIntake,
+            conversation_id: None,
+            employee_ids: vec![],
+            query_category: None,
         }
     }
 }
@@ -175,6 +192,8 @@ impl IntakeProvider for AppIntakeProvider {
         let system_prompt = Some(format!("{system_prompt}{JSON_ONLY_INSTRUCTION}"));
 
         let response = crate::chat::send_message_with_temperature(
+            &self.pool,
+            self.egress_audit(),
             chat_messages,
             system_prompt,
             &self.provider_id,
@@ -203,6 +222,8 @@ impl IntakeProvider for AppIntakeProvider {
         let system_prompt = (!system_prompt.is_empty()).then_some(system_prompt);
 
         let response = crate::chat::send_message_with_temperature(
+            &self.pool,
+            self.egress_audit(),
             chat_messages,
             system_prompt,
             &self.provider_id,
@@ -423,13 +444,14 @@ impl ContentResearch for ExaContentResearch {
 /// model) and the user's Exa API key. The S4.2 UI command (FHR-86) fetches the
 /// Exa key from the Keychain and the provider id from settings, then calls this.
 pub fn production_intake_deps(
+    pool: crate::db::DbPool,
     llm_provider_id: &str,
     llm_model_id: Option<String>,
     exa_api_key: String,
 ) -> IntakeDeps {
     let clock: Arc<dyn Clock> = Arc::new(SystemClock);
     let provider: Arc<dyn IntakeProvider> =
-        Arc::new(AppIntakeProvider::new(llm_provider_id, llm_model_id));
+        Arc::new(AppIntakeProvider::new(pool, llm_provider_id, llm_model_id));
     let research: Arc<dyn ContentResearch> =
         Arc::new(ExaContentResearch::new(exa_api_key, provider.clone(), clock.clone()));
     IntakeDeps {
@@ -614,12 +636,32 @@ mod tests {
         assert!(research.find_similar(&[]).await.unwrap().is_empty());
     }
 
-    #[test]
-    fn production_intake_deps_assembles_all_three() {
+    #[tokio::test]
+    async fn production_intake_deps_assembles_all_three() {
         // Smoke: the command-boundary constructor wires without panicking and
-        // produces usable trait objects.
-        let deps = production_intake_deps("anthropic", None, "exa-key".into());
+        // produces usable trait objects. (#112: the provider now carries the
+        // DB pool for egress audit rows.)
+        let pool = test_migrated_pool().await;
+        let deps = production_intake_deps(pool, "anthropic", None, "exa-key".into());
         assert!(!deps.clock.now_iso8601().is_empty());
+    }
+
+    async fn test_migrated_pool() -> crate::db::DbPool {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(std::time::Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("run migrations");
+        pool
     }
 
     // ---- H-1 prompt-injection sanitization (issue #113) ----------------

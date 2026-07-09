@@ -135,7 +135,7 @@ pub async fn generate_summary(pool: &DbPool, messages_json: &str) -> Result<Stri
     let active = crate::chat::resolve_active_provider(pool)
         .await
         .map_err(|e| MemoryError::Database(e.to_string()))?;
-    let response = generate_summary_internal(summary_request, &active).await?;
+    let response = generate_summary_internal(pool, summary_request, &active).await?;
 
     Ok(response.content.trim().to_string())
 }
@@ -143,14 +143,26 @@ pub async fn generate_summary(pool: &DbPool, messages_json: &str) -> Result<Stri
 /// Internal function to call the active provider for summary generation
 /// Separated for testability
 async fn generate_summary_internal(
+    pool: &DbPool,
     messages: Vec<ChatMessage>,
     active: &crate::chat::ActiveProvider,
 ) -> Result<ChatResponse, MemoryError> {
     use crate::chat;
 
+    // #112: the chat seam writes the audit row for this egress; the ctx
+    // labels it so auditors can distinguish it from interactive chat.
+    let audit = crate::audit::EgressAudit {
+        source: crate::audit::EgressSource::MemorySummary,
+        conversation_id: None,
+        employee_ids: vec![],
+        query_category: None,
+    };
+
     // Use a simpler, direct API call for summaries
     // This avoids the conversation trimming logic meant for longer chats
     chat::send_message(
+        pool,
+        audit,
         messages,
         Some(SUMMARY_SYSTEM_PROMPT.to_string()),
         &active.provider_id,

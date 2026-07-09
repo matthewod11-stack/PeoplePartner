@@ -359,7 +359,16 @@ pub async fn extract_highlights_for_review(
     let active = chat::resolve_active_provider(pool)
         .await
         .map_err(|e| HighlightsError::Database(e.to_string()))?;
+    // #112: the chat seam writes the audit row; tie it to the employee.
+    let audit = crate::audit::EgressAudit {
+        source: crate::audit::EgressSource::HighlightExtraction,
+        conversation_id: None,
+        employee_ids: vec![review.employee_id.clone()],
+        query_category: None,
+    };
     let response = chat::send_message(
+        pool,
+        audit,
         messages,
         Some(EXTRACTION_SYSTEM_PROMPT.to_string()),
         &active.provider_id,
@@ -535,7 +544,16 @@ pub async fn generate_employee_summary(
     let active = chat::resolve_active_provider(pool)
         .await
         .map_err(|e| HighlightsError::Database(e.to_string()))?;
+    // #112: the chat seam writes the audit row; tie it to the employee.
+    let audit = crate::audit::EgressAudit {
+        source: crate::audit::EgressSource::HighlightSummary,
+        conversation_id: None,
+        employee_ids: vec![employee_id.to_string()],
+        query_category: None,
+    };
     let response = chat::send_message(
+        pool,
+        audit,
         messages,
         Some(SUMMARY_SYSTEM_PROMPT.to_string()),
         &active.provider_id,
