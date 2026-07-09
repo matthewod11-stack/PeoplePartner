@@ -1216,6 +1216,8 @@ mod tests {
         assert!(summary.is_some());
     }
 
+    /// Load-bearing: encodes a product decision (app #148, 2026-07-09), not an
+    /// oversight. HR chat deliberately passes user-typed emails through.
     #[test]
     fn redact_chat_payload_preserves_email_on_hr_chat_egress() {
         let messages = vec![make_message("user", "Draft a note to sarah@acme.com.")];

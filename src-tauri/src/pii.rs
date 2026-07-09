@@ -1115,6 +1115,10 @@ mod tests {
     // FHR-90: candidate-egress policy — emails redacted, names passed through
     // ========================================================================
 
+    /// Load-bearing: encodes a product decision (app #148, 2026-07-09), not an
+    /// oversight. A user typing an email into their own chat is deliberate;
+    /// redacting it would break "draft a note to sarah@acme.com" for no privacy
+    /// gain. Employee emails never reach a prompt from context. Do not "fix".
     #[test]
     fn standard_policy_leaves_email_untouched() {
         let text = "Draft a note to sarah.chen@acme.com about her review.";
