@@ -237,6 +237,9 @@ export async function sendChatMessage(
  * @param queryType V2.1.4: Optional query type for answer verification
  * @param conversationId #112: attributes the backend-written audit row
  * @param employeeIdsUsed #112: employee context recorded in the audit row
+ * @param streamId #147: client-generated id this stream can be cancelled by.
+ *   Omitting it makes the backend mint one the UI can never learn, so a caller
+ *   that wants a Stop button must pass it.
  */
 export async function sendChatMessageStreaming(
   messages: ChatMessage[],
@@ -244,7 +247,8 @@ export async function sendChatMessageStreaming(
   aggregates?: OrgAggregates | null,
   queryType?: QueryType | null,
   conversationId?: string | null,
-  employeeIdsUsed?: string[]
+  employeeIdsUsed?: string[],
+  streamId?: string | null
 ): Promise<void> {
   return invoke('send_chat_message_streaming', {
     messages,
@@ -253,7 +257,17 @@ export async function sendChatMessageStreaming(
     queryType: queryType ?? null,
     conversationId: conversationId ?? null,
     employeeIdsUsed: employeeIdsUsed ?? null,
+    streamId: streamId ?? null,
   });
+}
+
+/**
+ * Cancel an in-flight stream by its client-generated id (#25 backend, #147 wiring).
+ * Safe to call with an unknown or already-finished id — the backend returns
+ * false rather than erroring. Resolves true when a live stream was cancelled.
+ */
+export async function cancelStream(streamId: string): Promise<boolean> {
+  return invoke('cancel_stream', { streamId });
 }
 
 /** Event payload for streaming chunks */

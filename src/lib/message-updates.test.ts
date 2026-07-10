@@ -3,6 +3,7 @@ import {
   appendChunk,
   setMessageError,
   setMessageVerification,
+  finalizeCancelledMessage,
   toApiMessages,
   resolveRedaction,
 } from './message-updates';
@@ -71,6 +72,33 @@ describe('setMessageError', () => {
     const after = setMessageError([keep, msg('a', { content: 'x' })], 'a', ERR);
     expect(after[0]).toBe(keep);
     expect(after[0].error).toBeUndefined();
+  });
+});
+
+describe('finalizeCancelledMessage', () => {
+  it('drops the placeholder when nothing had streamed yet', () => {
+    const after = finalizeCancelledMessage([msg('u', { role: 'user', content: 'q' }), msg('a')], 'a');
+    expect(after).toHaveLength(1);
+    expect(after[0].id).toBe('u');
+  });
+
+  it('keeps the partial response when text had already streamed', () => {
+    const after = finalizeCancelledMessage([msg('a', { content: 'partial ans' })], 'a');
+    expect(after).toHaveLength(1);
+    expect(after[0].content).toBe('partial ans');
+  });
+
+  it('never drops an empty message belonging to a different stream', () => {
+    const other = msg('b');
+    const after = finalizeCancelledMessage([other, msg('a')], 'a');
+    expect(after).toEqual([other]);
+  });
+
+  it('is immutable — the original array is untouched', () => {
+    const before = [msg('a')];
+    const after = finalizeCancelledMessage(before, 'a');
+    expect(after).not.toBe(before);
+    expect(before).toHaveLength(1);
   });
 });
 

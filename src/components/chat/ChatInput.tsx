@@ -11,6 +11,14 @@ interface ChatInputProps {
   placeholder?: string;
   /** Auto-focus on mount */
   autoFocus?: boolean;
+  /**
+   * #147: a response is streaming. Replaces the send button with a Stop
+   * button. Requires `onStop`; without it the send button is shown as before,
+   * which keeps the recruiting view (no streaming) unchanged.
+   */
+  isStreaming?: boolean;
+  /** #147: cancel the in-flight stream. */
+  onStop?: () => void;
 }
 
 /** Handle exposed via ref for external focus control */
@@ -27,6 +35,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     isOffline = false,
     placeholder = 'Ask a question...',
     autoFocus = true,
+    isStreaming = false,
+    onStop,
   },
   ref
 ) {
@@ -41,6 +51,9 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
   // Combine disabled states - offline also disables submit
   const isInputDisabled = disabled;
   const isSubmitDisabled = disabled || isOffline || !message.trim();
+
+  // #147: only swap in Stop when the caller can actually handle it.
+  const showStop = isStreaming && Boolean(onStop);
 
   // Dynamic placeholder for offline state
   const effectivePlaceholder = isOffline
@@ -141,38 +154,65 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             ${isInputDisabled ? 'cursor-not-allowed' : ''}
           `}
         />
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={isSubmitDisabled}
-          aria-label="Send message"
-          className={`
-            w-9 h-9
-            flex-shrink-0
-            flex items-center justify-center
-            rounded-lg
-            transition-all duration-200
-            ${
-              isSubmitDisabled
-                ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
-                : 'bg-primary-500 hover:bg-primary-600 text-white shadow-sm hover:shadow-md hover:brightness-110 active:brightness-95'
-            }
-          `}
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
+        {showStop ? (
+          /* #147: while streaming, the send button is replaced by Stop. It stays
+             enabled even though `disabled` is true (the provider disables input
+             during a stream) — stopping is the one action that must remain
+             available. */
+          <button
+            type="button"
+            onClick={onStop}
+            aria-label="Stop response"
+            title="Stop response"
+            className={`
+              w-9 h-9
+              flex-shrink-0
+              flex items-center justify-center
+              rounded-lg
+              transition-all duration-200
+              bg-stone-700 hover:bg-stone-800 text-white
+              shadow-sm hover:shadow-md active:brightness-95
+            `}
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
-            />
-          </svg>
-        </button>
+            {/* Filled square — the conventional stop glyph */}
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="7" y="7" width="10" height="10" rx="1.5" />
+            </svg>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitDisabled}
+            aria-label="Send message"
+            className={`
+              w-9 h-9
+              flex-shrink-0
+              flex items-center justify-center
+              rounded-lg
+              transition-all duration-200
+              ${
+                isSubmitDisabled
+                  ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                  : 'bg-primary-500 hover:bg-primary-600 text-white shadow-sm hover:shadow-md hover:brightness-110 active:brightness-95'
+              }
+            `}
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+              />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

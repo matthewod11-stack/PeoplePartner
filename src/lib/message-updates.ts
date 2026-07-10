@@ -22,6 +22,17 @@ export function setMessageError(messages: Message[], id: string, error: ChatErro
   return messages.map((m) => (m.id === id ? { ...m, content: '', error } : m));
 }
 
+/**
+ * Settle the assistant placeholder after the user stops a stream (#147).
+ * A stop that lands before the first chunk leaves an empty bubble behind, so
+ * that message is dropped entirely; once any text has streamed the partial
+ * response is kept — it is a real (if truncated) answer, and the backend has
+ * already billed and audited the tokens that produced it.
+ */
+export function finalizeCancelledMessage(messages: Message[], id: string): Message[] {
+  return messages.filter((m) => !(m.id === id && m.content === ''));
+}
+
 /** Attach an answer-verification result to a message (V2.1.4). */
 export function setMessageVerification(
   messages: Message[],
