@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { resolveChatInputMode } from '../../lib/chat-input-state';
 
 interface ChatInputProps {
   /** Callback when user submits a message (called with trimmed text) */
@@ -11,6 +12,10 @@ interface ChatInputProps {
   placeholder?: string;
   /** Auto-focus on mount */
   autoFocus?: boolean;
+  /** #147: a response is streaming — the Send button becomes a Stop button. */
+  isStreaming?: boolean;
+  /** #147: called when the user hits Stop to cancel the in-flight stream. */
+  onStop?: () => void;
 }
 
 /** Handle exposed via ref for external focus control */
@@ -27,6 +32,8 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
     isOffline = false,
     placeholder = 'Ask a question...',
     autoFocus = true,
+    isStreaming = false,
+    onStop,
   },
   ref
 ) {
@@ -40,7 +47,16 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
 
   // Combine disabled states - offline also disables submit
   const isInputDisabled = disabled;
-  const isSubmitDisabled = disabled || isOffline || !message.trim();
+  // #147: while streaming, the button becomes a Stop; otherwise it is a Send
+  // whose enablement follows text/disabled/offline. Logic is a pure, tested fn.
+  const buttonMode = resolveChatInputMode({
+    isStreaming,
+    canStop: !!onStop,
+    hasText: !!message.trim(),
+    disabled,
+    isOffline,
+  });
+  const isSubmitDisabled = buttonMode === 'send-disabled';
 
   // Dynamic placeholder for offline state
   const effectivePlaceholder = isOffline
@@ -141,38 +157,59 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(function Ch
             ${isInputDisabled ? 'cursor-not-allowed' : ''}
           `}
         />
-        <button
-          type="button"
-          onClick={handleSubmit}
-          disabled={isSubmitDisabled}
-          aria-label="Send message"
-          className={`
-            w-9 h-9
-            flex-shrink-0
-            flex items-center justify-center
-            rounded-lg
-            transition-all duration-200
-            ${
-              isSubmitDisabled
-                ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
-                : 'bg-primary-500 hover:bg-primary-600 text-white shadow-sm hover:shadow-md hover:brightness-110 active:brightness-95'
-            }
-          `}
-        >
-          <svg
-            className="w-5 h-5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
+        {buttonMode === 'stop' ? (
+          <button
+            type="button"
+            onClick={onStop}
+            aria-label="Stop generating"
+            className="
+              w-9 h-9
+              flex-shrink-0
+              flex items-center justify-center
+              rounded-lg
+              transition-all duration-200
+              bg-stone-600 hover:bg-stone-700 text-white shadow-sm hover:shadow-md active:brightness-95
+            "
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
-            />
-          </svg>
-        </button>
+            {/* Solid square = stop */}
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="6" y="6" width="12" height="12" rx="2" />
+            </svg>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitDisabled}
+            aria-label="Send message"
+            className={`
+              w-9 h-9
+              flex-shrink-0
+              flex items-center justify-center
+              rounded-lg
+              transition-all duration-200
+              ${
+                isSubmitDisabled
+                  ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                  : 'bg-primary-500 hover:bg-primary-600 text-white shadow-sm hover:shadow-md hover:brightness-110 active:brightness-95'
+              }
+            `}
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+              />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

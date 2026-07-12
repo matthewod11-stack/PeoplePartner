@@ -138,6 +138,7 @@ function ChatArea({ chatInputRef, onOpenSettings }: ChatAreaProps) {
   const { piiNotification, piiScanError, memoryNotice } = useConversationMeta();
   const {
     sendMessage,
+    stopStreaming,
     retryMessage,
     startNewConversation,
     clearPiiNotification,
@@ -239,6 +240,8 @@ function ChatArea({ chatInputRef, onOpenSettings }: ChatAreaProps) {
         onSubmit={handleSubmit}
         disabled={isLoading || isAtMessageLimit}
         isOffline={isOffline}
+        isStreaming={isLoading}
+        onStop={stopStreaming}
       />
     </div>
   );
