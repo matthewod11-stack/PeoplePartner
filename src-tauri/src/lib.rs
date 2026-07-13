@@ -22,6 +22,7 @@ mod documents;
 mod employees;
 mod enps;
 mod file_parser;
+mod grounding;
 mod highlights;
 mod keyring;
 mod license_cache;
