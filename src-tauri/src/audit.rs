@@ -109,6 +109,8 @@ pub enum EgressSource {
     ExaContents,
     /// Exa `/findSimilar` — seed-URL snowball discovery.
     ExaFindSimilar,
+    /// People Map prep-brief generation (FHR-108).
+    PrepBrief,
 }
 
 impl EgressSource {
@@ -124,6 +126,7 @@ impl EgressSource {
             EgressSource::ExaSearch => "exa_search",
             EgressSource::ExaContents => "exa_contents",
             EgressSource::ExaFindSimilar => "exa_find_similar",
+            EgressSource::PrepBrief => "prep_brief",
         }
     }
 
@@ -148,7 +151,8 @@ impl EgressSource {
             | EgressSource::MemorySummary
             | EgressSource::HighlightExtraction
             | EgressSource::HighlightSummary
-            | EgressSource::TitleGeneration => crate::pii::RedactionPolicy::Standard,
+            | EgressSource::TitleGeneration
+            | EgressSource::PrepBrief => crate::pii::RedactionPolicy::Standard,
         }
     }
 }
@@ -1091,6 +1095,47 @@ mod tests {
         assert_eq!(EgressSource::ExaSearch.as_str(), "exa_search");
         assert_eq!(EgressSource::ExaContents.as_str(), "exa_contents");
         assert_eq!(EgressSource::ExaFindSimilar.as_str(), "exa_find_similar");
+    }
+
+    // ========================================================================
+    // FHR-108: People Map prep-brief generation audits through the same seam.
+    // Standard redaction — the employee's record is the payload (decision 8).
+    // ========================================================================
+
+    #[test]
+    fn prep_brief_source_has_stable_label_and_standard_redaction() {
+        assert_eq!(EgressSource::PrepBrief.as_str(), "prep_brief");
+        assert_eq!(
+            EgressSource::PrepBrief.redaction_policy(),
+            crate::pii::RedactionPolicy::Standard
+        );
+    }
+
+    #[tokio::test]
+    async fn record_egress_prep_brief_round_trips_source() {
+        let pool = test_pool_with_migrations().await;
+        let ctx = EgressAudit {
+            source: EgressSource::PrepBrief,
+            conversation_id: None,
+            employee_ids: vec!["emp-1".into()],
+            query_category: None,
+        };
+        record_egress(
+            &pool,
+            &ctx,
+            "brief prompt (redacted)",
+            &EgressOutcome::Ok { response_chars: 10 },
+        )
+        .await
+        .expect("record prep_brief egress");
+
+        let (source, context_used): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT source, context_used FROM audit_log")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(source.as_deref(), Some("prep_brief"));
+        assert_eq!(context_used.as_deref(), Some(r#"["emp-1"]"#));
     }
 
     #[tokio::test]

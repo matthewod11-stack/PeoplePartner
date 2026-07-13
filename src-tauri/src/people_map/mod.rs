@@ -9,8 +9,10 @@
 //! of a person exists anywhere in this module — no such field, no such
 //! output. This is enforced by the source-scan lock test in `schema.rs`,
 //! which forbids the assessment vocabulary from appearing anywhere in this
-//! module's source. New files added to this module MUST be added to the
-//! lock test's manifest.
+//! module's Rust source. New Rust source files added to this module MUST be
+//! added to the lock test's manifest. (Prompt templates under `prompts/` are
+//! exempt by design — prohibiting the vocabulary requires naming it.)
 
+pub mod brief;
 pub mod context;
 pub mod schema;
