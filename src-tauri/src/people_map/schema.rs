@@ -161,9 +161,10 @@ mod tests {
     /// New people_map files MUST be added to the manifest below.
     #[test]
     fn never_assessment_vocabulary_in_people_map_source() {
-        let manifest: [(&str, &str); 2] = [
+        let manifest: [(&str, &str); 3] = [
             ("mod.rs", include_str!("mod.rs")),
             ("schema.rs", include_str!("schema.rs")),
+            ("context.rs", include_str!("context.rs")),
         ];
         let needles: Vec<String> = ["sco", "ran", "rat", "ris", "tie", "gra"]
             .iter()

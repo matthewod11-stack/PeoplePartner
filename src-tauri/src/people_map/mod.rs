@@ -12,4 +12,5 @@
 //! module's source. New files added to this module MUST be added to the
 //! lock test's manifest.
 
+pub mod context;
 pub mod schema;
