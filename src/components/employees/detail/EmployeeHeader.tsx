@@ -12,6 +12,9 @@ interface EmployeeHeaderProps {
   latestRating?: PerformanceRating;
   latestEnps?: EnpsResponse;
   onEdit?: () => void;
+  /** Opens the Prep Brief modal. Not rendered for sample employees (#118 —
+   *  sample data never uses API credits), matching the backend guard. */
+  onPrepBrief?: () => void;
 }
 
 /**
@@ -22,6 +25,7 @@ export function EmployeeHeader({
   latestRating,
   latestEnps,
   onEdit,
+  onPrepBrief,
 }: EmployeeHeaderProps) {
   return (
     <div className="p-4 border-b border-stone-200/60">
@@ -48,6 +52,17 @@ export function EmployeeHeader({
             )}
           </div>
         </div>
+
+        {/* Prep Brief — hidden for sample employees (#118) */}
+        {onPrepBrief && !employee.is_sample && (
+          <button
+            onClick={onPrepBrief}
+            className="px-2.5 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors self-start"
+            aria-label={`Generate prep brief for ${employee.full_name}`}
+          >
+            Prep Brief
+          </button>
+        )}
 
         {/* Edit button */}
         {onEdit && (
