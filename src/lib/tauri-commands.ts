@@ -2376,3 +2376,43 @@ export async function recruitingScoreCandidates(
 ): Promise<ScoredCandidate[]> {
   return invoke('recruiting_score_candidates', { candidates, talentProfile, config });
 }
+
+// ============================================================================
+// People Map — Prep Briefs (FHR-109)
+// ============================================================================
+
+/** One grounded statement, cited to exactly one grounding item (Rust `BriefFact`). */
+export interface BriefFact {
+  text: string;
+  citationId: string;
+}
+
+/** One conversation opener anchored to a named fact — inference by definition,
+ * rendered under an explicit inference label (Rust `BriefThread`). */
+export interface BriefThread {
+  anchorCitationId: string;
+  anchorFact: string;
+  question: string;
+}
+
+/** An ephemeral pre-meeting brief (Rust `PrepBrief`). Never persisted — the
+ * audit row is the only durable trace. Regenerate rather than cache. */
+export interface PrepBrief {
+  employeeId: string;
+  facts: BriefFact[];
+  threads: BriefThread[];
+  thinRecordNote?: string;
+}
+
+/**
+ * Generate an ephemeral prep brief for one employee. Rejects sample
+ * employees (#118); trial users consume a trial message (metered like chat).
+ * Pass a `streamId` to make an in-flight trial generation cancellable via
+ * the backend `cancel_stream` command (frontend wire-up tracked in #147).
+ */
+export async function peopleMapGenerateBrief(
+  employeeId: string,
+  streamId?: string,
+): Promise<PrepBrief> {
+  return invoke('people_map_generate_brief', { employeeId, streamId });
+}

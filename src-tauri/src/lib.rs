@@ -245,6 +245,8 @@ pub fn run() {
             // Full pipeline command (FHR-73 S1.1 Task 7)
             commands::recruiting::recruiting_run_search,
             commands::recruiting::recruiting_score_candidates,
+            // People Map (FHR-109)
+            commands::people_map::people_map_generate_brief,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases

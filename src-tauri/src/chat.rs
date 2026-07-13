@@ -551,6 +551,7 @@ async fn process_sse_stream<R: tauri::Runtime>(
     query_type: Option<crate::context::QueryType>,
     cancel_token: CancellationToken,
     chars_streamed: &mut usize,
+    emit_chunks: bool,
 ) -> Result<String, ChatError> {
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
@@ -564,7 +565,9 @@ async fn process_sse_stream<R: tauri::Runtime>(
                 // returns — closes the HTTP connection and stops upstream
                 // generation. The frontend hook for this event resets the
                 // conversation's streaming-UI state to idle.
-                let _ = app.emit("chat-stream-cancelled", ());
+                if emit_chunks {
+                    let _ = app.emit("chat-stream-cancelled", ());
+                }
                 return Err(ChatError::Cancelled);
             }
             chunk = stream.next() => chunk,
@@ -590,14 +593,16 @@ async fn process_sse_stream<R: tauri::Runtime>(
                                 full_response.push_str(&text);
                                 *chars_streamed = full_response.chars().count();
 
-                                let _ = app.emit(
-                                    "chat-stream",
-                                    StreamChunk {
-                                        chunk: text,
-                                        done: false,
-                                        verification: None,
-                                    },
-                                );
+                                if emit_chunks {
+                                    let _ = app.emit(
+                                        "chat-stream",
+                                        StreamChunk {
+                                            chunk: text,
+                                            done: false,
+                                            verification: None,
+                                        },
+                                    );
+                                }
                             }
                             StreamDelta::Done => {
                                 let verification = query_type.map(|qt| {
@@ -608,14 +613,16 @@ async fn process_sse_stream<R: tauri::Runtime>(
                                     )
                                 });
 
-                                let _ = app.emit(
-                                    "chat-stream",
-                                    StreamChunk {
-                                        chunk: String::new(),
-                                        done: true,
-                                        verification,
-                                    },
-                                );
+                                if emit_chunks {
+                                    let _ = app.emit(
+                                        "chat-stream",
+                                        StreamChunk {
+                                            chunk: String::new(),
+                                            done: true,
+                                            verification,
+                                        },
+                                    );
+                                }
                             }
                             StreamDelta::Error(msg) => {
                                 return Err(ChatError::ApiError(redact_api_keys(&msg)));
@@ -787,6 +794,7 @@ pub async fn send_message_streaming<R: tauri::Runtime>(
             query_type,
             cancel_token,
             &mut streamed,
+            true,
         )
         .await
     }
@@ -823,7 +831,8 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
     proxy_signing_secret: Option<&str>,
     aggregates: Option<crate::context::OrgAggregates>,
     query_type: Option<crate::context::QueryType>,
-) -> Result<TrialUsageMetadata, ChatError> {
+    emit_chunks: bool,
+) -> Result<(TrialUsageMetadata, String), ChatError> {
     let cancel_token = registry.register(stream_id.clone());
     let _guard = StreamGuard {
         registry,
@@ -837,7 +846,9 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
     let (messages, system_prompt, pii_summary) =
         redact_chat_payload(messages, system_prompt, audit.source.redaction_policy());
     if let Some(summary) = pii_summary {
-        let _ = app.emit("chat-pii-redacted", &summary);
+        if emit_chunks {
+            let _ = app.emit("chat-pii-redacted", &summary);
+        }
     }
     let request_redacted = last_user_message(&messages);
 
@@ -908,6 +919,7 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
             query_type,
             cancel_token,
             &mut streamed,
+            emit_chunks,
         )
         .await?;
         Ok((usage, full))
@@ -921,7 +933,7 @@ pub async fn send_message_streaming_trial<R: tauri::Runtime>(
     let outcome = stream_outcome(&result, final_streamed);
     write_egress_audit(pool, &audit, &request_redacted, &outcome).await;
 
-    result.map(|(usage, _)| usage)
+    result
 }
 
 #[cfg(test)]
@@ -1450,6 +1462,7 @@ mod tests {
             None,
             None,
             None,
+            true,
         )
         .await;
         assert!(result.is_ok(), "stream should complete: {result:?}");
@@ -1495,6 +1508,7 @@ mod tests {
             None,
             None,
             None,
+            true,
         )
         .await;
         assert!(result.is_err(), "HTTP 500 must surface as an error");
@@ -1552,6 +1566,7 @@ mod tests {
                 None,
                 None,
                 None,
+                true,
             )
             .await
         });
