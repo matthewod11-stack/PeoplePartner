@@ -19,6 +19,7 @@ import {
 } from '../../lib/tauri-commands';
 
 // Subcomponents
+import { PrepBriefModal } from '../people_map';
 import {
   EmployeeHeader,
   DetailsSection,
@@ -81,6 +82,7 @@ export function EmployeeDetail() {
   const [selectedReviewIndex, setSelectedReviewIndex] = useState<number | null>(
     null
   );
+  const [isPrepBriefOpen, setIsPrepBriefOpen] = useState(false);
 
   // Fetch performance data when employee changes
   useEffect(() => {
@@ -135,6 +137,7 @@ export function EmployeeDetail() {
         latestRating={latestRating}
         latestEnps={latestEnps}
         onEdit={openEditModal}
+        onPrepBrief={() => setIsPrepBriefOpen(true)}
       />
 
       {/* Scrollable content */}
@@ -183,6 +186,10 @@ export function EmployeeDetail() {
         selectedIndex={selectedReviewIndex}
         onClose={() => setSelectedReviewIndex(null)}
         onNavigate={setSelectedReviewIndex}
+      />
+      <PrepBriefModal
+        employee={isPrepBriefOpen ? selectedEmployee : null}
+        onClose={() => setIsPrepBriefOpen(false)}
       />
     </div>
   );

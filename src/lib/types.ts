@@ -26,6 +26,9 @@ export interface Employee {
   termination_reason?: 'voluntary' | 'involuntary' | 'retirement' | 'other';
 
   extra_fields?: Record<string, unknown>;
+  /** Bundled sample/test data (#118) — sample profiles hide LLM actions
+   *  (prep briefs) so they never use real API credits. */
+  is_sample: boolean;
   created_at: string;
   updated_at: string;
 }
