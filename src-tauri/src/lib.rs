@@ -31,6 +31,7 @@ mod logging;
 mod memory;
 mod models;
 mod network;
+mod people_map;
 mod performance_ratings;
 mod performance_reviews;
 mod pii;
