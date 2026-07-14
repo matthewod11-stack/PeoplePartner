@@ -58,6 +58,7 @@ state/
 # Dev/strategy docs (stay local, not public)
 CLAUDE.md
 PROGRESS.md
+PROGRESS_ARCHIVE.md
 PROJECT_STATE.md
 ROADMAP.md
 DECISIONS.md
