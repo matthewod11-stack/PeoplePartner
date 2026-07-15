@@ -13,7 +13,7 @@ import {
 } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Message } from '../lib/types';
-import { categorizeError } from '../lib/error-utils';
+import { categorizeError, isCancelledError } from '../lib/error-utils';
 import {
   appendChunk,
   setMessageError,
@@ -553,13 +553,25 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       clearStreamTimeout();
       flushBufferedChunkNow();
 
-      // Categorize error for user-friendly display
-      const chatError = categorizeError(error);
-      chatError.originalContent = content;
+      if (isCancelledError(error)) {
+        // #147: Stop is a user action, not a failure. The backend rejects the
+        // invoke with ChatError::Cancelled *in addition to* emitting
+        // "chat-stream-cancelled" — without this branch the rejection would
+        // decorate the partial message with a generic error + retry chip.
+        // Finalize quietly (idempotent with the event handler, whichever
+        // lands first): keep the partial text, reset streaming state.
+        accumulatedResponseRef.current = '';
+        streamingMessageId.current = null;
+        setIsLoading(false);
+      } else {
+        // Categorize error for user-friendly display
+        const chatError = categorizeError(error);
+        chatError.originalContent = content;
 
-      // Update assistant message with error state
-      setMessages((prev) => setMessageError(prev, assistantId, chatError));
-      setIsLoading(false);
+        // Update assistant message with error state
+        setMessages((prev) => setMessageError(prev, assistantId, chatError));
+        setIsLoading(false);
+      }
     } finally {
       flushBufferedChunkNow();
 

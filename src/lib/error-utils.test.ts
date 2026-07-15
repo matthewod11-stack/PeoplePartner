@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { categorizeError } from './error-utils';
+import { categorizeError, isCancelledError } from './error-utils';
 
 // Characterization tests for chat error categorization (#110, #108).
 // These lock the pattern table AND its ORDER — the ordering is load-bearing:
@@ -92,5 +92,19 @@ describe('categorizeError — input shapes', () => {
   it('coerces null/undefined to the unknown fallback', () => {
     expect(categorizeError(null).type).toBe('unknown');
     expect(categorizeError(undefined).type).toBe('unknown');
+  });
+});
+
+describe('isCancelledError — Stop is not a failure (#147)', () => {
+  it('matches the backend ChatError::Cancelled rejection in both shapes', () => {
+    expect(isCancelledError(new Error('Stream cancelled'))).toBe(true);
+    expect(isCancelledError('Stream cancelled')).toBe(true);
+  });
+
+  it('does not match real errors or empty input', () => {
+    expect(isCancelledError(new Error('API returned error: 500'))).toBe(false);
+    expect(isCancelledError('Rate limit reached')).toBe(false);
+    expect(isCancelledError(null)).toBe(false);
+    expect(isCancelledError(undefined)).toBe(false);
   });
 });
