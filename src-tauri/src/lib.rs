@@ -22,6 +22,7 @@ mod documents;
 mod employees;
 mod enps;
 mod file_parser;
+mod grounding;
 mod highlights;
 mod keyring;
 mod license_cache;
@@ -30,6 +31,7 @@ mod logging;
 mod memory;
 mod models;
 mod network;
+mod people_map;
 mod performance_ratings;
 mod performance_reviews;
 mod pii;
@@ -243,6 +245,8 @@ pub fn run() {
             // Full pipeline command (FHR-73 S1.1 Task 7)
             commands::recruiting::recruiting_run_search,
             commands::recruiting::recruiting_score_candidates,
+            // People Map (FHR-109)
+            commands::people_map::people_map_generate_brief,
         ])
         .setup(|app| {
             // Register updater plugin for auto-updates via GitHub Releases

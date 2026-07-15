@@ -23,13 +23,31 @@ export function getInitials(name: string): string {
 }
 
 /**
+ * Parse a date string into a local Date.
+ *
+ * Date-only strings (`YYYY-MM-DD`) are constructed from their parts so they land
+ * on LOCAL midnight. `new Date('2023-05-15')` instead parses as UTC midnight,
+ * which renders as the previous calendar day in any negative-offset timezone
+ * (e.g. "May 14" in PDT) — issue #151. Strings that carry a time component are
+ * passed through to the native parser unchanged.
+ */
+export function parseLocalDate(dateStr: string): Date {
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    return new Date(Number(year), Number(month) - 1, Number(day));
+  }
+  return new Date(dateStr);
+}
+
+/**
  * Format a date string for display.
  * @example formatDate("2024-01-15") => "Jan 15, 2024"
  */
 export function formatDate(dateStr?: string): string {
   if (!dateStr) return '—';
   try {
-    const date = new Date(dateStr);
+    const date = parseLocalDate(dateStr);
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -47,7 +65,7 @@ export function formatDate(dateStr?: string): string {
 export function calculateTenure(hireDate?: string): string {
   if (!hireDate) return '—';
   try {
-    const hire = new Date(hireDate);
+    const hire = parseLocalDate(hireDate);
     const now = new Date();
     const years = Math.floor(
       (now.getTime() - hire.getTime()) / (365.25 * 24 * 60 * 60 * 1000)

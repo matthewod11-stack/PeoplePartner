@@ -17,8 +17,10 @@ import {
   getReviewsForEmployee,
   getEnpsForEmployee,
 } from '../../lib/tauri-commands';
+import { useResolvedManagerName } from './detail/useResolvedManagerName';
 
 // Subcomponents
+import { PrepBriefModal } from '../people_map';
 import {
   EmployeeHeader,
   DetailsSection,
@@ -68,6 +70,14 @@ export function EmployeeDetail() {
   const { selectedEmployee, selectedEmployeeId, openEditModal, employees } =
     useEmployees();
 
+  // Resolve the manager's name, fetching by ID when the manager isn't in the
+  // filtered/capped loaded list (issue #150). Called unconditionally, before
+  // the early return below, to satisfy the Rules of Hooks.
+  const managerName = useResolvedManagerName(
+    selectedEmployee?.manager_id,
+    employees
+  );
+
   // Performance data state
   const [ratings, setRatings] = useState<PerformanceRating[]>([]);
   const [reviews, setReviews] = useState<PerformanceReview[]>([]);
@@ -81,6 +91,7 @@ export function EmployeeDetail() {
   const [selectedReviewIndex, setSelectedReviewIndex] = useState<number | null>(
     null
   );
+  const [isPrepBriefOpen, setIsPrepBriefOpen] = useState(false);
 
   // Fetch performance data when employee changes
   useEffect(() => {
@@ -120,9 +131,6 @@ export function EmployeeDetail() {
   // Derived data
   const latestRating = ratings[0];
   const latestEnps = enpsResponses[0];
-  const manager = selectedEmployee.manager_id
-    ? employees.find((e) => e.id === selectedEmployee.manager_id)
-    : null;
 
   const hasPerformanceData =
     ratings.length > 0 || enpsResponses.length > 0 || reviews.length > 0;
@@ -135,6 +143,7 @@ export function EmployeeDetail() {
         latestRating={latestRating}
         latestEnps={latestEnps}
         onEdit={openEditModal}
+        onPrepBrief={() => setIsPrepBriefOpen(true)}
       />
 
       {/* Scrollable content */}
@@ -142,7 +151,7 @@ export function EmployeeDetail() {
         {/* Info sections */}
         <DetailsSection
           employee={selectedEmployee}
-          managerName={manager?.full_name}
+          managerName={managerName}
         />
         <DemographicsSection employee={selectedEmployee} />
         <TerminationSection employee={selectedEmployee} />
@@ -183,6 +192,10 @@ export function EmployeeDetail() {
         selectedIndex={selectedReviewIndex}
         onClose={() => setSelectedReviewIndex(null)}
         onNavigate={setSelectedReviewIndex}
+      />
+      <PrepBriefModal
+        employee={isPrepBriefOpen ? selectedEmployee : null}
+        onClose={() => setIsPrepBriefOpen(false)}
       />
     </div>
   );

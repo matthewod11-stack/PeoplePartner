@@ -33,7 +33,7 @@ pub(crate) fn scan_pii(text: String) -> pii::RedactionResult {
 }
 
 // #112: the create_audit_entry command was removed. Audit rows are written
-// backend-side at the chat seam (`chat.rs` → `audit::record_llm_egress`);
+// backend-side at the chat seam (`chat.rs` → `audit::record_egress`);
 // exposing a frontend write path would let compromised webview JS spoof
 // audit history. The frontend keeps read-only access (get/list/count/export).
 

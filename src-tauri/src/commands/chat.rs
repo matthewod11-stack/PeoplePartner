@@ -117,11 +117,12 @@ pub(crate) async fn send_chat_message_streaming(
             proxy_signing_secret.as_deref(),
             aggregates,
             query_type,
+            true,
         )
         .await;
 
         let trial_usage = match trial_usage {
-            Ok(usage) => usage,
+            Ok((usage, _full_text)) => usage,
             Err(chat::ChatError::TrialLimitReached { used, limit }) => {
                 if let Some(server_used) = used {
                     let _ = trial::set_trial_messages_used(&state.pool, server_used).await;
