@@ -36,6 +36,11 @@ export function useResolvedManagerName(
       return;
     }
 
+    // Reset before fetching: without this, switching to another employee whose
+    // manager also needs a fetch would briefly show the PREVIOUS employee's
+    // fetched manager while the new request is in flight.
+    setFetchedManager(null);
+
     let cancelled = false;
     getEmployee(managerId)
       .then((emp) => {
