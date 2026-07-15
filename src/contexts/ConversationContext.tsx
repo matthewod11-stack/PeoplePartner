@@ -13,7 +13,7 @@ import {
 } from 'react';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import type { Message } from '../lib/types';
-import { categorizeError } from '../lib/error-utils';
+import { categorizeError, isCancelledError } from '../lib/error-utils';
 import {
   appendChunk,
   setMessageError,
@@ -29,6 +29,7 @@ import {
   searchConversations as searchConversationsApi,
   generateConversationTitle,
   sendChatMessageStreaming,
+  cancelStream,
   getSystemPrompt,
   generateConversationSummary,
   saveConversationSummary,
@@ -60,6 +61,7 @@ interface ConversationContextValue {
 
   // Actions
   sendMessage: (content: string, selectedEmployeeId?: string | null) => Promise<void>;
+  stopStreaming: () => void;
   retryMessage: (messageId: string) => Promise<void>;
   loadConversation: (id: string) => Promise<void>;
   startNewConversation: () => Promise<void>;
@@ -103,6 +105,7 @@ interface ConversationDirectoryContextValue {
 
 interface ConversationActionsContextValue {
   sendMessage: (content: string, selectedEmployeeId?: string | null) => Promise<void>;
+  stopStreaming: () => void;
   retryMessage: (messageId: string) => Promise<void>;
   loadConversation: (id: string) => Promise<void>;
   startNewConversation: () => Promise<void>;
@@ -157,6 +160,9 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [currentTitle, setCurrentTitle] = useState<string | null>(null);
   const streamingMessageId = useRef<string | null>(null);
+  // #147: the client-generated id of the in-flight stream, so the UI can
+  // cancel it (Stop button, conversation switch, unmount). Null when idle.
+  const activeStreamIdRef = useRef<string | null>(null);
 
   // Ref to track current conversationId for async/stream handlers (avoids stale closures)
   const conversationIdRef = useRef(conversationId);
@@ -396,8 +402,15 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
     };
     setMessages((prev) => [...prev, assistantMessage]);
 
-    // Set up stream event listener
+    // #147: client-generated id for this stream so the user can cancel it.
+    const streamId = crypto.randomUUID();
+    activeStreamIdRef.current = streamId;
+
+    // Set up stream event listeners
     let unlisten: UnlistenFn | null = null;
+    // #147: separate listener for the backend's cancelled signal (chat.rs emits
+    // "chat-stream-cancelled" and NOT a normal `done`, so the reset lives here).
+    let unlistenCancel: UnlistenFn | null = null;
 
     // Stream inactivity timeout — resets on every chunk, fires error if stream stalls
     let streamTimeoutId: number | null = null;
@@ -408,11 +421,13 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
         streamTimeoutId = null;
         flushBufferedChunkNow();
         if (unlisten) { unlisten(); unlisten = null; }
+        if (unlistenCancel) { unlistenCancel(); unlistenCancel = null; }
 
         const chatError = categorizeError(new Error('Response timed out — no data received for 30 seconds. The AI provider may be experiencing issues.'));
         chatError.originalContent = content;
         setMessages((prev) => setMessageError(prev, assistantId, chatError));
         streamingMessageId.current = null;
+        activeStreamIdRef.current = null;
         setIsLoading(false);
       }, STREAM_TIMEOUT_MS);
     };
@@ -478,6 +493,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
           accumulatedResponseRef.current = '';
 
           streamingMessageId.current = null;
+          activeStreamIdRef.current = null;
           setIsLoading(false);
         } else {
           // Accumulate response for audit logging
@@ -485,6 +501,18 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
           bufferedChunk += chunk;
           scheduleBufferedFlush();
         }
+      });
+
+      // #147: user hit Stop (or we cancelled on switch/unmount). The backend
+      // dropped the upstream connection and emitted this instead of `done`.
+      // Finalize cleanly: keep whatever streamed so far, reset streaming state.
+      unlistenCancel = await listen('chat-stream-cancelled', () => {
+        clearStreamTimeout();
+        flushBufferedChunkNow();
+        accumulatedResponseRef.current = '';
+        streamingMessageId.current = null;
+        activeStreamIdRef.current = null;
+        setIsLoading(false);
       });
 
       // Build message history for API
@@ -518,27 +546,73 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
         promptResult.aggregates,
         promptResult.query_type,
         conversationIdRef.current,
-        promptResult.employee_ids_used
+        promptResult.employee_ids_used,
+        streamId
       );
     } catch (error) {
       clearStreamTimeout();
       flushBufferedChunkNow();
 
-      // Categorize error for user-friendly display
-      const chatError = categorizeError(error);
-      chatError.originalContent = content;
+      if (isCancelledError(error)) {
+        // #147: Stop is a user action, not a failure. The backend rejects the
+        // invoke with ChatError::Cancelled *in addition to* emitting
+        // "chat-stream-cancelled" — without this branch the rejection would
+        // decorate the partial message with a generic error + retry chip.
+        // Finalize quietly (idempotent with the event handler, whichever
+        // lands first): keep the partial text, reset streaming state.
+        accumulatedResponseRef.current = '';
+        streamingMessageId.current = null;
+        setIsLoading(false);
+      } else {
+        // Categorize error for user-friendly display
+        const chatError = categorizeError(error);
+        chatError.originalContent = content;
 
-      // Update assistant message with error state
-      setMessages((prev) => setMessageError(prev, assistantId, chatError));
-      setIsLoading(false);
+        // Update assistant message with error state
+        setMessages((prev) => setMessageError(prev, assistantId, chatError));
+        setIsLoading(false);
+      }
     } finally {
       flushBufferedChunkNow();
 
       if (unlisten) {
         unlisten();
       }
+      if (unlistenCancel) {
+        unlistenCancel();
+      }
+      // #147: if this send is still the active stream (e.g. it errored without
+      // a done/cancelled event), clear the id so a later Stop/switch doesn't
+      // try to cancel a dead stream.
+      if (activeStreamIdRef.current === streamId) {
+        activeStreamIdRef.current = null;
+      }
     }
   }, [conversationId]);
+
+  // ---------------------------------------------------------------------------
+  // Stop the in-flight stream (#147). Drives the UI reset via the backend's
+  // "chat-stream-cancelled" event rather than mutating state here, so the same
+  // path handles Stop, conversation switch, and unmount. Safe when idle.
+  // ---------------------------------------------------------------------------
+  const stopStreaming = useCallback(() => {
+    const id = activeStreamIdRef.current;
+    if (!id) return;
+    cancelStream(id).catch((err) => {
+      console.error('[Conversation] Failed to cancel stream:', err);
+    });
+  }, []);
+
+  // #147: cancel any in-flight stream if the provider unmounts, so an
+  // abandoned stream stops billing instead of running to completion.
+  useEffect(() => {
+    return () => {
+      const id = activeStreamIdRef.current;
+      if (id) {
+        cancelStream(id).catch(() => {});
+      }
+    };
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Retry a failed message
@@ -564,6 +638,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
   // Load a conversation from database
   // ---------------------------------------------------------------------------
   const loadConversation = useCallback(async (id: string) => {
+    stopStreaming(); // #147: abandon any in-flight stream when switching away
     try {
       const conversation = await getConversation(id);
 
@@ -586,12 +661,13 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
       console.error('[Conversation] Failed to load:', err);
       throw err;
     }
-  }, []);
+  }, [stopStreaming]);
 
   // ---------------------------------------------------------------------------
   // Start a new conversation
   // ---------------------------------------------------------------------------
   const startNewConversation = useCallback(async () => {
+    stopStreaming(); // #147: abandon any in-flight stream when switching away
     // Generate summary if current conversation has enough content
     const userMessages = messages.filter(m => m.role === 'user');
     const assistantMessages = messages.filter(m => m.role === 'assistant' && m.content.length > 0);
@@ -628,7 +704,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
 
     // Refresh list to show any saved conversation
     await refreshConversations();
-  }, [messages, conversationId, refreshConversations]);
+  }, [messages, conversationId, refreshConversations, stopStreaming]);
 
   // ---------------------------------------------------------------------------
   // Delete a conversation
@@ -689,6 +765,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
   const actionsValue = useMemo<ConversationActionsContextValue>(
     () => ({
       sendMessage,
+      stopStreaming,
       retryMessage,
       loadConversation,
       startNewConversation,
@@ -701,6 +778,7 @@ export function ConversationProvider({ children }: ConversationProviderProps) {
     }),
     [
       sendMessage,
+      stopStreaming,
       retryMessage,
       loadConversation,
       startNewConversation,

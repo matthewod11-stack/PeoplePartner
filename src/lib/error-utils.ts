@@ -80,6 +80,17 @@ const ERROR_PATTERNS: ErrorPattern[] = [
 ];
 
 /**
+ * True when an error is the backend's stream-cancellation rejection
+ * (`ChatError::Cancelled` → "Stream cancelled"). Cancellation is a user
+ * action, not a failure — callers must finalize quietly instead of routing
+ * it through categorizeError's error UI (#147).
+ */
+export function isCancelledError(error: unknown): boolean {
+  const errorStr = error instanceof Error ? error.message : String(error);
+  return errorStr.includes('Stream cancelled');
+}
+
+/**
  * Categorizes an error into a user-friendly ChatError object.
  * Pattern matches on backend error strings to determine type and messaging.
  */

@@ -244,8 +244,12 @@ export async function sendChatMessageStreaming(
   aggregates?: OrgAggregates | null,
   queryType?: QueryType | null,
   conversationId?: string | null,
-  employeeIdsUsed?: string[]
+  employeeIdsUsed?: string[],
+  streamId?: string | null
 ): Promise<void> {
+  // #147: pass a client-generated stream id so the UI can cancel this stream
+  // via cancelStream(). When omitted the backend generates one the UI can
+  // never learn (and therefore can never cancel).
   return invoke('send_chat_message_streaming', {
     messages,
     systemPrompt: systemPrompt ?? null,
@@ -253,7 +257,17 @@ export async function sendChatMessageStreaming(
     queryType: queryType ?? null,
     conversationId: conversationId ?? null,
     employeeIdsUsed: employeeIdsUsed ?? null,
+    streamId: streamId ?? null,
   });
+}
+
+/**
+ * Cancel an in-flight streaming response by its client-generated stream id
+ * (the same id passed to {@link sendChatMessageStreaming}). Safe to call with
+ * an unknown/already-finished id — the backend returns false. #147 / backend #25.
+ */
+export async function cancelStream(streamId: string): Promise<boolean> {
+  return invoke('cancel_stream', { streamId });
 }
 
 /** Event payload for streaming chunks */
