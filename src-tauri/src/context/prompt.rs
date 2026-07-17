@@ -416,7 +416,10 @@ fn format_single_employee_with_budget(emp: &EmployeeContext, token_budget: Optio
     }
 
     // Performance info
-    if !emp.all_ratings.is_empty() {
+    // #154: reviews and ratings are independent — an employee may have narrative
+    // reviews and no numeric ratings. Gating this section on ratings alone made
+    // such employees look like they had no performance history at all.
+    if !emp.all_ratings.is_empty() || emp.review_count > 0 {
         lines.push("  Performance:".to_string());
         for rating in emp.all_ratings.iter().take(3) {
             let label = rating_label(rating.overall_rating);
@@ -429,6 +432,19 @@ fn format_single_employee_with_budget(emp: &EmployeeContext, token_budget: Optio
         }
         if let Some(ref trend) = emp.rating_trend {
             lines.push(format!("    Trend: {}", trend));
+        }
+        if emp.review_count > 0 {
+            let plural = if emp.review_count == 1 { "" } else { "s" };
+            let latest = match emp.latest_review_date.as_deref() {
+                Some(d) => format!(" (latest {})", d),
+                None => String::new(),
+            };
+            // State existence, not content: the narrative text is not loaded into
+            // this context, so the model must not claim to have read it.
+            lines.push(format!(
+                "    - {} written performance review{} on file{}; narrative text not loaded here",
+                emp.review_count, plural, latest
+            ));
         }
     }
 
@@ -1122,6 +1138,8 @@ mod tests {
             latest_rating: Some(4.2),
             latest_rating_cycle: Some("2024 H2".to_string()),
             rating_trend: Some("improving".to_string()),
+            review_count: 0,
+            latest_review_date: None,
             all_ratings: vec![
                 RatingInfo {
                     cycle_name: "2024 H2".to_string(),
@@ -1220,6 +1238,8 @@ mod tests {
             latest_rating_cycle: None,
             rating_trend: None,
             all_ratings: vec![],
+            review_count: 0,
+            latest_review_date: None,
             latest_enps: None,
             latest_enps_date: None,
             enps_trend: None,
@@ -1237,6 +1257,80 @@ mod tests {
         assert!(!formatted.contains("Career Summary:"));
         assert!(!formatted.contains("Key Strengths:"));
         assert!(!formatted.contains("Recent Review Highlights:"));
+        // #154: no reviews and no ratings => no Performance section at all.
+        assert!(!formatted.contains("Performance:"));
+    }
+
+    /// #154 regression lock: an employee with narrative reviews but NO numeric
+    /// ratings must still surface a performance section. Previously the section
+    /// was gated on `all_ratings` alone, so chat asserted "no review history"
+    /// for exactly these employees while Prep Brief cited the same reviews.
+    fn make_employee_reviews_no_ratings(review_count: usize, latest: Option<&str>) -> EmployeeContext {
+        EmployeeContext {
+            id: "emp-3".to_string(),
+            full_name: "Maya Patel".to_string(),
+            email: "maya@company.com".to_string(),
+            department: Some("Design".to_string()),
+            job_title: Some("Product Designer".to_string()),
+            hire_date: None,
+            work_state: None,
+            status: "Active".to_string(),
+            manager_name: None,
+            latest_rating: None,
+            latest_rating_cycle: None,
+            rating_trend: None,
+            all_ratings: vec![],
+            review_count,
+            latest_review_date: latest.map(|s| s.to_string()),
+            latest_enps: None,
+            latest_enps_date: None,
+            enps_trend: None,
+            all_enps: vec![],
+            career_summary: None,
+            key_strengths: vec![],
+            development_areas: vec![],
+            recent_highlights: vec![],
+        }
+    }
+
+    #[test]
+    fn test_reviews_without_ratings_are_surfaced() {
+        let emp = make_employee_reviews_no_ratings(2, Some("2026-03-01"));
+        let formatted = format_single_employee(&emp);
+
+        // The section must exist even though there is not a single rating.
+        assert!(formatted.contains("Performance:"));
+        assert!(formatted.contains("2 written performance reviews on file"));
+        assert!(formatted.contains("2026-03-01"));
+        // Existence only — the model must not think it has the narrative text.
+        assert!(formatted.contains("narrative text not loaded here"));
+    }
+
+    #[test]
+    fn test_single_review_is_singular_and_survives_null_date() {
+        // review_date is nullable; an all-NULL set must not print "(latest )".
+        let emp = make_employee_reviews_no_ratings(1, None);
+        let formatted = format_single_employee(&emp);
+
+        assert!(formatted.contains("1 written performance review on file"));
+        assert!(!formatted.contains("reviews on file"));
+        assert!(!formatted.contains("latest"));
+    }
+
+    #[test]
+    fn test_ratings_and_reviews_both_render() {
+        let mut emp = make_employee_reviews_no_ratings(3, Some("2026-05-10"));
+        emp.all_ratings = vec![RatingInfo {
+            cycle_name: "2026 H1".to_string(),
+            overall_rating: 4.0,
+            rating_date: Some("2026-06-01".to_string()),
+        }];
+        emp.rating_trend = Some("stable".to_string());
+        let formatted = format_single_employee(&emp);
+
+        assert!(formatted.contains("2026 H1"));
+        assert!(formatted.contains("Trend: stable"));
+        assert!(formatted.contains("3 written performance reviews on file"));
     }
 
     #[test]

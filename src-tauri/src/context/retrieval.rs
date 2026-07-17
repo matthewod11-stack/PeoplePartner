@@ -38,6 +38,12 @@ pub struct EmployeeContext {
     pub rating_trend: Option<String>, // "improving", "stable", "declining"
     pub all_ratings: Vec<RatingInfo>,
 
+    // #154: Narrative reviews are stored separately from numeric ratings. An
+    // employee can have reviews with no ratings; without these the context
+    // renders nothing and the model asserts there is no review history.
+    pub review_count: usize,
+    pub latest_review_date: Option<String>,
+
     // eNPS data
     pub latest_enps: Option<i32>,
     pub latest_enps_date: Option<String>,
@@ -136,6 +142,14 @@ struct RatingRow {
     overall_rating: f64,
     cycle_name: String,
     rating_date: Option<String>,
+}
+
+/// Internal struct for the #154 narrative-review count/date probe.
+/// `review_date` is nullable, so an all-NULL review set yields `None` here.
+#[derive(Debug, Clone, FromRow)]
+struct ReviewMetaRow {
+    review_count: i64,
+    latest_review_date: Option<String>,
 }
 
 /// Internal struct for eNPS query result
@@ -318,6 +332,23 @@ pub async fn get_employee_context(
     .fetch_all(pool)
     .await?;
 
+    // #154: Narrative reviews — count + latest date only. The full text is
+    // deliberately not loaded here; the employee-context section is token-budgeted
+    // and this only needs to establish that a review history exists.
+    let review_meta: Option<ReviewMetaRow> = sqlx::query_as(
+        r#"
+        SELECT COUNT(*) as review_count, MAX(review_date) as latest_review_date
+        FROM performance_reviews
+        WHERE employee_id = ?
+        "#
+    )
+    .bind(employee_id)
+    .fetch_optional(pool)
+    .await?;
+    let (review_count, latest_review_date) = review_meta
+        .map(|r| (r.review_count.max(0) as usize, r.latest_review_date))
+        .unwrap_or((0, None));
+
     // Get eNPS responses
     let enps_responses: Vec<EnpsRow> = sqlx::query_as(
         "SELECT score, survey_name, survey_date, feedback_text FROM enps_responses WHERE employee_id = ? ORDER BY survey_date DESC"
@@ -416,6 +447,8 @@ pub async fn get_employee_context(
         latest_rating_cycle: ratings.first().map(|r| r.cycle_name.clone()),
         rating_trend,
         all_ratings,
+        review_count,
+        latest_review_date,
         latest_enps: enps_responses.first().map(|e| e.score),
         latest_enps_date: enps_responses.first().map(|e| e.survey_date.clone()),
         enps_trend,
@@ -557,6 +590,34 @@ pub async fn get_employee_contexts(
         });
     }
 
+    // 5) Batch: #154 narrative-review count + latest date, grouped per employee.
+    #[derive(FromRow)]
+    struct ReviewMetaRowWithEmpId {
+        employee_id: String,
+        review_count: i64,
+        latest_review_date: Option<String>,
+    }
+    let reviews_query = format!(
+        r#"SELECT employee_id, COUNT(*) as review_count, MAX(review_date) as latest_review_date
+        FROM performance_reviews
+        WHERE employee_id IN ({})
+        GROUP BY employee_id"#,
+        placeholders
+    );
+    let mut q = sqlx::query_as::<_, ReviewMetaRowWithEmpId>(&reviews_query);
+    for id in employee_ids {
+        q = q.bind(id);
+    }
+    let review_rows: Vec<ReviewMetaRowWithEmpId> = q.fetch_all(pool).await?;
+    let mut reviews_by_emp: std::collections::HashMap<String, (usize, Option<String>)> =
+        std::collections::HashMap::new();
+    for r in review_rows {
+        reviews_by_emp.insert(
+            r.employee_id,
+            (r.review_count.max(0) as usize, r.latest_review_date),
+        );
+    }
+
     // Assemble in input-ID order, dropping IDs not found in basic_by_id.
     let mut out: Vec<EmployeeContext> = Vec::with_capacity(employee_ids.len());
     for id in employee_ids {
@@ -572,6 +633,8 @@ pub async fn get_employee_contexts(
 
         let ratings = ratings_by_emp.get(id).cloned().unwrap_or_default();
         let enps_responses = enps_by_emp.get(id).cloned().unwrap_or_default();
+        let (review_count, latest_review_date) =
+            reviews_by_emp.get(id).cloned().unwrap_or((0, None));
 
         let rating_trend = calculate_trend(
             &ratings.iter().map(|r| r.overall_rating).collect::<Vec<_>>(),
@@ -667,6 +730,8 @@ pub async fn get_employee_contexts(
             latest_rating: ratings.first().map(|r| r.overall_rating),
             latest_rating_cycle: ratings.first().map(|r| r.cycle_name.clone()),
             rating_trend,
+            review_count,
+            latest_review_date,
             all_ratings,
             latest_enps: enps_responses.first().map(|e| e.score),
             latest_enps_date: enps_responses.first().map(|e| e.survey_date.clone()),
@@ -1188,5 +1253,99 @@ mod tests {
             .await
             .expect("empty batch");
         assert!(empty_result.is_empty(), "empty input must return empty Vec");
+    }
+
+    /// Regression test for #154: narrative reviews live in `performance_reviews`,
+    /// numeric scores in `performance_ratings`. The context module read only the
+    /// latter, so an employee with reviews-but-no-ratings surfaced zero
+    /// performance context and chat asserted "no review history" while Prep Brief
+    /// cited the same reviews. Exercises BOTH the single and batch query paths
+    /// against the real migrated schema.
+    #[tokio::test]
+    async fn reviews_without_ratings_are_counted_in_context() {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+        use std::time::Duration;
+
+        let options = SqliteConnectOptions::new()
+            .filename(":memory:")
+            .create_if_missing(true)
+            .foreign_keys(true)
+            .busy_timeout(Duration::from_secs(5));
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .expect("connect :memory: pool");
+        crate::db::run_migrations_for_tests(&pool)
+            .await
+            .expect("run migrations");
+
+        sqlx::query(
+            r#"
+            INSERT INTO employees (id, email, full_name) VALUES
+                ('maya',  'maya@x.com',  'Maya Patel'),
+                ('noone', 'noone@x.com', 'No Reviews')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert employees");
+
+        // UNIQUE(employee_id, review_cycle_id) — two reviews need two cycles.
+        sqlx::query(
+            r#"
+            INSERT INTO review_cycles (id, name, cycle_type, start_date, end_date) VALUES
+                ('c1', '2025 Annual', 'annual', '2025-01-01', '2025-12-31'),
+                ('c2', '2026 H1',     'annual', '2026-01-01', '2026-06-30')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert cycles");
+
+        // Reviews only — deliberately NO performance_ratings rows for Maya.
+        sqlx::query(
+            r#"
+            INSERT INTO performance_reviews
+                (id, employee_id, review_cycle_id, manager_comments, review_date) VALUES
+                ('r1', 'maya', 'c1', 'Strong systems thinker.', '2025-12-01'),
+                ('r2', 'maya', 'c2', 'Led the redesign.',       '2026-03-01')
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert reviews");
+
+        // Single-employee path.
+        let ctx = get_employee_context(&pool, "maya")
+            .await
+            .expect("single-employee context");
+        assert!(
+            ctx.all_ratings.is_empty(),
+            "fixture must have no ratings — that is the whole point of #154"
+        );
+        assert_eq!(ctx.review_count, 2, "both narrative reviews must be counted");
+        assert_eq!(
+            ctx.latest_review_date.as_deref(),
+            Some("2026-03-01"),
+            "latest_review_date must be MAX(review_date)"
+        );
+
+        // Batch path must agree with the single path.
+        let batch = get_employee_contexts(&pool, &["maya".to_string(), "noone".to_string()])
+            .await
+            .expect("batch context");
+        assert_eq!(batch[0].review_count, 2);
+        assert_eq!(batch[0].latest_review_date.as_deref(), Some("2026-03-01"));
+
+        // An employee with no reviews must report zero, not a phantom count.
+        assert_eq!(batch[1].review_count, 0);
+        assert_eq!(batch[1].latest_review_date, None);
+
+        let solo = get_employee_context(&pool, "noone")
+            .await
+            .expect("single-employee context for reviewless employee");
+        assert_eq!(solo.review_count, 0);
+        assert_eq!(solo.latest_review_date, None);
     }
 }
