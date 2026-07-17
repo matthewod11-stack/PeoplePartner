@@ -432,6 +432,25 @@ fn format_single_employee_with_budget(emp: &EmployeeContext, token_budget: Optio
         }
     }
 
+    // Review narratives on file. Deliberately independent of `all_ratings`: an
+    // employee reviewed in prose but never scored has no ratings, no extracted
+    // highlights, and no career summary, so without this line the context is
+    // silent about reviews that other surfaces render in full.
+    if emp.review_count > 0 {
+        let latest = emp
+            .latest_review_date
+            .as_deref()
+            .map(|d| format!(", latest {}", d))
+            .unwrap_or_default();
+        let plural = if emp.review_count == 1 { "" } else { "s" };
+        lines.push(format!(
+            "  Performance reviews: {} review{} on file{}. Narrative text is not \
+             included in this context — say the reviews exist and offer to pull \
+             them up rather than stating there is no review history.",
+            emp.review_count, plural, latest
+        ));
+    }
+
     // eNPS info
     if !emp.all_enps.is_empty() {
         lines.push("  eNPS:".to_string());
@@ -1152,6 +1171,8 @@ mod tests {
                     sentiment: "mixed".to_string(),
                 },
             ],
+            review_count: 2,
+            latest_review_date: Some("2024-12-01".to_string()),
         }
     }
 
@@ -1228,6 +1249,8 @@ mod tests {
             key_strengths: vec![],
             development_areas: vec![],
             recent_highlights: vec![],
+            review_count: 0,
+            latest_review_date: None,
         };
 
         let formatted = format_single_employee(&emp);
@@ -1237,6 +1260,84 @@ mod tests {
         assert!(!formatted.contains("Career Summary:"));
         assert!(!formatted.contains("Key Strengths:"));
         assert!(!formatted.contains("Recent Review Highlights:"));
+        assert!(!formatted.contains("Performance reviews:"));
+    }
+
+    /// Reviews-but-no-ratings employee: every performance field except the
+    /// review counts is empty, which is what let chat answer "no performance
+    /// data" for someone whose reviews another surface rendered in full.
+    fn make_test_employee_reviews_only() -> EmployeeContext {
+        EmployeeContext {
+            id: "emp-3".to_string(),
+            full_name: "Maya Chen".to_string(),
+            email: "maya@company.com".to_string(),
+            department: Some("Design".to_string()),
+            job_title: Some("Product Designer".to_string()),
+            hire_date: None,
+            work_state: None,
+            status: "Active".to_string(),
+            manager_name: None,
+            latest_rating: None,
+            latest_rating_cycle: None,
+            rating_trend: None,
+            all_ratings: vec![],
+            latest_enps: None,
+            latest_enps_date: None,
+            enps_trend: None,
+            all_enps: vec![],
+            career_summary: None,
+            key_strengths: vec![],
+            development_areas: vec![],
+            recent_highlights: vec![],
+            review_count: 2,
+            latest_review_date: Some("2026-03-14".to_string()),
+        }
+    }
+
+    #[test]
+    fn test_format_employee_with_reviews_but_no_ratings_mentions_reviews() {
+        let emp = make_test_employee_reviews_only();
+        let formatted = format_single_employee(&emp);
+
+        assert!(
+            formatted.contains("2 reviews on file"),
+            "context must state the reviews exist: {formatted}"
+        );
+        assert!(
+            formatted.contains("2026-03-14"),
+            "context must carry the latest review date: {formatted}"
+        );
+    }
+
+    #[test]
+    fn test_reviews_surface_without_a_rating_present() {
+        // The ratings block is gated on `all_ratings`; the reviews line must not
+        // be, or this employee's context stays silent about the narratives.
+        let emp = make_test_employee_reviews_only();
+        let formatted = format_single_employee(&emp);
+
+        assert!(!formatted.contains("  Performance:"));
+        assert!(formatted.contains("Performance reviews:"));
+    }
+
+    #[test]
+    fn test_format_employee_review_count_singular() {
+        let mut emp = make_test_employee_reviews_only();
+        emp.review_count = 1;
+        let formatted = format_single_employee(&emp);
+
+        assert!(formatted.contains("1 review on file"));
+        assert!(!formatted.contains("1 reviews on file"));
+    }
+
+    #[test]
+    fn test_format_employee_reviews_without_date_omits_latest() {
+        let mut emp = make_test_employee_reviews_only();
+        emp.latest_review_date = None;
+        let formatted = format_single_employee(&emp);
+
+        assert!(formatted.contains("2 reviews on file"));
+        assert!(!formatted.contains(", latest"));
     }
 
     #[test]

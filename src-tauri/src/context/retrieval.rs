@@ -49,6 +49,13 @@ pub struct EmployeeContext {
     pub key_strengths: Vec<String>,
     pub development_areas: Vec<String>,
     pub recent_highlights: Vec<CycleHighlight>,
+
+    // Raw review narratives on file. Sourced from `performance_reviews`, not
+    // from ratings or extracted highlights: an employee can have narratives but
+    // no numeric rating and no extraction, and every other field here would
+    // still be empty for them.
+    pub review_count: usize,
+    pub latest_review_date: Option<String>,
 }
 
 /// Extracted highlight data for a single review cycle (V2.2.1)
@@ -280,6 +287,49 @@ pub async fn find_relevant_employees(
     Ok(finalize_results(employees))
 }
 
+/// Count review narratives on file per employee, with the latest review date.
+///
+/// `MAX(review_date)` is a lexical max over ISO-8601 `TEXT`, which orders
+/// correctly for that format; rows with a NULL `review_date` still count toward
+/// the total but cannot supply the date.
+async fn get_review_presence_by_emp(
+    pool: &DbPool,
+    employee_ids: &[String],
+) -> std::collections::HashMap<String, (usize, Option<String>)> {
+    if employee_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+
+    let placeholders = employee_ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let query = format!(
+        "SELECT employee_id, COUNT(*) AS review_count, MAX(review_date) AS latest_review_date \
+         FROM performance_reviews WHERE employee_id IN ({}) GROUP BY employee_id",
+        placeholders
+    );
+
+    let mut q = sqlx::query(&query);
+    for id in employee_ids {
+        q = q.bind(id);
+    }
+
+    // A failure here must not blank out the rest of an employee's context —
+    // degrade to "no reviews known" rather than propagating.
+    q.fetch_all(pool)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            (
+                row.get::<String, _>("employee_id"),
+                (
+                    row.get::<i64, _>("review_count").max(0) as usize,
+                    row.get::<Option<String>, _>("latest_review_date"),
+                ),
+            )
+        })
+        .collect()
+}
+
 /// Get full context for a single employee including performance and eNPS
 pub async fn get_employee_context(
     pool: &DbPool,
@@ -402,6 +452,12 @@ pub async fn get_employee_context(
     let key_strengths = summary.as_ref().map(|s| s.key_strengths.clone()).unwrap_or_default();
     let development_areas = summary.as_ref().map(|s| s.development_areas.clone()).unwrap_or_default();
 
+    let (review_count, latest_review_date) =
+        get_review_presence_by_emp(pool, std::slice::from_ref(&emp.id))
+            .await
+            .remove(&emp.id)
+            .unwrap_or((0, None));
+
     Ok(EmployeeContext {
         id: emp.id,
         full_name: emp.full_name,
@@ -425,13 +481,15 @@ pub async fn get_employee_context(
         key_strengths,
         development_areas,
         recent_highlights,
+        review_count,
+        latest_review_date,
     })
 }
 
-/// Batch variant of `get_employee_context`. Issues 4 IN-clause queries (basic
-/// info, manager names, ratings + cycles, eNPS) instead of N×4 sequential
-/// per-employee queries, then assembles the EmployeeContext list in input-ID
-/// order.
+/// Batch variant of `get_employee_context`. Issues 5 IN-clause queries (basic
+/// info, manager names, ratings + cycles, eNPS, review presence) instead of N×5
+/// sequential per-employee queries, then assembles the EmployeeContext list in
+/// input-ID order.
 ///
 /// IDs not found in the employees table are silently skipped — matches the
 /// per-row `if let Ok(emp) = ...` pattern at every caller in this module.
@@ -558,6 +616,8 @@ pub async fn get_employee_contexts(
     }
 
     // Assemble in input-ID order, dropping IDs not found in basic_by_id.
+    let review_presence_by_emp = get_review_presence_by_emp(pool, employee_ids).await;
+
     let mut out: Vec<EmployeeContext> = Vec::with_capacity(employee_ids.len());
     for id in employee_ids {
         let Some(emp) = basic_by_id.get(id) else {
@@ -654,6 +714,9 @@ pub async fn get_employee_contexts(
             .map(|s| s.development_areas.clone())
             .unwrap_or_default();
 
+        let (review_count, latest_review_date) =
+            review_presence_by_emp.get(id).cloned().unwrap_or((0, None));
+
         out.push(EmployeeContext {
             id: emp.id.clone(),
             full_name: emp.full_name.clone(),
@@ -676,6 +739,8 @@ pub async fn get_employee_contexts(
             key_strengths,
             development_areas,
             recent_highlights,
+            review_count,
+            latest_review_date,
         });
     }
 
