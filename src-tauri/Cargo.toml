@@ -76,6 +76,12 @@ base64 = "0.22"  # license_signing tests construct Ed25519 PEMs manually (issue 
 tauri = { version = "2", features = ["test"] }
 tokio = { version = "1", features = ["net", "time", "io-util"] }
 
+# macOS defaults dev builds to "unpacked", which keeps every .rcgu.o file in
+# target/debug/deps forever (grew to ~100 GB). "packed" bundles debug info into
+# a .dSYM per build so the object files are deleted after linking.
+[profile.dev]
+split-debuginfo = "packed"
+
 [profile.release]
 panic = "abort"
 codegen-units = 1
