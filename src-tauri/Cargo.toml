@@ -59,7 +59,7 @@ regex = "1"
 unicode-segmentation = "1.10"
 
 # Encryption & compression for backup
-aes-gcm = "0.10"
+aes-gcm = "0.11"
 argon2 = "0.5"
 flate2 = "1.0"
 rand = "0.8"
